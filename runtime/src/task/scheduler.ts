@@ -276,9 +276,33 @@ export function clearResumingThread(): void {
   resumingThread = null;
 }
 
+const AMBIENT_TRACE = (() => {
+  try {
+    return Deno.env.get("CE_AMBIENT_TRACE") === "1";
+  } catch {
+    return false;
+  }
+})();
+
 export function currentThread<T = CurrentThreadLike>(): T {
-  const t = threadStack[threadStack.length - 1] ?? resumingThread ??
-    activationAls.getStore() ?? undefined;
+  const stackTop = threadStack[threadStack.length - 1];
+  const als = activationAls.getStore();
+  if (AMBIENT_TRACE && stackTop === undefined && resumingThread !== null) {
+    console.error(
+      `[ambient] slot-vs-als agree=${resumingThread === als} ` +
+        `slot=${resumingThread?.constructor?.name ?? "null"} ` +
+        `als=${als?.constructor?.name ?? "undefined"} ` +
+        `alsPresent=${als !== undefined}`,
+    );
+  }
+  // Precedence: synchronous bracket, then the ACTIVATION-ATTACHED ambient,
+  // then the global claim as a last resort. ALS must outrank the slot: the
+  // slot names whichever activation the driver happened to claim across an
+  // await, so while several activations are in flight it is simply wrong for
+  // all but one of them, whereas the ALS store travels with the activation by
+  // construction (pin (h)).
+  const t = threadStack[threadStack.length - 1] ?? als ?? resumingThread ??
+    undefined;
   if (t === undefined) {
     // Reaching this is not an internal invariant violation, so it must not be
     // an `AssertionError`: it is a *known incompleteness*. wasmtime lets a

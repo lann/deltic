@@ -341,8 +341,23 @@ function declaredInstance(
  * running — instantiation-time start functions.
  */
 // deno-lint-ignore no-explicit-any
-function syncScopes(ctx: TrampolineContext): any[] {
-  return maybeCurrentTask()?.syncCallStack ?? ctx.syncCallStack;
+const SCOPE_TRACE = (() => {
+  try {
+    return Deno.env.get("CE_SCOPE_TRACE") === "1";
+  } catch {
+    return false;
+  }
+})();
+
+function syncScopes(ctx: TrampolineContext, site = "?"): any[] {
+  const task = maybeCurrentTask();
+  if (SCOPE_TRACE) {
+    console.error(
+      `[scope] ${site} task=${task === undefined ? "NONE(->ctx fallback)" : "yes"} ` +
+        `depth=${(task?.syncCallStack ?? ctx.syncCallStack).length}`,
+    );
+  }
+  return task?.syncCallStack ?? ctx.syncCallStack;
 }
 
 function createTrampolineBody(
@@ -410,7 +425,7 @@ function createTrampolineBody(
         // Per task where there is one; the executor-wide stack is the
         // fallback for a start function running at instantiation time, which
         // has no task (see `maybeCurrentTask`).
-        syncScopes(ctx).push(new SyncCallScope());
+        syncScopes(ctx, "enter").push(new SyncCallScope());
       };
     case "exit-sync-call":
       return (..._args: unknown[]) => {
@@ -419,7 +434,7 @@ function createTrampolineBody(
           ctx.stats.exitSyncCalls <= ctx.stats.enterSyncCalls,
           "exit-sync-call without matching enter-sync-call",
         );
-        const scope = syncScopes(ctx).pop();
+        const scope = syncScopes(ctx, "exit").pop();
         assert_(
           scope !== undefined,
           "exit-sync-call with an empty sync-call stack",

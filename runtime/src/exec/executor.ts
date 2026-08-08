@@ -280,16 +280,17 @@ class Executor {
     //
     // Until instantiation-time calls are separated from the suspendable
     // import set, jspi mode stays an explicit embedder opt-in.
-    // Auto-detection OFF (still). The M2 phase 3l handshake stall is FIXED --
-    // `driveAsync` no longer serializes on one parked thread's promise, and
-    // `async-calls-sync` now runs to 42 under explicit `jspi: true` (pinned in
-    // runtime/tests/jspi/handshake_test.ts). What detection-on now exposes is
-    // a *different*, deeper bug: with several activations in flight at once,
-    // the single global ambient claim cannot say which activation a built-in
-    // belongs to, so brackets get attributed to the wrong task -- 14 x
-    // `exit-sync-call with an empty sync-call stack` and 16 x `unreachable`.
-    // That is the standing "activation-attached ambient" contract item, and it
-    // is the next round's subject. Racing exposed this; it did not create it.
+    // Auto-detection OFF (still). The ambient round REFUTED the assumption
+    // that attribution was the blocker: `currentThread` now consults the
+    // activation-attached ALS store ahead of the global claim (which is
+    // correct and is kept), but the detection-on failure count did not move --
+    // 35 before, 35 after. Tracing showed the slot and the ALS store AGREE
+    // wherever both are set, so the slot was never mis-attributing. The
+    // remaining failures are two concentrated bugs, not one systemic one:
+    // all 16 `exit-sync-call with an empty sync-call stack` live in a single
+    // file (`async/big-interleaving-test.wast`), and the guest-side traps are
+    // an event-DELIVERY order sensitivity (the guest's own `run-cb` executes
+    // `unreachable` on an event it did not expect). See the 3m report.
     this.suspensionMode = chooseMode(input.jspi);
     void planNeedsSuspension;
   }
