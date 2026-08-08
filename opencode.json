@@ -1,0 +1,8 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "agent": {
+    "explore": {
+      "model": "github-copilot/claude-haiku-4.5"
+    }
+  }
+}

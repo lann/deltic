@@ -256,7 +256,7 @@ matters.
 Determinism note: the reference scheduler makes explicitly nondeterministic
 choices (`random.choice` over ready threads). Our scheduler must stay inside
 the spec's allowed nondeterminism while being reproducible enough to debug —
-policy tracked in §15.
+policy tracked in §16.
 
 ## 7. Canonical ABI decisions
 
@@ -417,7 +417,8 @@ component-engine/
   examples/                  # custom WIT worlds + Rust guests (the demo path)
   third_party/
     component-model/         # submodule: spec + official tests + definitions.py
-  tools/                     # CI scripts, browser drivers, artifact cache impl per platform
+  tools/                     # CI scripts, browser drivers, subagent recovery (agent-sessions.sh)
+  .opencode/agent/           # model-pinned subagent definitions (see §15)
 ```
 
 Deno workspace for TS; cargo workspace for Rust; translator wasm checked in as
@@ -453,7 +454,62 @@ written, not after it is declared done.
 | Testing wasmtime-with-wasmtime blind spots | medium | official suite + definitions.py ports as independent checks |
 | CSP variance in embedders | low | baseline needs only `wasm-unsafe-eval`; JS codegen is optional |
 
-## 15. Open questions
+## 15. Development protocol (multi-agent)
+
+Work is parallelized across model-pinned subagents, defined in
+`.opencode/agent/*.md` + `opencode.json` (restart opencode to apply changes).
+The premise: this repo has unusually dense objective gates (official suite,
+`definitions.py` ports, roundtrip fixtures, differential oracles), which is
+what makes cheap-model implementation safe.
+
+| Agent | Model | Role |
+|---|---|---|
+| orchestrator (primary session) | fable | planning, contracts, dispatch, integration, review, **all commits** |
+| `coder` | sonnet | implementation tracks against pinned contracts |
+| `coder-hard` | opus | subtle tracks: shim internals, CABI edge cases, scheduler periphery |
+| `reviewer` | fable | parallel code review when the orchestrator is the bottleneck |
+| `explore` | haiku | fast read-only codebase search |
+
+Dispatch rules:
+
+- Every track prompt names: **territory** (paths owned), **governing
+  contracts** (`contracts/*.md` + PLAN sections), and **gates** (exact
+  commands). Territories are disjoint across concurrent tracks.
+- `contracts/` changes are versioned events made only by the orchestrator;
+  subagents report contract friction, never edit around it.
+- Subagents never commit (permission-enforced); the orchestrator commits
+  after review.
+- The M2 task-scheduler **core** is single-owner (§6 coherence risk):
+  `coder-hard` at most, under close orchestrator review; parallelism stays at
+  the periphery.
+
+Review protocol: every track is reviewed against its contracts before commit
+— by the orchestrator inline, or by `reviewer` subagents in parallel. A
+review dispatch names the diff scope and governing contracts; the reviewer
+definition mandates loading PLAN §5–§7 and the spec sources
+(`definitions.py` as tie-breaker) before judging CABI/async semantics.
+Revision rounds go back to the *same* coder session via `task_id` (context
+intact), not a fresh agent.
+
+Failure recovery (content-filter false positives, driver interrupts): an
+aborted `task` call kills neither the child session (context persists in the
+opencode db) nor its effects (files/commands persist on disk). Ladder:
+
+1. Locate the orphan (`tools/agent-sessions.sh <parent-session-id>`); resume
+   via `task_id` — "summarize status, then continue".
+2. Two failed resumes → assume poisoned context: fresh agent, handoff prompt
+   = original track + "partial work exists, audit state first" + artifact
+   pointers. Gates arbitrate what's already done (the agents' audit-first
+   rule exists for exactly this).
+3. Repeated failures across fresh contexts → escalate to the human; the
+   trigger may live in the artifacts themselves.
+
+Standing rule: after any fan-out, reconcile launched-vs-completed before
+proceeding — a missing result is not missing work. Monitoring asymmetry: the
+orchestrator monitors its children, but nothing in-band can monitor the
+orchestrator's own aborted turns; that layer belongs to the human/driver.
+
+## 16. Open questions
 
 - Scheduler determinism policy (§6): the reference scheduler chooses randomly
   among ready threads; decide how much determinism we impose (seeded / FIFO)
@@ -473,7 +529,7 @@ written, not after it is declared done.
 - Node as an officially supported target: nearly free, but adds a CI lane —
   decide at M2.
 
-## 16. References
+## 17. References
 
 Canonical links future contributors (human or agent) are likely to need.
 Versioned links are pinned to the versions this repo pins; re-pin them
