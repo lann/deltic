@@ -1,0 +1,4 @@
+# Component outputs and cargo build artifacts (rebuild with ./build.sh)
+guests/build/
+guests/target/
+guests/*/target/

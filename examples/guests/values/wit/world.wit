@@ -1,0 +1,59 @@
+package component-engine:values;
+
+/// Lift/lower exerciser: one echo function per WIT type shape.
+/// Every export returns its input unchanged, so the host can assert
+/// roundtrip equality for arbitrary test vectors.
+world values {
+  /// Record mixing flat (numeric) and indirect (string) fields.
+  record mixed {
+    a: u32,
+    b: string,
+    c: f64,
+    d: bool,
+  }
+
+  /// Payload record for the `rect` variant case.
+  record size {
+    w: u32,
+    h: u32,
+  }
+
+  /// Variant with empty, primitive, string, and record payloads.
+  variant shape {
+    point,
+    circle(f64),
+    label(string),
+    rect(size),
+  }
+
+  enum color {
+    red,
+    green,
+    blue,
+  }
+
+  flags perms {
+    read,
+    write,
+    exec,
+    admin,
+  }
+
+  export echo-bool: func(v: bool) -> bool;
+  export echo-u64: func(v: u64) -> u64;
+  export echo-s64: func(v: s64) -> s64;
+  export echo-f32: func(v: f32) -> f32;
+  export echo-f64: func(v: f64) -> f64;
+  export echo-char: func(v: char) -> char;
+  export echo-string: func(v: string) -> string;
+  export echo-record: func(v: mixed) -> mixed;
+  export echo-variant: func(v: shape) -> shape;
+  export echo-enum: func(v: color) -> color;
+  export echo-flags: func(v: perms) -> perms;
+  export echo-option: func(v: option<string>) -> option<string>;
+  export echo-option-nested: func(v: option<option<u32>>) -> option<option<u32>>;
+  export echo-result: func(v: result<u32, string>) -> result<u32, string>;
+  export echo-list-u8: func(v: list<u8>) -> list<u8>;
+  export echo-list-string: func(v: list<string>) -> list<string>;
+  export echo-tuple: func(v: tuple<u32, string, f64>) -> tuple<u32, string, f64>;
+}

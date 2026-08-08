@@ -1,0 +1,35 @@
+package component-engine:resources;
+
+/// Resource lifecycle exerciser. The host will drive this to test handle
+/// tables, own/borrow semantics, and destructor invocation.
+interface counters {
+  /// A simple stateful counter resource.
+  resource counter {
+    constructor(initial: u64);
+    /// Add one, return the new value.
+    increment: func() -> u64;
+    /// Read the current value.
+    get: func() -> u64;
+    /// Static function: consumes both owned arguments (their destructors
+    /// run inside the guest) and returns a new counter holding the sum.
+    merge: static func(a: counter, b: counter) -> counter;
+  }
+
+  /// Returns a fresh owned counter (own handle transferred to caller).
+  make-counter: func(initial: u64) -> counter;
+  /// Takes two borrows; must not invalidate the caller's handles.
+  sum-both: func(a: borrow<counter>, b: borrow<counter>) -> u64;
+  /// Mutates through a borrow, returns the new value.
+  bump: func(c: borrow<counter>, by: u64) -> u64;
+  /// Takes ownership; the counter's destructor runs inside this call.
+  /// Returns the final value observed.
+  consume: func(c: counter) -> u64;
+  /// Number of counter instances currently alive inside the guest.
+  /// Observes destructor runs from the outside: goes up on construction,
+  /// down when a dtor executes (drop of an own handle, consume, merge args).
+  live-counters: func() -> u32;
+}
+
+world resources {
+  export counters;
+}
