@@ -349,11 +349,23 @@ const SCOPE_TRACE = (() => {
   }
 })();
 
+const taskIds = new WeakMap<object, number>();
+let nextTaskId = 1;
+function taskId(t: unknown): string {
+  if (t === undefined || t === null) return "NONE(->ctx fallback)";
+  let id = taskIds.get(t as object);
+  if (id === undefined) {
+    id = nextTaskId++;
+    taskIds.set(t as object, id);
+  }
+  return `T${id}`;
+}
+
 function syncScopes(ctx: TrampolineContext, site = "?"): any[] {
   const task = maybeCurrentTask();
   if (SCOPE_TRACE) {
     console.error(
-      `[scope] ${site} task=${task === undefined ? "NONE(->ctx fallback)" : "yes"} ` +
+      `[scope] ${site} task=${taskId(task)} ` +
         `depth=${(task?.syncCallStack ?? ctx.syncCallStack).length}`,
     );
   }

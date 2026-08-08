@@ -280,17 +280,19 @@ class Executor {
     //
     // Until instantiation-time calls are separated from the suspendable
     // import set, jspi mode stays an explicit embedder opt-in.
-    // Auto-detection OFF (still), and the remaining work is now sharply
-    // localized rather than diffuse: of 35 detection-on failures,
-    // `async/big-interleaving-test.wast` owns 27 and `async/cross-abi-calls`
-    // owns 6. The latter is the sharper lead -- it is fully green in plain
-    // mode (49/49) and its detection-on trap arrives through the STACKFUL
-    // lift path (exec/boundary.ts liftBody ~1036 via awaitCore), not the
-    // callback loop.
+    // Auto-detection OFF (still), now 29 failures of which ONE file
+    // (`async/big-interleaving-test.wast`) owns 27. Both remaining causes are
+    // root-caused, neither is a one-liner:
     //
-    // What the arming round settled is that none of this is event-delivery
-    // misrouting: the `async-calls-sync` guest tolerates any delivery order
-    // (async-calls-sync.wast:161-186), so our arming was never the fault.
+    //  * the callee `promising` wrap (see fact_calls.ts) -- needs
+    //    `async-start-call` to drive one turn before reporting subtask status;
+    //  * the sync-call bracket -- `CE_SCOPE_TRACE` over big-interleaving shows
+    //    many tasks with enter exceeding exit by exactly one AND other tasks
+    //    taking an `exit` at depth 0. The `ctx` fallback never fires (every
+    //    trace says task=T<n>), so this is not `maybeCurrentTask` degrading:
+    //    the bracket is opened on one task's `syncCallStack` and closed under
+    //    another. It should be attached to the ACTIVATION that opened it (the
+    //    3i bracket-spans-suspension ruling), not to `maybeCurrentTask()`.
     this.suspensionMode = chooseMode(input.jspi);
     void planNeedsSuspension;
   }

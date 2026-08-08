@@ -439,6 +439,24 @@ function mkCalleeTask(input: {
     // line 12). This is only coherent together with site 1 below blocking
     // rather than raising `NeedsJspi`, since a promising callee resolves on a
     // later turn by construction.
+    // NOTE (M2 stackful round): this wrap is RIGHT for a callee that blocks and
+    // WRONG for one that does not, and which it is cannot be known statically.
+    //
+    // `enterWasm` makes every call return a Promise (empirical fact (e)), so
+    // wrapping a callee that would have completed within the call turns its
+    // subtask STARTED into STARTING. That is exactly what broke all six
+    // `async-calls-sync-*` cases of cross-abi-calls.wast (async lower into a
+    // SYNC lift that never blocks) -- proven by a plain-vs-jspi differential:
+    // those six diverged and every other lower/lift combination matched.
+    //
+    // But gating the wrap on `calleeUsesAsyncAbi` is not the fix: the sync-
+    // lifted middle of async-calls-sync.wast DOES block (through site 1), and
+    // unwrapping it breaks the handshake pins. Blocking-ness is dynamic.
+    //
+    // The real fix is to keep the wrap and stop it from being observable:
+    // `async-start-call` should drive the callee one turn before reporting
+    // status, so a callee that resolves immediately still reports STARTED.
+    // Left for the closer; see the report.
     const raw = yield* awaitCore(
       enterWasm(callee, mode),
       calleeArgs as CoreValue[],
