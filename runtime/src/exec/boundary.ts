@@ -31,6 +31,7 @@ import {
   ComponentInstanceState,
   driveSyncLift,
   EventCode,
+  type EventTuple,
   needsJspi,
   packSubtaskResult,
   PendingCapability,
@@ -746,63 +747,12 @@ function* liftBody(input: {
   // and all waiting happens on the host side between activations. This is the
   // path wit-bindgen 0.60 emits for every async export, and it needs no JSPI.
   const callback = require(opts.callback, `${name} callback`)!;
-  let [packed] = normalizeCoreValues(
+  const [packed] = normalizeCoreValues(
     callCore(core, flatArgs),
     opts.coreType.results,
     `${name} results`,
   ) as [number];
-  let [code, si] = unpackCallbackResult(packed);
-
-  while (code !== CallbackCode.EXIT) {
-    assert_(
-      task.needsExclusive() && inst.exclusiveThread === task.implicitThread,
-      "callback loop without holding the exclusive thread",
-    );
-    // Releasing the exclusive thread across the wait is what lets *another*
-    // task of the same instance enter and run while this one waits — the
-    // whole point of the callback ABI (definitions.py line 2186).
-    inst.exclusiveThread = null;
-    let event: import("../task/mod.ts").EventTuple;
-    switch (code) {
-      case CallbackCode.YIELD: {
-        const cancelled = yield* thread.waitUntil(
-          () => inst.exclusiveThread === null,
-          true,
-        );
-        event = cancelled
-          ? [EventCode.TASK_CANCELLED, 0, 0]
-          : [EventCode.NONE, 0, 0];
-        break;
-      }
-      case CallbackCode.WAIT: {
-        const wset = inst.handles.get(si);
-        trapIf(
-          !(wset instanceof WaitableSet),
-          `callback returned WAIT with index ${si}, which is not a waitable set`,
-        );
-        event = yield* (wset as WaitableSet).waitForEventAnd(
-          thread,
-          () => inst.exclusiveThread === null,
-          true,
-        );
-        break;
-      }
-      default:
-        trap(`invalid callback code ${code}`);
-    }
-    assert_(
-      inst.exclusiveThread === null,
-      "exclusive thread taken while this task was waiting",
-    );
-    inst.exclusiveThread = task.implicitThread;
-    stats.callbackInvocations++;
-    [packed] = normalizeCoreValues(
-      callCore(callback, [event[0], event[1], event[2]]),
-      ["i32"],
-      `${name} callback result`,
-    ) as [number];
-    [code, si] = unpackCallbackResult(packed);
-  }
+  yield* runCallbackLoop({ name, task, thread, inst, callback, packed, stats });
   task.exitImplicitThread(thread);
 }
 
@@ -1001,4 +951,80 @@ export function createLoweredImport(input: {
     onProgress = () => subtask.setSubtaskPendingEvent(subtaski);
     return packSubtaskResult(subtask.state, subtaski);
   };
+}
+
+
+/**
+ * The callback-ABI dispatch loop of `canon_lift` (definitions.py lines
+ * 2183-2214), factored out so both entry points share one implementation:
+ *
+ *   * a host-boundary lift (`liftBody` above), and
+ *   * a FACT cross-component call, where the host invokes an async-lifted
+ *     callee on the caller's behalf (`intrinsics/fact_calls.ts`).
+ *
+ * `packed` is the code the *initial* activation returned; the loop runs until
+ * it sees EXIT, invoking the callback export with each delivered event.
+ */
+export function* runCallbackLoop(input: {
+  name: string;
+  task: Task;
+  thread: Thread;
+  inst: ComponentInstanceState;
+  callback: CoreFn;
+  packed: number;
+  stats: ExecutionStats;
+}): Generator<BlockRequest, void, Cancelled> {
+  const { name, task, thread, inst, callback, stats } = input;
+  let [code, si] = unpackCallbackResult(input.packed);
+
+  while (code !== CallbackCode.EXIT) {
+    assert_(
+      task.needsExclusive() && inst.exclusiveThread === task.implicitThread,
+      "callback loop without holding the exclusive thread",
+    );
+    // Releasing the exclusive thread across the wait is what lets *another*
+    // task of the same instance enter and run while this one waits — the
+    // whole point of the callback ABI (definitions.py line 2186).
+    inst.exclusiveThread = null;
+    let event: EventTuple;
+    switch (code) {
+      case CallbackCode.YIELD: {
+        const cancelled = yield* thread.waitUntil(
+          () => inst.exclusiveThread === null,
+          true,
+        );
+        event = cancelled
+          ? [EventCode.TASK_CANCELLED, 0, 0]
+          : [EventCode.NONE, 0, 0];
+        break;
+      }
+      case CallbackCode.WAIT: {
+        const wset = inst.handles.get(si);
+        trapIf(
+          !(wset instanceof WaitableSet),
+          `callback returned WAIT with index ${si}, which is not a waitable set`,
+        );
+        event = yield* (wset as WaitableSet).waitForEventAnd(
+          thread,
+          () => inst.exclusiveThread === null,
+          true,
+        );
+        break;
+      }
+      default:
+        trap(`invalid callback code ${code}`);
+    }
+    assert_(
+      inst.exclusiveThread === null,
+      "exclusive thread taken while this task was waiting",
+    );
+    inst.exclusiveThread = task.implicitThread;
+    stats.callbackInvocations++;
+    const [next] = normalizeCoreValues(
+      callCore(callback, [event[0], event[1], event[2]]),
+      ["i32"],
+      `${name} callback result`,
+    ) as [number];
+    [code, si] = unpackCallbackResult(next);
+  }
 }

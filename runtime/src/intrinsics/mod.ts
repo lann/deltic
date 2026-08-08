@@ -45,6 +45,13 @@ import {
   createWaitableSetWait,
 } from "./async_builtins.ts";
 import {
+  createAsyncStartCall,
+  createPrepareCall,
+  createSyncStartCall,
+  type FactCallContext,
+  type PreparedCall,
+} from "./fact_calls.ts";
+import {
   createTranscoder,
   type TranscodeMemory,
   type TranscodeOp,
@@ -54,6 +61,7 @@ import {
 export * from "./transcode.ts";
 export * from "./context.ts";
 export * from "./async_builtins.ts";
+export * from "./fact_calls.ts";
 
 /**
  * Where a host trap thrown *inside* a FACT adapter is remembered.
@@ -207,6 +215,12 @@ export interface TrampolineContext {
    */
   options(index: number): import("../exec/boundary.ts").ResolvedOptions;
   resultTypes(index: number): import("../cabi/types.ts").ValType[];
+  /** `RuntimeCallbackIndex` -> the extracted callback core function. */
+  callback(index: number): CoreFn;
+  /** `RuntimeMemoryIndex` -> an identity token for `task.return` checks. */
+  memoryToken(index: number): unknown;
+  /** The single in-flight FACT preparation (see `PreparedCall`). */
+  prepared: { current: PreparedCall | null };
   /** Build the lowered-import body for `lowered` (LoweredIndex). */
   loweredImport(decl: {
     lowered: number;
@@ -331,15 +345,19 @@ function createTrampolineBody(
         async_?: number,
         _calleeInstance?: number,
       ) => {
-        // An async-lifted callee reached through this bracket is the M2 task
-        // core; refuse rather than silently treating it as sync. Checked
-        // *before* the counter moves so the enter/exit balance stat stays
-        // exact when the call never happens.
-        trapIf(
-          async_ === 1,
-          "enter-sync-call for an async-lifted callee requires the M2 task " +
-            "core",
-        );
+        // `async_` records whether the callee is *async-lifted*. wasmtime
+        // stores it on the guest task it creates here
+        // (`concurrent.rs:1723` `enter_guest_sync_call`, whose `callee_async`
+        // parameter flows into `GuestTask::new`) and never traps on it.
+        //
+        // Before the task core existed this trampoline refused `async_ == 1`
+        // rather than silently treating an async callee as sync. That guard is
+        // now stale and actively wrong: a sync-lowered caller reaching an
+        // async-lifted export is the `sync-start-call` path
+        // (intrinsics/fact_calls.ts), and the task it needs is created by
+        // `prepare-call`, not here. What remains of this bracket for us is the
+        // borrow bookkeeping (`SyncCallScope`), which applies either way.
+        void async_;
         ctx.stats.enterSyncCalls++;
         ctx.syncCallStack.push(new SyncCallScope());
       };
@@ -471,6 +489,23 @@ function createTrampolineBody(
       return createSubtaskCancel(decl as unknown as { async?: boolean });
     case "thread-yield":
       return createThreadYield(decl as unknown as { cancellable?: boolean });
+
+    // --- FACT cross-component calls (see ./fact_calls.ts) -----------------
+    case "prepare-call":
+      return createPrepareCall(
+        decl as unknown as { memory: number | null },
+        ctx as unknown as FactCallContext,
+      );
+    case "sync-start-call":
+      return createSyncStartCall(
+        decl as unknown as { callback: number | null },
+        ctx as unknown as FactCallContext,
+      );
+    case "async-start-call":
+      return createAsyncStartCall(
+        decl as unknown as { callback: number | null; postReturn: number | null },
+        ctx as unknown as FactCallContext,
+      );
 
     // --- stream / future / error-context (M2 phase 2) ---------------------
     //

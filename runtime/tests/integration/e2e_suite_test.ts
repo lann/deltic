@@ -317,7 +317,7 @@ Deno.test({
  * plan carries every export, and the refusal is loud and milestone-aware.
  */
 Deno.test({
-  name: "suite values/variants.1: exports are mapped; refusal is loud",
+  name: "suite values/variants.1: async-lifted exports instantiate and run",
   ignore: !ready,
   fn: async () => {
     const bytes = (await readIfPresent(
@@ -330,27 +330,18 @@ Deno.test({
     );
     for (const e of plan.exports) assertEq(e.kind, "lifted-func");
 
-    let error: unknown;
-    try {
-      await instantiateComponent({ plan, componentBytes: bytes, adapters });
-    } catch (e) {
-      error = e;
-    }
-    // The refusal must name the *first* capability this component needs and
-    // we lack, and it must arrive at instantiate time. As the task core grows
-    // this name moves forward — it was `task-return` before M2 phase 1
-    // implemented the async built-ins, and is now `async-start-call`, the
-    // FACT intrinsic for async calls *between components* (adapter-mediated,
-    // a separate capability from the host-boundary async ABI this phase
-    // implements). Assert the shape, and that it is one of the kinds we know
-    // are still missing, rather than pinning one string forever.
-    assertEq(
-      /host trampoline '(async-start-call|async-return-call|task-return)'/
-        .test(String(error)),
-      true,
-      `expected a milestone-aware refusal naming the trampoline, got ${error}`,
-    );
-    assertEq(String(error).includes("M2"), true, `${error}`);
+    // variants.wast:83 mixes an async-lifted export with sync ones, reached
+    // through FACT adapters. Instantiation used to be refused here — first on
+    // `task-return` (before the M2 task core), then on `async-start-call`
+    // (before the FACT call intrinsics). Both have landed, so the component
+    // now comes up and its exports are callable.
+    const c = await instantiateComponent({
+      plan,
+      componentBytes: bytes,
+      adapters,
+    });
+    assertEq(typeof c.exports["ret-f32"], "function");
+    assertEq(typeof c.exports["join-wide"], "function");
   },
 });
 
@@ -528,5 +519,57 @@ Deno.test({
       const b = translator!.translateRaw(bytes);
       assertEq(a === b, true, `${dir}/${file}: envelope differs across runs`);
     }
+  },
+});
+
+// test/async/cross-abi-calls.wast — the FACT cross-component call intrinsics
+// (`prepare-call` + `{sync,async}-start-call`, runtime/src/intrinsics/
+// fact_calls.ts). This component is the whole matrix: for each of several
+// parameter counts it exports one function per (caller ABI, callee ABI)
+// combination, so a single instance drives every adapter shape wasmtime
+// compiles — sync->sync (no intrinsics), sync->async (`sync-start-call`),
+// async->sync and async->async (`async-start-call`).
+Deno.test({
+  name: "suite async/cross-abi-calls.0: all four lower/lift ABI combinations",
+  ignore: !ready,
+  fn: async () => {
+    const c = await instantiate("async", "cross-abi-calls.0.wasm");
+    // Each expected value is the callee's answer routed back through the
+    // adapter pair: `[async-start]` produced the callee's parameters and
+    // `[async-return]` produced the caller's results (fact/signature.rs:61 and
+    // :145). Getting the right number out proves the host shuttled the flat
+    // values between exactly the right two adapter functions.
+    for (
+      const [name, want] of [
+        ["sync-calls-sync-4-param", 83],
+        ["sync-calls-async-4-param", 83],
+        ["async-calls-sync-4-param", 84],
+        ["async-calls-async-4-param", 84],
+        // 17 params: the caller's arguments spill to linear memory, so
+        // `prepare-call` stashes a pointer rather than 17 lanes and
+        // `[async-start]` re-reads them. Exercises the spilled path.
+        ["sync-calls-sync-17-param", 87],
+        ["sync-calls-async-17-param", 87],
+        ["async-calls-sync-17-param", 88],
+        ["async-calls-async-17-param", 88],
+      ] as const
+    ) {
+      assertEq(fn(c, name)(), want, `${name}`);
+    }
+    // The async->async cases route the callee through the callback-ABI
+    // machinery (`runCallbackLoop`, shared with host-boundary lifts). These
+    // particular callees return EXIT from their first activation, so the loop
+    // never has to deliver an event and `callbackInvocations` stays 0 — the
+    // composition is evidenced by the results above being correct, not by the
+    // counter. `test/async/wait-during-callback.wast` is where a FACT callee
+    // actually parks in the loop; it is still blocked on streams.
+    assertEq(c.stats.callbackInvocations, 0);
+    // Every `prepare-call` was consumed by its `*-start-call`: a leaked one
+    // would make the next `prepare-call` assert (fact_calls.ts
+    // `takePrepared`), and 24 calls ran above without that firing.
+    // Every FACT sync-call bracket balanced, and nothing is poisoned — i.e.
+    // no call left an instance entered.
+    assertEq(c.stats.enterSyncCalls, c.stats.exitSyncCalls);
+    assertEq(c.componentInstances.some((i) => i && !i.mayEnter), false);
   },
 });

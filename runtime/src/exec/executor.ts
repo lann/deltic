@@ -37,6 +37,7 @@ import {
 import {
   createTrampoline,
   createUnsafeIntrinsic,
+  type PreparedCall,
   type HostTrapState,
   type SyncCallScope,
   TranscodeMemory,
@@ -159,6 +160,21 @@ class Executor {
   readonly store = new Store();
   /** Memoized `unsafe-intrinsic` core functions, by symbol. */
   readonly unsafeIntrinsics = new Map<string, CoreFn>();
+  /** The single in-flight FACT `prepare-call` state (intrinsics/fact_calls.ts). */
+  readonly preparedCall: { current: PreparedCall | null } = { current: null };
+  /**
+   * One `LiveMemory` per `RuntimeMemoryIndex`, memoized.
+   *
+   * definitions.py's `LiftOptions.equal` (line 643) compares memories by
+   * *identity* (`lhs.memory is rhs.memory`), and `canon_task_return` requires
+   * the options at the `task.return` site to equal the lifted export's. A
+   * fresh wrapper per `resolveOptions` call would make that comparison fail
+   * for every component that actually uses a memory — it only ever passed
+   * before because the async fixtures in play had `memory: null` on both
+   * sides. Memoizing restores wasmtime's semantics, where the comparison is
+   * on `RuntimeMemoryIndex`.
+   */
+  readonly liveMemories = new Map<number, LiveMemory>();
   readonly taskMayBlock = new WebAssembly.Global(
     { value: "i32", mutable: true },
     1,
@@ -488,6 +504,16 @@ class Executor {
     return state;
   }
 
+  /** Memoized `LiveMemory` for a `RuntimeMemoryIndex` (see `liveMemories`). */
+  liveMemory(index: number): LiveMemory {
+    let m = this.liveMemories.get(index);
+    if (m === undefined) {
+      m = new LiveMemory(() => this.memories[index], `memory ${index}`);
+      this.liveMemories.set(index, m);
+    }
+    return m;
+  }
+
   unsafeIntrinsic(symbol: string): CoreFn {
     let fn = this.unsafeIntrinsics.get(symbol);
     if (fn === undefined) {
@@ -586,6 +612,17 @@ class Executor {
       },
       options: (i) => this.resolveOptions(i),
       resultTypes: (i) => this.resultTypes(i),
+      callback: (i) => {
+        const fn = this.callbacks[i];
+        if (fn === undefined) {
+          throw new PlanError(
+            `callback ${i} accessed before its extract-callback initializer ran`,
+          );
+        }
+        return fn;
+      },
+      memoryToken: (i) => this.liveMemory(i),
+      prepared: this.preparedCall,
       syncCallStack: this.syncCallStack,
       trapState: this.trapState,
       loweredImport: (d) => this.buildLoweredImport(d),
@@ -695,10 +732,7 @@ class Executor {
     const memoryIndex = wire.memory;
     return {
       stringEncoding: wire.stringEncoding,
-      memory: memoryIndex === null ? null : new LiveMemory(
-        () => this.memories[memoryIndex],
-        `memory ${memoryIndex}`,
-      ),
+      memory: memoryIndex === null ? null : this.liveMemory(memoryIndex),
       realloc: wire.realloc === null
         ? null
         : () => this.reallocs[wire.realloc!],

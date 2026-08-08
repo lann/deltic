@@ -228,36 +228,31 @@ export const XFAIL: XfailEntry[] = [
   // capability skip and the invoke then runs against the previously
   // instantiated component, which also exports `f`. The value mismatch is an
   // artifact of that, not a canonical-ABI bug.
-  // --- values/variants.json: variants.wast:83's component exports an
-  // async-lifted function (`mix-ret`, `canon lift ... async`) whose
-  // `task.return` trampoline is a core instantiation argument, so the whole
-  // component is refused at instantiate time and its three *sync* exports
-  // are unreachable too. The plan maps all four exports correctly — pinned by
-  // runtime/tests/integration/e2e_suite_test.ts ("exports are mapped;
-  // refusal is loud"). ---
-  {
-    file: "values/variants.json",
-    line: 183,
-    reason:
-      "UnsupportedFeatureError: component requires host trampoline " +
-      "'task-return' — variants.wast:83 mixes an async-lifted export with " +
-      "sync ones; runtime/src/intrinsics gap " +
-      "(pending-capability: M2 task core)",
-  },
-  {
-    file: "values/variants.json",
-    line: 184,
-    reason: "same M2 task-core dependency as line 183, see that entry",
-  },
-  {
-    file: "values/variants.json",
-    line: 185,
-    reason: "same M2 task-core dependency as line 183, see that entry",
-  },
+  // --- values/variants.json: variants.wast:83's component mixes an
+  // async-lifted export (`mix-ret`) with sync ones, reached through FACT
+  // adapters. The component instantiates and its sync exports run (M2 phase 2b
+  // landed prepare-call / {sync,async}-start-call), so only the one command
+  // below still fails — pinned by
+  // runtime/tests/integration/e2e_suite_test.ts ("async-lifted exports
+  // instantiate and run"). ---
   {
     file: "values/variants.json",
     line: 186,
-    reason: "same M2 task-core dependency as line 183, see that entry",
+    reason:
+      "needs JSPI (M2 phase 3): `ret-f32` (variants.wast:156) is an " +
+      "**async-lowered** caller — `sync-start-call` is not on this path at " +
+      "all — invoking `mix-ret`, which is lifted `async` with **no callback** " +
+      "(variants.wast:116, `(canon lift (core func $m \"mix-ret\") async)`). " +
+      "A no-callback async lift is stackful: the callee blocks inside its own " +
+      "wasm frame with no return-to-host in between (definitions.py " +
+      "`canon_lift` line 2179), so there is nothing a stackless runtime can " +
+      "drive. Reported at that precise point by intrinsics/fact_calls.ts " +
+      "(`FACT call into a stackful async-lifted export`), never faked. " +
+      "This command ALSO depended on the `[async-return]` return-pointer fix " +
+      "landed in M2 phase 2b review: it passes retptr 16 and then loads the " +
+      "f32 result from address 16+8, so before that fix it would have " +
+      "silently read address 8 instead — it is the corpus's only non-zero " +
+      "retptr, and the reason the bug hid.",
   },
 
   // =====================================================================
@@ -625,155 +620,6 @@ export const XFAIL: XfailEntry[] = [
       "deferred-capability trampolines until the copy machinery lands",
   },
   // --- async/cross-abi-calls.json: root cause: FACT-ASYNC ---
-  {
-    file: "async/cross-abi-calls.json",
-    line: 473,
-    reason:
-      "pending-capability: FACT cross-component async calls (M2 phase " +
-      "2) — the component's adapters import `async-start-call` / " +
-      "`async-return-call`, wasmtime's FACT intrinsics for calling an " +
-      "async-lifted export from another *component* (as opposed to " +
-      "from the host, which this phase implements). Instantiation is " +
-      "declined, so every command against the instance follows",
-  },
-  {
-    file: "async/cross-abi-calls.json",
-    line: 475,
-    reason:
-      "same blocking capability as line 473, see that entry",
-  },
-  {
-    file: "async/cross-abi-calls.json",
-    line: 477,
-    reason:
-      "same blocking capability as line 473, see that entry",
-  },
-  {
-    file: "async/cross-abi-calls.json",
-    line: 479,
-    reason:
-      "same blocking capability as line 473, see that entry",
-  },
-  {
-    file: "async/cross-abi-calls.json",
-    line: 481,
-    reason:
-      "same blocking capability as line 473, see that entry",
-  },
-  {
-    file: "async/cross-abi-calls.json",
-    line: 483,
-    reason:
-      "same blocking capability as line 473, see that entry",
-  },
-  {
-    file: "async/cross-abi-calls.json",
-    line: 485,
-    reason:
-      "same blocking capability as line 473, see that entry",
-  },
-  {
-    file: "async/cross-abi-calls.json",
-    line: 487,
-    reason:
-      "same blocking capability as line 473, see that entry",
-  },
-  {
-    file: "async/cross-abi-calls.json",
-    line: 489,
-    reason:
-      "same blocking capability as line 473, see that entry",
-  },
-  {
-    file: "async/cross-abi-calls.json",
-    line: 491,
-    reason:
-      "same blocking capability as line 473, see that entry",
-  },
-  {
-    file: "async/cross-abi-calls.json",
-    line: 493,
-    reason:
-      "same blocking capability as line 473, see that entry",
-  },
-  {
-    file: "async/cross-abi-calls.json",
-    line: 495,
-    reason:
-      "same blocking capability as line 473, see that entry",
-  },
-  {
-    file: "async/cross-abi-calls.json",
-    line: 497,
-    reason:
-      "same blocking capability as line 473, see that entry",
-  },
-  {
-    file: "async/cross-abi-calls.json",
-    line: 499,
-    reason:
-      "same blocking capability as line 473, see that entry",
-  },
-  {
-    file: "async/cross-abi-calls.json",
-    line: 501,
-    reason:
-      "same blocking capability as line 473, see that entry",
-  },
-  {
-    file: "async/cross-abi-calls.json",
-    line: 503,
-    reason:
-      "same blocking capability as line 473, see that entry",
-  },
-  {
-    file: "async/cross-abi-calls.json",
-    line: 505,
-    reason:
-      "same blocking capability as line 473, see that entry",
-  },
-  {
-    file: "async/cross-abi-calls.json",
-    line: 507,
-    reason:
-      "same blocking capability as line 473, see that entry",
-  },
-  {
-    file: "async/cross-abi-calls.json",
-    line: 509,
-    reason:
-      "same blocking capability as line 473, see that entry",
-  },
-  {
-    file: "async/cross-abi-calls.json",
-    line: 511,
-    reason:
-      "same blocking capability as line 473, see that entry",
-  },
-  {
-    file: "async/cross-abi-calls.json",
-    line: 513,
-    reason:
-      "same blocking capability as line 473, see that entry",
-  },
-  {
-    file: "async/cross-abi-calls.json",
-    line: 515,
-    reason:
-      "same blocking capability as line 473, see that entry",
-  },
-  {
-    file: "async/cross-abi-calls.json",
-    line: 517,
-    reason:
-      "same blocking capability as line 473, see that entry",
-  },
-  {
-    file: "async/cross-abi-calls.json",
-    line: 519,
-    reason:
-      "same blocking capability as line 473, see that entry",
-  },
   // --- async/cross-task-future.json: root cause: STREAMS ---
   {
     file: "async/cross-task-future.json",

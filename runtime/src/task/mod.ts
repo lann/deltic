@@ -203,6 +203,23 @@ export class Task {
   numBorrows = 0;
   implicitThread: Thread | null = null;
   readonly threads: Thread[] = [];
+  /**
+   * True for a task created by a FACT cross-component call
+   * (`prepare-call`, see intrinsics/fact_calls.ts).
+   *
+   * Such a task's `onStart` / `onResolve` carry **flat core values**, not
+   * lifted component values: FACT fuses the caller-side lift and callee-side
+   * lower into a pair of adapter functions (`[async-start]` / `[async-return]`)
+   * that run *in wasm*, so the host only shuttles the core values between
+   * them. definitions.py has no analogue because it has no fused adapters —
+   * there, `canon_lift` lowers the params and `canon_lower`'s `on_resolve`
+   * lifts the results, both in the host. The observable semantics are
+   * identical; only which side of the boundary performs the copy differs.
+   *
+   * `canon_task_return` consults this to decide whether to lift its flat
+   * arguments (host-boundary task) or pass them straight through (FACT task).
+   */
+  factPassthrough = false;
 
   constructor(
     public ft: FuncType,

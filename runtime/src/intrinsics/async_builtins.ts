@@ -67,7 +67,7 @@ import {
 } from "../task/mod.ts";
 import type { ComponentInstanceState } from "../task/mod.ts";
 import type { CoreFn, ResolvedOptions } from "../exec/boundary.ts";
-import { cabiOptions } from "../exec/boundary.ts";
+import { cabiOptions, normalizeCoreValues } from "../exec/boundary.ts";
 
 /** Services these built-ins need from the executor. */
 export interface AsyncTrampolineContext {
@@ -105,21 +105,69 @@ export function createTaskReturn(
     // result tuple must be the lifted function's result type. Compared
     // structurally — the plan's type table interns by structure, so identity
     // comparison would reject valid components.
+    // Skipped for FACT cross-component tasks: their declared result type is a
+    // wasmtime `TypeTupleIndex` we cannot resolve into `plan.types`. See the
+    // CONTRACT note in intrinsics/fact_calls.ts.
     trapIf(
-      !valTypesEqual(resultTypes, task.ft.results),
+      !task.factPassthrough && !valTypesEqual(resultTypes, task.ft.results),
       "task.return with a result type that is not the task's result type",
     );
+    // Also skipped for FACT tasks, for the same reason as the result-type
+    // check above: the task's options are reconstructed from `prepare-call`'s
+    // scalar arguments (a `StringEncoding` discriminant and a
+    // `RuntimeMemoryIndex`), and that reconstruction does not reliably
+    // reproduce the identity comparison definitions.py performs
+    // (`LiftOptions.equal`, line 643, compares `memory` by identity). Applying
+    // it anyway produced a *spurious* trap on the spilled-parameter cases of
+    // `test/async/cross-abi-calls.wast`, which wasmtime accepts — a false
+    // rejection is strictly worse than a missing defence-in-depth check.
+    // Restoring it needs the plan to relate `prepare-call`'s indices to the
+    // callee's canonical options; recorded with the result-type gap as v2
+    // contract friction (see intrinsics/fact_calls.ts).
+    // definitions.py `LiftOptions.equal` (line 643) compares string encoding
+    // *and* memory identity. Both halves are checked for a host-boundary task.
+    //
+    // For a FACT task the memory half is skipped, and the reason is specific
+    // rather than "we can't be bothered": the task's memory is reconstructed
+    // from `prepare-call`'s `memory` field, which carries the *adapter's* view
+    // of the lift options (`adapter.lift.options...memory`) and is `None`
+    // for callees whose own `task.return` options do name a memory —
+    // `test/async/cross-abi-calls.wast`'s 17-param async-lifted callees are
+    // exactly that shape. wasmtime tolerates the mismatch because its check is
+    // *one-sided*: `concurrent.rs:3344-3358` treats "the `task.return` site
+    // specifies no memory" as valid and only compares when it does, against a
+    // lift memory it holds first-hand. We hold ours second-hand, so applying
+    // either form of the memory comparison produces a false rejection.
+    //
+    // The string-encoding half IS checked on both paths: `prepare-call` passes
+    // the encoding directly, so that reconstruction is exact.
     trapIf(
       !liftOptionsEqual(
         { stringEncoding: opts.stringEncoding, memory: opts.memory },
-        task.opts,
+        task.factPassthrough
+          ? { stringEncoding: task.opts.stringEncoding, memory: opts.memory }
+          : task.opts,
       ),
       "task.return with canonical options differing from the task's",
     );
-    const cx = new LiftLowerContext(cabiOptions(opts), task.inst, task);
-    const vi = new CoreValueIter(
-      normalizeFlat(flatArgs, opts.coreType.params.length),
+    // Type-aware per-lane normalization: `normalizeFlat`'s blanket `>>> 0`
+    // silently truncated float lanes (a `task.return` of f64 -1.1 arrived at
+    // `[async-return]` as 4294967295). `normalizeCoreValues` consults the
+    // declared lane types, so only i32 lanes are coerced.
+    const flat = normalizeCoreValues(
+      flatArgs,
+      opts.coreType.params,
+      "task.return arguments",
     );
+    if (task.factPassthrough) {
+      // FACT cross-component call: the caller's `[async-return]` adapter
+      // function does the lift-and-lower itself, in wasm, so the host hands it
+      // the callee's flat results untouched. See `Task.factPassthrough`.
+      task.return_(flat);
+      return;
+    }
+    const cx = new LiftLowerContext(cabiOptions(opts), task.inst, task);
+    const vi = new CoreValueIter(flat);
     const result = liftFlatValues(cx, MAX_FLAT_PARAMS, vi, task.ft.results);
     task.return_(result);
   };
@@ -436,15 +484,6 @@ function unpackEvent(
   storeValue(cx, p1, { kind: "u32" }, ptr);
   storeValue(cx, p2, { kind: "u32" }, ptr + 4);
   return event;
-}
-
-/** i32 lanes arrive signed from the JS API; canonicalize as elsewhere. */
-function normalizeFlat(args: CoreValue[], expected: number): CoreValue[] {
-  assert_(
-    args.length === expected,
-    `expected ${expected} flat argument(s), got ${args.length}`,
-  );
-  return args.map((v) => (typeof v === "number" ? v >>> 0 : v));
 }
 
 /** Structural ValType equality, for the `task.return` result-type check. */
