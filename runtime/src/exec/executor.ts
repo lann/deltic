@@ -38,6 +38,7 @@ import {
   createTrampoline,
   type HostTrapState,
   type SyncCallScope,
+  TranscodeMemory,
 } from "../intrinsics/mod.ts";
 
 /**
@@ -106,6 +107,12 @@ export interface ComponentHandle {
   taskMayBlock: WebAssembly.Global;
   /** `ResourceIndex` -> the `HostResourceType` bound to it, if any. */
   hostResourceTypes: Map<number, HostResourceType>;
+  /**
+   * Plan exports deliberately absent from `exports`, by export path, with the
+   * reason. Only `type` exports appear here; a missing *function* export is
+   * always an error, never an omission (see `Executor.buildExport`).
+   */
+  omittedExports: Map<string, string>;
 }
 
 export async function instantiateComponent(
@@ -164,6 +171,8 @@ class Executor {
   readonly syncCallStack: SyncCallScope[] = [];
   /** Host trap held across a FACT exception barrier (see `HostTrapState`). */
   readonly trapState: HostTrapState = { pending: undefined };
+  /** Export path -> why it has no runtime surface (see `buildExport`). */
+  readonly omittedExports = new Map<string, string>();
 
   constructor(loaded: LoadedPlan, input: InstantiateInput) {
     this.loaded = loaded;
@@ -374,8 +383,8 @@ class Executor {
   finish(): ComponentHandle {
     const exports: Record<string, unknown> = {};
     for (const exp of this.wire.exports) {
-      const built = this.buildExport(exp);
-      if (built !== undefined) exports[exp.name] = built;
+      const built = this.buildExport(exp, exp.name);
+      if (built.kind === "value") exports[exp.name] = built.value;
     }
     const componentInstances: ComponentInstanceState[] = [];
     for (const [i, state] of this.componentInstances) {
@@ -388,39 +397,65 @@ class Executor {
       coreInstances: this.instances,
       taskMayBlock: this.taskMayBlock,
       hostResourceTypes: this.hostResourceTypes,
+      omittedExports: this.omittedExports,
     };
   }
 
   // -- export surface -------------------------------------------------------
 
-  buildExport(exp: WireExport): unknown {
+  /**
+   * Materialize one plan export.
+   *
+   * The result is an explicit discriminated union rather than
+   * `unknown | undefined`: an earlier `if (built !== undefined)` filter meant
+   * *any* path that happened to yield `undefined` removed the export from the
+   * component's surface with no diagnostic anywhere. Only `type` exports are
+   * legitimately absent from the runtime surface, and they say so with a
+   * reason that is recorded on the handle (`omittedExports`); everything else
+   * either produces a value or throws.
+   */
+  buildExport(
+    exp: WireExport,
+    path: string,
+  ): { kind: "value"; value: unknown } | { kind: "omitted"; reason: string } {
     switch (exp.kind) {
       case "lifted-func": {
-        const ft = this.funcType(exp.type, `export '${exp.name}'`);
-        const core = this.resolveFunction(exp.coreDef, `export '${exp.name}'`);
+        const ft = this.funcType(exp.type, `export '${path}'`);
+        const core = this.resolveFunction(exp.coreDef, `export '${path}'`);
         const opts = this.resolveOptions(exp.options);
-        return createLiftedFunction({
-          name: exp.name,
-          ft,
-          opts,
-          core,
-          stats: this.stats,
-          trapState: this.trapState,
-          syncCallStack: this.syncCallStack,
-          allInstances: () => this.componentInstances.values(),
-        });
+        return {
+          kind: "value",
+          value: createLiftedFunction({
+            name: path,
+            ft,
+            opts,
+            core,
+            stats: this.stats,
+            trapState: this.trapState,
+            syncCallStack: this.syncCallStack,
+            allInstances: () => this.componentInstances.values(),
+          }),
+        };
       }
       case "instance": {
         const nested: Record<string, unknown> = {};
         for (const sub of exp.exports) {
-          const built = this.buildExport(sub);
-          if (built !== undefined) nested[sub.name] = built;
+          const built = this.buildExport(sub, `${path}/${sub.name}`);
+          if (built.kind === "value") nested[sub.name] = built.value;
         }
-        return nested;
+        return { kind: "value", value: nested };
       }
       case "type":
-        // Informational (plan-format.md); no runtime surface in M0.
-        return undefined;
+        // Informational (plan-format.md): an exported *type* has no callable
+        // runtime surface. Recorded, not silently dropped.
+        this.omittedExports.set(
+          path,
+          "type export: no runtime surface (plan-format.md)",
+        );
+        return {
+          kind: "omitted",
+          reason: "type export: no runtime surface",
+        };
       default: {
         const exhaustive: never = exp;
         throw new PlanError(
@@ -504,6 +539,11 @@ class Executor {
         }
         return token;
       },
+      runtimeMemory: (i) =>
+        new TranscodeMemory(
+          () => this.memories[i],
+          `runtime memory ${i}`,
+        ),
       resourceTableInstance: (i) => {
         const table = this.wire.resourceTables[i];
         if (table === undefined) {

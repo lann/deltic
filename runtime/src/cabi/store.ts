@@ -10,7 +10,13 @@ import {
   elemSizeFlags,
   maxCaseAlignment,
 } from "./layout.ts";
-import { charToI32, REALLOC_I32_MAX, storeString } from "./strings.ts";
+import {
+  charToI32,
+  REALLOC_I32_MAX,
+  REALLOC_MISALIGNED,
+  REALLOC_OOB,
+  storeString,
+} from "./strings.ts";
 import { type LiftLowerContext, requireMemory } from "./context.ts";
 import { lowerBorrow, lowerOwn } from "./handles.ts";
 import {
@@ -135,8 +141,8 @@ export function storeListIntoRange(
   assert_(byteLength <= REALLOC_I32_MAX);
   const align = alignment(elemType, mem.ptrType());
   const ptr = cx.allocate(align, byteLength);
-  trapIf(ptr !== alignTo(ptr, align), "realloc result misaligned");
-  trapIf(ptr + byteLength > mem.length, "list allocation out of bounds");
+  trapIf(ptr !== alignTo(ptr, align), REALLOC_MISALIGNED);
+  trapIf(ptr + byteLength > mem.length, REALLOC_OOB);
   storeListIntoValidRange(cx, v, ptr, elemType);
   return [ptr, v.length];
 }

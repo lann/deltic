@@ -317,3 +317,23 @@ Deno.test({
     assertEq(borrowed.numLends, 0);
   },
 });
+
+
+// ---------------------------------------------------------------------------
+// Cross-encoding strings (FACT Transcoder trampoline)
+// ---------------------------------------------------------------------------
+
+Deno.test({
+  name: "transcode: a utf16 caller reaching a utf8 callee converts in flight",
+  ignore: shimWasm === null,
+  fn: async () => {
+    // The two inner components disagree on `string-encoding`, so FACT routes
+    // the argument through a `Transcoder` trampoline
+    // (runtime/src/intrinsics/transcode.ts, op "utf16-to-utf8"). The callee
+    // returns the byte length the string occupies in *its* memory. The
+    // caller sends "h\u00e9": 2 utf16 code units, 3 utf8 bytes — so the
+    // result distinguishes a real conversion from a straight copy.
+    const c = await instantiate("transcode", {});
+    assertEq(fn(c, "run")(), 3);
+  },
+});

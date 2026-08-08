@@ -194,6 +194,7 @@ fn determinism() {
         "imports",
         "imported-resource",
         "relend-borrow",
+        "transcode",
     ] {
         let bytes = build(name);
         let a = to_envelope_json(&translate(&bytes).unwrap()).unwrap();
@@ -424,6 +425,40 @@ fn relend_fixture_shape() {
     assert!(kinds.contains(&"borrow"), "{kinds:?}");
     // Two fused adapters: $App -> $Mid and $Mid -> $Def.
     assert_eq!(t.adapters.len(), 2);
+}
+
+/// A cross-encoding string transfer must surface as a `Transcoder`
+/// trampoline carrying the `Transcode::desc()` op name and the two
+/// `RuntimeMemoryIndex`es the runtime needs to do the copy
+/// (contracts/intrinsics.md §B "M1").
+#[test]
+fn transcoder_trampoline_shape() {
+    let bytes = build("transcode");
+    let t = translate(&bytes).unwrap();
+
+    let transcoders: Vec<&TrampolineDecl> = t
+        .plan
+        .trampolines
+        .iter()
+        .filter(|t| matches!(t, TrampolineDecl::Transcoder { .. }))
+        .collect();
+    assert_eq!(transcoders.len(), 1, "{:#?}", t.plan.trampolines);
+    match transcoders[0] {
+        TrampolineDecl::Transcoder {
+            op,
+            from,
+            from64,
+            to,
+            to64,
+            ..
+        } => {
+            // utf16 caller -> utf8 callee.
+            assert_eq!(op, "utf16-to-utf8");
+            assert!(!from64 && !to64, "memory64 is out of scope");
+            assert_ne!(from, to, "source and destination memories differ");
+        }
+        other => panic!("expected a transcoder, got {other:?}"),
+    }
 }
 
 // ---------------------------------------------------------------------------

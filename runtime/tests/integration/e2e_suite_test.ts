@@ -235,6 +235,131 @@ Deno.test({
 });
 
 // ---------------------------------------------------------------------------
+// values/ — canonical-ABI value passing
+// ---------------------------------------------------------------------------
+
+// test/values/transcode.wast — cross-encoding string transfers between two
+// components whose `string-encoding` canonical options disagree. Every hop
+// goes through a FACT `Transcoder` trampoline
+// (runtime/src/intrinsics/transcode.ts); the guests verify the bytes they
+// receive and return a per-file marker value.
+Deno.test({
+  name: "suite values/transcode: the string transcoder matrix",
+  ignore: !ready,
+  fn: async () => {
+    const expected = [42, 43, 44, 45, 46]; // transcode.wast:113,201,319,432,534
+    for (const [i, want] of expected.entries()) {
+      const c = await instantiate("values", `transcode.${i}.wasm`);
+      assertEq(fn(c, "run")(), want, `transcode.${i}.wasm`);
+    }
+  },
+});
+
+// test/values/strings.wast + realloc.wast — trap wording at the host
+// boundary. These texts are asserted verbatim by the suite (and follow
+// wasmtime's), so they are part of the observable contract, not cosmetics.
+Deno.test({
+  name: "suite values/strings: host-boundary trap wording",
+  ignore: !ready,
+  fn: async () => {
+    // :69 — a string whose pointer/length runs past the end of memory.
+    const oob = await instantiate("values", "strings.3.wasm");
+    assertTraps(
+      () => fn(oob, "f")(),
+      "string pointer/length out of bounds of memory",
+    );
+    // :85 — 0xFF can never appear in UTF-8.
+    const invalid = await instantiate("values", "strings.4.wasm");
+    assertTraps(() => fn(invalid, "f")(), "invalid utf-8");
+    // :101 — 0xC3 is a valid *prefix* cut short by the end of the string,
+    // which Rust (and therefore the suite) reports differently.
+    const incomplete = await instantiate("values", "strings.5.wasm");
+    assertTraps(
+      () => fn(incomplete, "f")(),
+      "incomplete utf-8 byte sequence",
+    );
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Export mapping: nothing is ever dropped without saying so
+// ---------------------------------------------------------------------------
+
+/**
+ * Regression guard for a mis-diagnosis worth keeping pinned: the four
+ * `values/variants.wast:83` exports (`join-narrow`, `join-wide`, `join-f32`,
+ * `ret-f32`) were reported as "missing from the instantiated component",
+ * which looked like the shim silently dropping exports it could not map.
+ *
+ * It is not: the shim maps all four. The component also declares an
+ * *async-lifted* export (`mix-ret`, `canon lift ... async`) whose
+ * `task.return` trampoline is wired into a core instantiation argument, so
+ * the whole component legitimately fails to instantiate until the M2 task
+ * core exists (contracts/intrinsics.md §B). This test pins both halves: the
+ * plan carries every export, and the refusal is loud and milestone-aware.
+ */
+Deno.test({
+  name: "suite values/variants.1: exports are mapped; refusal is loud",
+  ignore: !ready,
+  fn: async () => {
+    const bytes = (await readIfPresent(
+      "harness/generated/values/variants.1.wasm",
+    ))!;
+    const { plan, adapters } = translator!.translate(bytes);
+    assertEq(
+      plan.exports.map((e) => e.name).sort(),
+      ["join-f32", "join-narrow", "join-wide", "ret-f32"],
+    );
+    for (const e of plan.exports) assertEq(e.kind, "lifted-func");
+
+    let error: unknown;
+    try {
+      await instantiateComponent({ plan, componentBytes: bytes, adapters });
+    } catch (e) {
+      error = e;
+    }
+    assertEq(
+      String(error).includes("task-return"),
+      true,
+      `expected a milestone-aware refusal naming the trampoline, got ${error}`,
+    );
+    assertEq(String(error).includes("M2"), true, `${error}`);
+  },
+});
+
+/**
+ * Only `type` exports may be absent from the runtime surface, and they are
+ * recorded with a reason rather than filtered away.
+ */
+Deno.test({
+  name: "suite resources/handle-table.5: omitted exports are accounted for",
+  ignore: !ready,
+  fn: async () => {
+    const c = await instantiate("resources", "handle-table.5.wasm");
+    const bytes = (await readIfPresent(
+      "harness/generated/resources/handle-table.5.wasm",
+    ))!;
+    const { plan } = translator!.translate(bytes);
+    const names = new Set(Object.keys(c.exports));
+    for (const e of plan.exports) {
+      if (e.kind === "type") {
+        assertEq(
+          c.omittedExports.has(e.name),
+          true,
+          `type export '${e.name}' should be recorded as omitted`,
+        );
+      } else {
+        assertEq(names.has(e.name), true, `export '${e.name}' is missing`);
+      }
+    }
+    // Every omission has a reason, and every omission is a type export.
+    for (const [name, reason] of c.omittedExports) {
+      assertEq(reason.length > 0, true, `omission '${name}' needs a reason`);
+    }
+  },
+});
+
+// ---------------------------------------------------------------------------
 // Rejection verdicts (binary/ + validation/)
 // ---------------------------------------------------------------------------
 

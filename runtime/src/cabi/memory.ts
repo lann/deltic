@@ -162,14 +162,20 @@ export function writeBytes(mem: MemInst, ptr: number, src: Uint8Array): void {
 /**
  * Exact bounds check usable with i64-lane values: traps when
  * `ptr + byteLength > len(memory)`, computed without precision loss.
+ *
+ * `what` selects the trap wording only. Callers that are checking a pointer
+ * *returned by realloc* pass wasmtime's phrasing for that case
+ * ("realloc return: beyond end of memory",
+ * `wasmtime/src/runtime/component/func/options.rs:185`) and the string-lift
+ * path passes its own ("string pointer/length out of bounds of memory",
+ * `.../func/typed.rs:1528`), because the official suite matches those texts.
+ * The default is unchanged.
  */
 export function trapIfRangeExceedsMemory(
   mem: MemInst,
   ptr: number | bigint,
   byteLength: number | bigint,
+  what: string = "out of bounds of linear memory",
 ): void {
-  trapIf(
-    BigInt(ptr) + BigInt(byteLength) > BigInt(mem.length),
-    "out of bounds of linear memory",
-  );
+  trapIf(BigInt(ptr) + BigInt(byteLength) > BigInt(mem.length), what);
 }

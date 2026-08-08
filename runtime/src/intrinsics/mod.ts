@@ -27,6 +27,14 @@ import type { ResourceTypeInfo } from "../cabi/types.ts";
 import type { ComponentInstanceState } from "../task/mod.ts";
 import type { WireTrampoline } from "../plan/format.ts";
 import type { CoreFn, ExecutionStats } from "../exec/boundary.ts";
+import {
+  createTranscoder,
+  type TranscodeMemory,
+  type TranscodeOp,
+  TRANSCODE_OPS,
+} from "./transcode.ts";
+
+export * from "./transcode.ts";
 
 /**
  * Where a host trap thrown *inside* a FACT adapter is remembered.
@@ -63,6 +71,11 @@ export interface HostTrapState {
  * (`generate_trap_type!`), whose ordinals are what FACT passes to the
  * `runtime.trap` import. Only the codes a sync FACT adapter can raise are
  * listed; anything else falls back to the numeric code.
+ *
+ * Rendered with wasmtime's `"wasm trap: "` prefix (its `impl Display for
+ * Trap`), because that is the text the official suite's `assert_trap`
+ * commands expect for adapter-raised traps
+ * (e.g. `values/realloc.wast:67,94`).
  */
 const FACT_TRAP_MESSAGES: Record<number, string> = {
   9: "wasm `unreachable` instruction executed",
@@ -166,6 +179,11 @@ export interface TrampolineContext {
    */
   resourceTableInstance(index: number): ComponentInstanceState;
   /**
+   * A live view of runtime memory `index` (`RuntimeMemoryIndex`), for the
+   * string-transcoder trampolines.
+   */
+  runtimeMemory(index: number): TranscodeMemory;
+  /**
    * Stack of in-flight synchronous cross-component calls (innermost last),
    * owned by the executor so all trampolines of one instantiation share it.
    */
@@ -246,7 +264,7 @@ function createTrampolineBody(
         trap(
           message === undefined
             ? `FACT adapter trap (code ${code ?? "?"})`
-            : message,
+            : `wasm trap: ${message}`,
         );
       };
 
@@ -326,6 +344,38 @@ function createTrampolineBody(
     // `lift_own`/`lower_own` and `lift_borrow`/`lower_borrow`
     // (definitions.py) with the src/dst tables named by index rather than
     // implied by the running instance.
+    // FACT string transcoders (contracts/intrinsics.md §B "M1"). The plan
+    // carries the op name plus the source/destination `RuntimeMemoryIndex`es;
+    // `./transcode.ts` holds the twelve operations.
+    case "transcoder": {
+      const d = decl as unknown as {
+        op: string;
+        from: number;
+        from64: boolean;
+        to: number;
+        to64: boolean;
+      };
+      if (d.from64 || d.to64) {
+        // 64-bit linear memories are out of scope (PLAN.md §16); refusing at
+        // instantiate time keeps "instantiate-time, never call-time".
+        throw new UnsupportedFeatureError(
+          "M2",
+          `transcoder '${d.op}' over a 64-bit linear memory`,
+        );
+      }
+      if (!(TRANSCODE_OPS as readonly string[]).includes(d.op)) {
+        throw new UnsupportedFeatureError(
+          "M2",
+          `unknown string transcode operation '${d.op}'`,
+        );
+      }
+      return createTranscoder(
+        d.op as TranscodeOp,
+        ctx.runtimeMemory(d.from),
+        ctx.runtimeMemory(d.to),
+      ) as CoreFn;
+    }
+
     case "resource-transfer-own":
       return (handle: number, srcTable: number, dstTable: number) =>
         transferOwn(ctx, handle >>> 0, srcTable, dstTable);

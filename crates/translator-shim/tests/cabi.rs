@@ -39,6 +39,7 @@ fn cabi_roundtrip_all_testdata() {
         "imports",
         "imported-resource",
         "relend-borrow",
+        "transcode",
     ] {
         let json = roundtrip(name);
         let v: serde_json::Value = serde_json::from_str(&json).unwrap();

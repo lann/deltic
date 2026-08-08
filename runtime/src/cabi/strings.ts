@@ -31,6 +31,13 @@ import { type LiftLowerContext, requireMemory } from "./context.ts";
 import type { PtrType, StringEncoding } from "./types.ts";
 
 export const REALLOC_I32_MAX = 2 ** 32 - 1;
+
+// Trap wording for realloc-return validation, matching wasmtime
+// (`src/runtime/component/func/options.rs:175,185`) so the official suite's
+// `values/realloc.wast` expectations match. Semantics are unchanged; only the
+// text differs from the earlier hand-written wording.
+export const REALLOC_MISALIGNED = "realloc return: result not aligned";
+export const REALLOC_OOB = "realloc return: beyond end of memory";
 export const MAX_STRING_BYTE_LENGTH = (1 << 28) - 1;
 
 /** definitions.py utf16_tag: the high bit of a pointer-sized integer. */
@@ -123,7 +130,12 @@ export function loadStringFromRange(
   const byteLength = Number(byteLengthBig);
   const ptrBig = BigInt(ptr);
   trapIf(ptrBig % BigInt(alignment) !== 0n, "misaligned string pointer");
-  trapIfRangeExceedsMemory(mem, ptrBig, byteLengthBig);
+  trapIfRangeExceedsMemory(
+    mem,
+    ptrBig,
+    byteLengthBig,
+    "string pointer/length out of bounds of memory",
+  );
   const p = Number(ptrBig);
 
   const bytes = bytesOf(mem, p, byteLength);
@@ -137,8 +149,76 @@ export function loadStringFromRange(
         return latin1Decode(bytes);
     }
   } catch {
-    trap("invalid string encoding");
+    // Message only: the trap condition is unchanged. wasmtime lifts strings
+    // with `core::str::from_utf8` and surfaces Rust's `Utf8Error`, whose two
+    // shapes the official suite asserts on separately
+    // (`values/strings.wast:85` vs `:101`): a byte sequence that can never be
+    // valid, versus one that is a valid prefix cut short by the end of the
+    // string.
+    trap(
+      encoding === "utf-8"
+        ? utf8ErrorMessage(bytes)
+        : "invalid string encoding",
+    );
   }
+}
+
+/**
+ * Classify a UTF-8 decode failure the way `core::str::from_utf8` does:
+ * `Utf8Error::error_len() == None` (input ended mid-sequence) is reported as
+ * "incomplete utf-8 byte sequence", anything else as "invalid utf-8".
+ * Diagnostics only — callers have already decided to trap.
+ */
+function utf8ErrorMessage(bytes: Uint8Array): string {
+  const INVALID = "invalid utf-8";
+  const INCOMPLETE = "incomplete utf-8 byte sequence";
+  let i = 0;
+  while (i < bytes.length) {
+    const b = bytes[i];
+    if (b < 0x80) {
+      i += 1;
+      continue;
+    }
+    // Sequence length and the permitted range of the first continuation byte
+    // (the second byte carries the overlong/surrogate/range constraints).
+    let width: number;
+    let loMin = 0x80;
+    let loMax = 0xbf;
+    if (b >= 0xc2 && b <= 0xdf) {
+      width = 2;
+    } else if (b === 0xe0) {
+      width = 3;
+      loMin = 0xa0;
+    } else if (b >= 0xe1 && b <= 0xec) {
+      width = 3;
+    } else if (b === 0xed) {
+      width = 3;
+      loMax = 0x9f; // no surrogates
+    } else if (b >= 0xee && b <= 0xef) {
+      width = 3;
+    } else if (b === 0xf0) {
+      width = 4;
+      loMin = 0x90;
+    } else if (b >= 0xf1 && b <= 0xf3) {
+      width = 4;
+    } else if (b === 0xf4) {
+      width = 4;
+      loMax = 0x8f; // <= U+10FFFF
+    } else {
+      return INVALID; // continuation byte in leading position, or 0xC0/C1/F5+
+    }
+    for (let k = 1; k < width; k++) {
+      if (i + k >= bytes.length) return INCOMPLETE;
+      const c = bytes[i + k];
+      const min = k === 1 ? loMin : 0x80;
+      const max = k === 1 ? loMax : 0xbf;
+      if (c < min || c > max) return INVALID;
+    }
+    i += width;
+  }
+  // The decoder rejected input this scan considers well-formed: report the
+  // generic verdict rather than claiming a shape we did not find.
+  return INVALID;
 }
 
 // ---------------------------------------------------------------------------
@@ -197,8 +277,13 @@ function storeStringCopyUtf16(
   const dstByteLength = 2 * srcCodeUnits;
   assert_(dstByteLength <= REALLOC_I32_MAX);
   const ptr = cx.allocate(2, dstByteLength);
-  trapIf(ptr !== alignTo(ptr, 2), "realloc result misaligned");
-  trapIfRangeExceedsMemory(mem, ptr, dstByteLength);
+  trapIf(ptr !== alignTo(ptr, 2), REALLOC_MISALIGNED);
+  trapIfRangeExceedsMemory(
+    mem,
+    ptr,
+    dstByteLength,
+    REALLOC_OOB,
+  );
   const encoded = encodeUtf16Le(src);
   assert_(dstByteLength === encoded.length);
   writeBytes(mem, ptr, encoded);
@@ -224,7 +309,12 @@ function storeStringToUtf8(
   const mem = requireMemory(cx.opts);
   assert_(srcCodeUnits <= REALLOC_I32_MAX);
   let ptr = cx.allocate(1, srcCodeUnits);
-  trapIfRangeExceedsMemory(mem, ptr, srcCodeUnits);
+  trapIfRangeExceedsMemory(
+    mem,
+    ptr,
+    srcCodeUnits,
+    REALLOC_OOB,
+  );
   // Optimistic ASCII copy; on the first non-ASCII code unit, realloc to the
   // worst case, bulk-encode, then shrink.
   for (let i = 0; i < src.length; i++) {
@@ -234,12 +324,22 @@ function storeStringToUtf8(
     } else {
       assert_(worstCaseSize <= REALLOC_I32_MAX);
       ptr = cx.reallocate(ptr, srcCodeUnits, 1, worstCaseSize);
-      trapIfRangeExceedsMemory(mem, ptr, worstCaseSize);
+      trapIfRangeExceedsMemory(
+    mem,
+    ptr,
+    worstCaseSize,
+    REALLOC_OOB,
+  );
       const encoded = utf8Encoder.encode(src); // USVString: replaces lone surrogates
       writeBytes(mem, ptr + i, encoded.subarray(i));
       if (worstCaseSize > encoded.length) {
         ptr = cx.reallocate(ptr, worstCaseSize, 1, encoded.length);
-        trapIfRangeExceedsMemory(mem, ptr, encoded.length);
+        trapIfRangeExceedsMemory(
+    mem,
+    ptr,
+    encoded.length,
+    REALLOC_OOB,
+  );
       }
       return [ptr, BigInt(encoded.length)];
     }
@@ -257,8 +357,13 @@ function storeStringToLatin1OrUtf16(
   const wf = toWellFormed(src);
   assert_(srcCodeUnits <= REALLOC_I32_MAX);
   let ptr = cx.allocate(2, srcCodeUnits);
-  trapIf(ptr !== alignTo(ptr, 2), "realloc result misaligned");
-  trapIfRangeExceedsMemory(mem, ptr, srcCodeUnits);
+  trapIf(ptr !== alignTo(ptr, 2), REALLOC_MISALIGNED);
+  trapIfRangeExceedsMemory(
+    mem,
+    ptr,
+    srcCodeUnits,
+    REALLOC_OOB,
+  );
   let dstByteLength = 0;
   for (let i = 0; i < wf.length; i++) {
     const cu = wf.charCodeAt(i);
@@ -270,8 +375,13 @@ function storeStringToLatin1OrUtf16(
       const worstCaseSize = 2 * srcCodeUnits;
       assert_(worstCaseSize <= REALLOC_I32_MAX);
       ptr = cx.reallocate(ptr, srcCodeUnits, 2, worstCaseSize);
-      trapIf(ptr !== alignTo(ptr, 2), "realloc result misaligned");
-      trapIfRangeExceedsMemory(mem, ptr, worstCaseSize);
+      trapIf(ptr !== alignTo(ptr, 2), REALLOC_MISALIGNED);
+      trapIfRangeExceedsMemory(
+    mem,
+    ptr,
+    worstCaseSize,
+    REALLOC_OOB,
+  );
       for (let j = dstByteLength - 1; j >= 0; j--) {
         mem.bytes[ptr + 2 * j] = mem.bytes[ptr + j];
         mem.bytes[ptr + 2 * j + 1] = 0;
@@ -284,8 +394,13 @@ function storeStringToLatin1OrUtf16(
       );
       if (worstCaseSize > encoded.length) {
         ptr = cx.reallocate(ptr, worstCaseSize, 2, encoded.length);
-        trapIf(ptr !== alignTo(ptr, 2), "realloc result misaligned");
-        trapIfRangeExceedsMemory(mem, ptr, encoded.length);
+        trapIf(ptr !== alignTo(ptr, 2), REALLOC_MISALIGNED);
+        trapIfRangeExceedsMemory(
+    mem,
+    ptr,
+    encoded.length,
+    REALLOC_OOB,
+  );
       }
       const taggedCodeUnits = BigInt(encoded.length / 2) |
         utf16TagBig(mem.ptrType());
@@ -294,8 +409,13 @@ function storeStringToLatin1OrUtf16(
   }
   if (dstByteLength < srcCodeUnits) {
     ptr = cx.reallocate(ptr, srcCodeUnits, 2, dstByteLength);
-    trapIf(ptr !== alignTo(ptr, 2), "realloc result misaligned");
-    trapIfRangeExceedsMemory(mem, ptr, dstByteLength);
+    trapIf(ptr !== alignTo(ptr, 2), REALLOC_MISALIGNED);
+    trapIfRangeExceedsMemory(
+    mem,
+    ptr,
+    dstByteLength,
+    REALLOC_OOB,
+  );
   }
   return [ptr, BigInt(dstByteLength)];
 }
