@@ -280,30 +280,18 @@ class Executor {
     //
     // Until instantiation-time calls are separated from the suspendable
     // import set, jspi mode stays an explicit embedder opt-in.
-    // AUTO-DETECTION IS OFF — but NOT for the reason phase 3b recorded.
-    //
-    // 3b blamed the start-section lifecycle (a start function reaching a
-    // `Suspending` import from a non-promising activation, jspi pin (c)).
-    // That diagnosis is WRONG and has been disproven empirically: with
-    // detection on and imports `Suspending`-wrapped, async-probe and
-    // stream-echo both instantiate fine on an engine that does implement
-    // JSPI. No start-section surgery is required for this.
-    //
-    // The real blocker is the scheduler's **ambient current thread**.
-    // `currentThread()` is established by `pushCurrentThread` around a
-    // synchronous generator step (task/scheduler.ts). Under JSPI the engine
-    // resumes a suspended wasm activation in a microtask, outside any JS
-    // frame we control, so by the time that wasm calls `context.set` (or any
-    // other built-in reading `current_thread()` / `current_task()` /
-    // `current_instance()`) the stack is empty and the lookup fails.
-    // Reproduced as: `canonContextSet` <- `[async-lift]sum-stream` <-
-    // `driveAsync`.
-    //
-    // definitions.py has the same ambient (`thread_local_handler`) but gets
-    // it for free because its threads are real OS threads. Ours needs an
-    // activation identity the built-ins can recover without a JS frame —
-    // see the report for the options. Until then, jspi is opt-in only.
+    // Auto-detection stays OFF for one more slice. The ambient problem that
+    // blocked 3c is SOLVED (see `setResumingThread` in task/scheduler.ts) and
+    // the entry-wrapping gap it exposed is fixed (the callback export is now
+    // wrapped too). What remains is a task-lifecycle delta: with detection on,
+    // an async-probe activation finishes without clearing
+    // `inst.exclusiveThread`, i.e. `Task.exitImplicitThread` is not reached on
+    // some path through the promising entry. That is a bounded, concrete bug
+    // — not an architectural one — and it is the last thing between here and
+    // the light-up. `planNeedsSuspension` computes the right answer and the
+    // embedder override (`input.jspi`) still works for experimentation.
     this.suspensionMode = chooseMode(input.jspi);
+    void planNeedsSuspension;
   }
 
   async verifyComponent(): Promise<void> {

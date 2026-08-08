@@ -10,6 +10,7 @@ export interface ActivationExports {
   run: (x: number) => number;
   run_via_glue: (x: number) => number;
   other: (x: number) => number;
+  run_twice: (x: number) => number;
   run_trap: (x: number) => number;
 }
 

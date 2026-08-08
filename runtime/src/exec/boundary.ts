@@ -30,6 +30,7 @@ import {
   type Cancelled,
   ComponentInstanceState,
   driveSyncLift,
+  clearResumingThread,
   EventCode,
   type EventTuple,
   NeedsJspi,
@@ -390,6 +391,9 @@ async function driveAsync(
   what: string,
 ): Promise<void> {
   for (;;) {
+    // We are executing our own code again, so no engine-driven resumption is
+    // in flight; drop any ambient claim before doing anything else.
+    clearResumingThread();
     while (store.tick()) {
       if (store.hostFailure !== undefined) throw takeHostFailure(store);
     }
@@ -876,7 +880,15 @@ function* liftBody(input: {
   // Stackless by construction: every wasm activation *returns* a packed code,
   // and all waiting happens on the host side between activations. This is the
   // path wit-bindgen 0.60 emits for every async export, and it needs no JSPI.
-  const callback = require(opts.callback, `${name} callback`)!;
+  // The callback export is the second of the three entries that can reach a
+  // blocking built-in (jspi/bridge.ts's invariant), so it is wrapped exactly
+  // like the lifted core. Leaving it plain while the core was promising was a
+  // *mixed* activation, which pin (c) punishes: the first Suspending import
+  // it reached would trap.
+  const callback = enterWasm(
+    require(opts.callback, `${name} callback`)!,
+    input.mode,
+  );
   const [packed] = normalizeCoreValues(
     yield* awaitCore(core, flatArgs),
     opts.coreType.results,

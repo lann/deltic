@@ -55,6 +55,18 @@
     i32.const 1000
     i32.add)
 
+  ;;   (func (export "run_twice") (param i32) (result i32))
+  ;;     Calls $block TWICE. Used by the ambient-context tests: the second
+  ;;     call happens *after* the activation was resumed, which is precisely
+  ;;     the window in which a host built-in must still be able to identify
+  ;;     which activation it belongs to.
+  (func (export "run_twice") (param $x i32) (result i32)
+    local.get $x
+    call $block
+    call $block
+    i32.const 1
+    i32.add)
+
   (func (export "run_trap") (param $x i32) (result i32)
     local.get $x
     call $block

@@ -207,8 +207,45 @@ export function popCurrentThread(t: CurrentThreadLike): void {
 }
 
 /** definitions.py `current_thread()` (line 306). */
+/**
+ * The activation whose suspension we have just resolved, if any.
+ *
+ * JSPI resumption happens in a microtask of the engine's own, outside every JS
+ * frame we control, so the `threadStack` bracket is empty when the resumed
+ * wasm calls a built-in. Empirically (pinned in
+ * `runtime/tests/jspi/ambient_test.ts`) the ordering is:
+ *
+ *     resolve(T's suspension)  ->  T's wasm resumes and calls its built-ins
+ *                              ->  T's promising Promise settles
+ *                              ->  our own await continuation
+ *
+ * so between resolving T and regaining control ourselves, **any** built-in
+ * call that finds an empty bracket belongs to T. JS being single-threaded is
+ * what makes that airtight: no other activation can be executing in that
+ * window. `resumingThread` is that claim, and it is asserted rather than
+ * assumed — a second claimant while one is live is a bug, never a guess.
+ */
+// deno-lint-ignore no-explicit-any
+let resumingThread: any = null;
+
+/** Claim the ambient for `t` across an engine-driven resumption. */
+// deno-lint-ignore no-explicit-any
+export function setResumingThread(t: any): void {
+  assert_(
+    resumingThread === null || resumingThread === t,
+    "two activations claim the resumed ambient at once — the " +
+      "resolve-one-per-turn discipline was violated",
+  );
+  resumingThread = t;
+}
+
+/** Release the claim; called once we are back in our own continuation. */
+export function clearResumingThread(): void {
+  resumingThread = null;
+}
+
 export function currentThread<T = CurrentThreadLike>(): T {
-  const t = threadStack[threadStack.length - 1];
+  const t = threadStack[threadStack.length - 1] ?? resumingThread ?? undefined;
   if (t === undefined) {
     // Reaching this is not an internal invariant violation, so it must not be
     // an `AssertionError`: it is a *known incompleteness*. wasmtime lets a
@@ -235,7 +272,7 @@ export function currentThread<T = CurrentThreadLike>(): T {
 }
 
 export function maybeCurrentThread(): CurrentThreadLike | undefined {
-  return threadStack[threadStack.length - 1];
+  return threadStack[threadStack.length - 1] ?? resumingThread ?? undefined;
 }
 
 /** definitions.py `current_task()` (line 309). */

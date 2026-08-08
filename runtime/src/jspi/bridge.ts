@@ -43,6 +43,10 @@
 
 import { assert_ } from "../cabi/trap.ts";
 import { isSupported, makePromising, makeSuspending } from "./mechanics.ts";
+import {
+  clearResumingThread,
+  setResumingThread,
+} from "../task/mod.ts";
 import type { Cancelled, SchedulableThread, Store } from "../task/mod.ts";
 
 /** Which suspension discipline an instantiation runs under. */
@@ -217,6 +221,10 @@ export class SuspensionPoint<T = unknown> implements SchedulableThread {
       this.#fail(e);
       return;
     }
+    // Claim the ambient for this activation across the engine's resumption:
+    // settling the import's Promise hands control to wasm, which will call
+    // built-ins with an empty bracket stack. See `setResumingThread`.
+    setResumingThread(this.task?.implicitThread ?? null);
     this.#settle(value);
   }
 
