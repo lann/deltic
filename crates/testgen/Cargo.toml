@@ -3,3 +3,13 @@ name = "testgen"
 version = "0.0.0"
 edition.workspace = true
 publish.workspace = true
+
+[[bin]]
+name = "testgen"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+wast = "255.0.0"

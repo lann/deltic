@@ -1,4 +1,14 @@
 {
   "name": "@component-engine/harness",
-  "exports": {}
+  "exports": {
+    "./executor": "./src/executor.ts",
+    "./runner": "./src/runner.ts",
+    "./schema": "./src/schema.ts",
+    "./summary": "./src/summary.ts"
+  },
+  "tasks": {
+    "gen": "cargo run -q -p testgen --manifest-path ../Cargo.toml",
+    "test": "deno test --allow-read=. tests/",
+    "conformance": "deno task gen && deno task test"
+  }
 }
