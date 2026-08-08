@@ -112,6 +112,13 @@ class FileRunner {
     switch (command.type) {
       case "module": {
         const artifact = await this.artifact(command);
+        // A failed/skipped instantiation must not leave a stale "current
+        // instance" (or stale name binding) for follow-up asserts to
+        // silently target — observed producing a fake wrong-value symptom
+        // at values/post-return.wast:358, where an assert read the
+        // *previous* component's export. Invalidate first, bind on success.
+        this.current = undefined;
+        if (command.name !== undefined) this.instances.delete(command.name);
         const ref = await this.executor.instantiate(artifact, "success");
         this.current = ref;
         if (command.name !== undefined) this.instances.set(command.name, ref);
@@ -123,6 +130,11 @@ class FileRunner {
         return undefined;
       }
       case "module_instance": {
+        // Same stale-current hazard as "module" above.
+        this.current = undefined;
+        if (command.instance !== undefined) {
+          this.instances.delete(command.instance);
+        }
         const ref = await this.executor.instantiateDefinition(
           command.module,
           command.instance,
