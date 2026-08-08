@@ -1,0 +1,147 @@
+// M2 end-to-end (PLAN.md §13 M2): the async pipeline — translator shim
+// (plan v1, `unsafe-intrinsic`) -> executor -> task core -> callback ABI ->
+// correct result — against the real wit-bindgen `async-probe` guest.
+//
+// `wait-then-double` is the flagship: wit-bindgen 0.60 compiles it to an
+// async lift with a callback, and `wit_bindgen::yield_async().await` makes it
+// return the YIELD callback code at least once. Getting 42 out of it means
+// the whole stackless path works — context slots (the guest's task pointer),
+// `task.return`, the packed-code loop, and scheduler resumption — with no
+// JSPI anywhere.
+//
+// Requires build artifacts (both produced from source in this repo):
+//   - target/wasm32-unknown-unknown/release/translator_shim.wasm
+//       cargo build -p translator-shim --release --target wasm32-unknown-unknown
+//   - examples/guests/build/async-probe.component.wasm
+//       ./examples/build.sh
+
+import { assertEq } from "../support/asserts.ts";
+import { Translator } from "../../src/shim/mod.ts";
+import { instantiateComponent } from "../../src/exec/mod.ts";
+import { PendingCapability } from "../../src/task/mod.ts";
+import { NotImplemented, Trap } from "../../src/cabi/mod.ts";
+
+function assert(cond: boolean, msg: string): asserts cond {
+  if (!cond) throw new Error(`assertion failed: ${msg}`);
+}
+
+const root = new URL("../../../", import.meta.url);
+
+async function readArtifact(rel: string, hint: string): Promise<Uint8Array> {
+  try {
+    return await Deno.readFile(new URL(rel, root));
+  } catch {
+    throw new Error(`missing build artifact ${rel} — run: ${hint}`);
+  }
+}
+
+const shimWasm = await readArtifact(
+  "target/wasm32-unknown-unknown/release/translator_shim.wasm",
+  "cargo build -p translator-shim --release --target wasm32-unknown-unknown",
+);
+const probeWasm = await readArtifact(
+  "examples/guests/build/async-probe.component.wasm",
+  "./examples/build.sh",
+);
+
+const translator = await Translator.create(shimWasm);
+const { plan, adapters } = translator.translate(probeWasm);
+
+async function instantiate() {
+  return await instantiateComponent({
+    plan,
+    componentBytes: probeWasm,
+    adapters,
+  });
+}
+
+Deno.test("async-probe: plan v1 carries the context unsafe-intrinsics", () => {
+  const symbols = new Set<string>();
+  for (const init of plan.initializers) {
+    if (init.op !== "instantiate-module") continue;
+    for (const arg of init.args) {
+      if (arg.kind === "unsafe-intrinsic") symbols.add(arg.intrinsic);
+    }
+  }
+  // wit-bindgen 0.60 keeps its async task pointer in context slot 0; that is
+  // the whole reason `CoreDef::UnsafeIntrinsic` had to become representable.
+  assertEq(symbols.has("context-get-i32-0"), true);
+  assertEq(symbols.has("context-set-i32-0"), true);
+});
+
+Deno.test("async-probe: wait-then-double runs the callback ABI to EXIT", async () => {
+  const component = await instantiate();
+  const f = component.exports["wait-then-double"] as (x: number) => unknown;
+  assertEq(f(21), 42);
+  assertEq(component.stats.liftedCalls, 1);
+  assertEq(component.stats.tasksResolved, 1);
+  // The guest yields once, so the host invokes the callback export at least
+  // once before it returns EXIT. (Exactly once for wit-bindgen 0.60; asserted
+  // as ">= 1" so a bindgen change that adds an internal poll is a test
+  // update, not a false failure.)
+  assert(
+    component.stats.callbackInvocations >= 1,
+    `expected at least one callback invocation, got ` +
+      `${component.stats.callbackInvocations}`,
+  );
+  // An async lift has no post-return (definitions.py `canon_lift`: post_return
+  // is only called on the sync path).
+  assertEq(component.stats.postReturnsRun, 0);
+});
+
+Deno.test("async-probe: the task model is left clean after the call", async () => {
+  const component = await instantiate();
+  const f = component.exports["wait-then-double"] as (x: number) => unknown;
+  assertEq(f(1), 2);
+  const inst = component.componentInstances[0];
+  assertEq(inst.mayEnter, true);
+  assertEq(inst.mayLeave, true);
+  // definitions.py `Task.exit_implicit_thread`: the exclusive thread is
+  // released and the instance's thread table is empty again.
+  assertEq(inst.exclusiveThread, null);
+  assertEq([...inst.threads].length, 0);
+  assertEq(inst.backpressure, 0);
+  assertEq(inst.numWaitingToEnter, 0);
+});
+
+Deno.test("async-probe: repeated calls are independent tasks", async () => {
+  const component = await instantiate();
+  const f = component.exports["wait-then-double"] as (x: number) => unknown;
+  for (let i = 0; i < 5; i++) assertEq(f(i), i * 2);
+  assertEq(component.stats.liftedCalls, 5);
+  assertEq(component.stats.tasksResolved, 5);
+});
+
+Deno.test("async-probe: stream/future exports report the pending capability", async () => {
+  const component = await instantiate();
+  // Instantiation succeeds even though this component's stream and future
+  // built-ins are unimplemented — see the CONTRACT note in
+  // src/intrinsics/mod.ts. The capability failure surfaces at the call, and
+  // as a PendingCapability, never a Trap (a Trap would be scoreable as a
+  // conformance verdict).
+  const sum = component.exports["sum-stream"] as (v: unknown) => unknown;
+  let raised: unknown;
+  try {
+    sum(0);
+  } catch (e) {
+    raised = e;
+  }
+  // Which layer notices first depends on the export: lifting a `stream`
+  // parameter trips cabi's own value-interpreter stub (`NotImplemented`)
+  // before any stream *built-in* is reached, while an export that only calls
+  // stream built-ins trips `PendingCapability`. Both are honest
+  // "not implemented yet" signals; what matters is that neither is a `Trap`,
+  // which a conformance run could score as a deliberate rejection.
+  assert(
+    raised instanceof PendingCapability || raised instanceof NotImplemented,
+    `expected a capability signal, got ${raised}`,
+  );
+  assert(
+    !(raised instanceof Trap),
+    `a missing capability must never surface as a Trap, got: ${raised}`,
+  );
+  assert(
+    /stream|future/.test(String(raised)),
+    `message should name the capability, got: ${raised}`,
+  );
+});

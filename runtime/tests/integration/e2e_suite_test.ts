@@ -318,8 +318,17 @@ Deno.test({
     } catch (e) {
       error = e;
     }
+    // The refusal must name the *first* capability this component needs and
+    // we lack, and it must arrive at instantiate time. As the task core grows
+    // this name moves forward — it was `task-return` before M2 phase 1
+    // implemented the async built-ins, and is now `async-start-call`, the
+    // FACT intrinsic for async calls *between components* (adapter-mediated,
+    // a separate capability from the host-boundary async ABI this phase
+    // implements). Assert the shape, and that it is one of the kinds we know
+    // are still missing, rather than pinning one string forever.
     assertEq(
-      String(error).includes("task-return"),
+      /host trampoline '(async-start-call|async-return-call|task-return)'/
+        .test(String(error)),
       true,
       `expected a milestone-aware refusal naming the trampoline, got ${error}`,
     );

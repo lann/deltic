@@ -77,6 +77,16 @@ export type WireCoreDef =
   | { kind: "export"; instance: number; item: WireExportItem }
   | { kind: "instance-flags"; instance: number }
   | { kind: "trampoline"; index: number }
+  /**
+   * `CoreDef::UnsafeIntrinsic` (plan v1 / contracts/plan-format.md v0.3).
+   * `intrinsic` is wasmtime's stable symbol name
+   * (`UnsafeIntrinsic::name()`), not an enum ordinal. The executor
+   * materializes `context-{get,set}-i32-{0,1}` as host functions over the
+   * current thread's context storage (definitions.py `canon_context_get` /
+   * `canon_context_set`, lines 2348/2358) and fails at instantiate time on
+   * every other symbol.
+   */
+  | { kind: "unsafe-intrinsic"; intrinsic: string }
   | { kind: "task-may-block" };
 
 export interface WireCoreExport {

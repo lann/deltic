@@ -39,7 +39,13 @@ use wasmtime_environ::component::{
 use wasmtime_environ::{EntityIndex, ModuleInternedTypeIndex, PrimaryMap, WasmValType};
 
 /// `formatVersion` this producer emits (contracts/plan-format.md).
-pub const FORMAT_VERSION: u32 = 0;
+///
+/// v1 (contracts/plan-format.md v0.3): additive — `CoreDef` gained the
+/// `"unsafe-intrinsic"` variant (previously a hard `unsupported` rejection).
+/// Per the contract's compat rule ("changes require updating both producer
+/// and consumer in the same commit and bumping `formatVersion`") the bump is
+/// unconditional even though the change is additive.
+pub const FORMAT_VERSION: u32 = 1;
 
 // ---------------------------------------------------------------------------
 // Plan schema (serde structs; field order == emission order == contract order)
@@ -175,6 +181,22 @@ pub enum CoreDefJson {
     },
     Trampoline {
         index: u32,
+    },
+    /// `CoreDef::UnsafeIntrinsic` (plan v1). Carried by *symbol name*, not by
+    /// the enum's discriminant: `UnsafeIntrinsic` is `#[repr(u32)]` over a
+    /// macro-generated variant list (wasmtime-environ 47.0.3
+    /// `component/intrinsic.rs:9` `for_each_unsafe_intrinsic!`) whose ordinals
+    /// are an unstable internal detail, while `name()` yields the stable
+    /// spec-facing symbol (`"context-get-i32-0"`, `"u32-native-load"`, …).
+    ///
+    /// All 21 variants are representable on the wire; the executor implements
+    /// only the four `context-{get,set}-i32-{0,1}` intrinsics (the canonical
+    /// `context.{get,set}` built-ins — definitions.py:2348/2358) and fails at
+    /// instantiate time on the rest. Emitting them all keeps the shim's job
+    /// "faithful transcription" and moves the capability boundary into the
+    /// runtime, where contracts/intrinsics.md already puts it.
+    UnsafeIntrinsic {
+        intrinsic: &'static str,
     },
     TaskMayBlock,
 }
@@ -753,10 +775,7 @@ impl<'a> PlanBuilder<'a> {
                 instance: i.as_u32(),
             },
             CoreDef::Trampoline(i) => CoreDefJson::Trampoline { index: i.as_u32() },
-            CoreDef::UnsafeIntrinsic(i) => unsupported!(
-                "CoreDef::UnsafeIntrinsic({i:?}) encountered; rejected in plan v0 \
-                 (contracts/plan-format.md) — report this component"
-            ),
+            CoreDef::UnsafeIntrinsic(i) => CoreDefJson::UnsafeIntrinsic { intrinsic: i.name() },
             CoreDef::TaskMayBlock => CoreDefJson::TaskMayBlock,
         })
     }
@@ -803,6 +822,9 @@ impl<'a> PlanBuilder<'a> {
             CoreDefJson::Export { .. } => "core-def".to_string(),
             CoreDefJson::InstanceFlags { .. } => "instance-flags".to_string(),
             CoreDefJson::TaskMayBlock => "task-may-block".to_string(),
+            CoreDefJson::UnsafeIntrinsic { intrinsic } => {
+                format!("unsafe-intrinsic:{intrinsic}")
+            }
             CoreDefJson::Trampoline { index } => {
                 let idx = TrampolineIndex::from_u32(*index);
                 format!("trampoline:{}", trampoline_kind(&self.trampolines[idx]))

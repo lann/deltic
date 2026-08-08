@@ -1,0 +1,457 @@
+// The 0.3 async canonical built-ins, as host trampolines
+// (contracts/intrinsics.md §B "M2"): task.{return,cancel},
+// backpressure.{set,inc,dec}, waitable-set.{new,wait,poll,drop},
+// waitable.join, subtask.{drop,cancel} and thread.yield.
+//
+// Every one is a direct port of the correspondingly named `canon_*` function
+// in definitions.py (cited per function), with one systematic substitution.
+//
+// ## `current_instance()` vs the trampoline's declared instance
+//
+// definitions.py reads `current_instance()` (line 312), defined as
+// `current_task().inst` — it can, because in the reference a canonical
+// built-in is only ever reached from inside a task. That is not true of a
+// real component: wasmtime lets a core module's **start function** call
+// instance-scoped built-ins (`waitable-set.new`, `backpressure.inc`, ...)
+// during instantiation, before any task exists. The official suite exercises
+// exactly this (e.g. `test/async/dont-block-start.wast`).
+//
+// wasmtime resolves it by naming the owning component instance *statically*
+// in every trampoline declaration (`Trampoline::WaitableSetNew { instance }`
+// and friends — the `instance` field the plan carries). So the built-ins
+// below take their instance from the declaration, which is well-defined at
+// instantiation time and identical to `current_instance()` whenever a task is
+// running. Built-ins that genuinely need the *task* or *thread*
+// (`task.return`, `task.cancel`, `subtask.cancel`, `thread.yield`) still read
+// the current-thread stack: they are meaningless outside a task, and the
+// reference's `trap_if`s are what report that.
+//
+// ## Blocking built-ins in a stackless world
+//
+// `waitable-set.wait`, `thread.yield` and the synchronous `subtask.cancel`
+// all *block the calling wasm frame* in the reference. A callback-ABI guest
+// is stackless: there is no suspendable wasm stack to park, so blocking here
+// genuinely requires JSPI (PLAN.md §6, JSPI role 2) and these built-ins say
+// so at the precise point, loudly, instead of faking a wait.
+//
+// They are not, however, unconditionally unavailable. Where the reference can
+// complete *without* suspending — `waitable-set.wait` on a set that already
+// has a pending event, `waitable-set.poll` always, `subtask.cancel` on a
+// subtask that resolved eagerly — this module returns the answer directly.
+// That is not a shortcut: definitions.py's `Thread.wait_until` (line 396) may
+// legitimately return without blocking when `ready_func()` already holds, so
+// taking that branch is a conforming schedule.
+
+import { assert_, trap, trapIf } from "../cabi/trap.ts";
+import {
+  CoreValueIter,
+  LiftLowerContext,
+  liftFlatValues,
+  MAX_FLAT_PARAMS,
+  store as storeValue,
+} from "../cabi/mod.ts";
+import type { CoreValue, ValType } from "../cabi/types.ts";
+import {
+  currentTask,
+  currentThread,
+  EventCode,
+  type EventTuple,
+  liftOptionsEqual,
+  needsJspi,
+  Subtask,
+  SubtaskState,
+  type Task,
+  Thread,
+  Waitable,
+  WaitableSet,
+} from "../task/mod.ts";
+import type { ComponentInstanceState } from "../task/mod.ts";
+import type { CoreFn, ResolvedOptions } from "../exec/boundary.ts";
+import { cabiOptions } from "../exec/boundary.ts";
+
+/** Services these built-ins need from the executor. */
+export interface AsyncTrampolineContext {
+  componentInstance(index: number): ComponentInstanceState;
+  /** Resolved canonical options by `canonicalOptions` index. */
+  options(index: number): ResolvedOptions;
+  /** The element types of an interned results *tuple* (`task-return`). */
+  resultTypes(index: number): ValType[];
+}
+
+/**
+ * `BLOCKED` sentinel of `canon_subtask_cancel` (definitions.py line 2474).
+ */
+export const BLOCKED = 0xffff_ffff;
+
+// ---------------------------------------------------------------------------
+// task.return / task.cancel
+// ---------------------------------------------------------------------------
+
+/** definitions.py `canon_task_return` (line 2391). */
+export function createTaskReturn(
+  decl: { results: number; options: number },
+  ctx: AsyncTrampolineContext,
+): CoreFn {
+  const opts = ctx.options(decl.options);
+  const resultTypes = ctx.resultTypes(decl.results);
+  return (...flatArgs: CoreValue[]) => {
+    const task = currentTask() as Task;
+    trapIf(
+      !task.inst.mayLeave,
+      "task.return: cannot leave component instance (may_leave violation)",
+    );
+    trapIf(!task.opts.async_, "task.return from a non-async task");
+    // `trap_if(result_type != task.ft.result)`: the trampoline's interned
+    // result tuple must be the lifted function's result type. Compared
+    // structurally — the plan's type table interns by structure, so identity
+    // comparison would reject valid components.
+    trapIf(
+      !valTypesEqual(resultTypes, task.ft.results),
+      "task.return with a result type that is not the task's result type",
+    );
+    trapIf(
+      !liftOptionsEqual(
+        { stringEncoding: opts.stringEncoding, memory: opts.memory },
+        task.opts,
+      ),
+      "task.return with canonical options differing from the task's",
+    );
+    const cx = new LiftLowerContext(cabiOptions(opts), task.inst, task);
+    const vi = new CoreValueIter(
+      normalizeFlat(flatArgs, opts.coreType.params.length),
+    );
+    const result = liftFlatValues(cx, MAX_FLAT_PARAMS, vi, task.ft.results);
+    task.return_(result);
+  };
+}
+
+/** definitions.py `canon_task_cancel` (line 2404). */
+export function createTaskCancel(): CoreFn {
+  return () => {
+    const task = currentTask() as Task;
+    trapIf(
+      !task.inst.mayLeave,
+      "task.cancel: cannot leave component instance (may_leave violation)",
+    );
+    trapIf(!task.opts.async_, "task.cancel from a non-async task");
+    task.cancel();
+  };
+}
+
+// ---------------------------------------------------------------------------
+// backpressure
+// ---------------------------------------------------------------------------
+
+// `canon_backpressure_set` (definitions.py line 2368) is deliberately not
+// ported: wasmtime 47 emits no `BackpressureSet` trampoline
+// (`component/info.rs` has only `BackpressureInc`/`BackpressureDec`), and the
+// reference's own copy is unreachable — see
+// upstream-component-model-repo-findings.md CM-2. The counter below is the
+// live interface.
+
+/** definitions.py `canon_backpressure_inc` (line 2375). */
+export function createBackpressureInc(inst: ComponentInstanceState): CoreFn {
+  return () => {
+    assert_(
+      inst.backpressure >= 0 && inst.backpressure < 2 ** 16,
+      "backpressure counter out of range",
+    );
+    inst.backpressure += 1;
+    trapIf(inst.backpressure === 2 ** 16, "backpressure counter overflow");
+  };
+}
+
+/** definitions.py `canon_backpressure_dec` (line 2382). */
+export function createBackpressureDec(inst: ComponentInstanceState): CoreFn {
+  return () => {
+    assert_(
+      inst.backpressure >= 0 && inst.backpressure < 2 ** 16,
+      "backpressure counter out of range",
+    );
+    inst.backpressure -= 1;
+    trapIf(inst.backpressure < 0, "backpressure counter underflow");
+  };
+}
+
+// ---------------------------------------------------------------------------
+// waitable sets
+// ---------------------------------------------------------------------------
+
+/** definitions.py `canon_waitable_set_new` (line 2413). */
+export function createWaitableSetNew(inst: ComponentInstanceState): CoreFn {
+  return () => {
+    trapIf(
+      !inst.mayLeave,
+      "waitable-set.new: cannot leave component instance",
+    );
+    return inst.handles.add(new WaitableSet());
+  };
+}
+
+/**
+ * definitions.py `canon_waitable_set_wait` (line 2421).
+ *
+ * The reference blocks the calling thread until the set has an event. From a
+ * stackless (callback-ABI) guest there is no wasm stack to suspend, so this
+ * only succeeds when an event is *already* pending — which is the reference's
+ * own non-blocking branch of `Thread.wait_until`. Otherwise: `needsJspi`.
+ *
+ * A guest using the callback ABI is expected to return the `WAIT` callback
+ * code rather than call this built-in; hitting the JSPI path here means the
+ * component uses the stackful async ABI.
+ */
+export function createWaitableSetWait(
+  decl: { options: number },
+  ctx: AsyncTrampolineContext,
+  inst: ComponentInstanceState,
+): CoreFn {
+  const opts = ctx.options(decl.options);
+  // `cancellable` is a *canonical option*, not a trampoline field: wasmtime's
+  // `Trampoline::WaitableSetWait` carries only `{instance, options}`
+  // (wasmtime-environ 47.0.3 `component/info.rs:815`), while
+  // `CanonicalOptions.cancellable` (info.rs:540) is what the guest declared.
+  // It reaches definitions.py as `canon_waitable_set_wait`'s first parameter
+  // (line 2421).
+  const cancellable = opts.cancellable;
+  return (si?: number, ptr?: number) => {
+    trapIf(!inst.mayLeave, "waitable-set.wait: cannot leave component instance");
+    const wset = requireWaitableSet(inst, si ?? 0, "waitable-set.wait");
+    const task = currentTask() as Task;
+    let event: EventTuple;
+    if (task.deliverPendingCancel(cancellable)) {
+      event = [EventCode.TASK_CANCELLED, 0, 0];
+    } else if (wset.hasPendingEvent()) {
+      // Non-blocking branch: definitions.py `Thread.wait_until` may return
+      // immediately when the condition already holds.
+      //
+      // This deliberately skips `wait_for_event_and`, and with it the
+      // `num_waiting += 1 / -= 1` bracket around the block
+      // (`WaitableSet.wait_for_event_and`, line 829). That is unobservable:
+      // `num_waiting` is read only by `WaitableSet.drop`
+      // (`trap_if(self.num_waiting > 0)`, line 852), and since we never yield
+      // between the increment and the decrement here, no other code could run
+      // to observe a non-zero value. Incrementing and immediately decrementing
+      // would be pure ceremony.
+      event = wset.getPendingEvent();
+    } else {
+      needsJspi(
+        "waitable-set.wait with no pending event (the calling wasm frame " +
+          "must block; a callback-ABI guest should return the WAIT code " +
+          "instead)",
+      );
+    }
+    return unpackEvent(opts, inst, ptr ?? 0, event);
+  };
+}
+
+/** definitions.py `canon_waitable_set_poll` (line 2438). */
+export function createWaitableSetPoll(
+  decl: { options: number },
+  ctx: AsyncTrampolineContext,
+  inst: ComponentInstanceState,
+): CoreFn {
+  const opts = ctx.options(decl.options);
+  /** See `createWaitableSetWait`: `cancellable` is an option, not a decl field. */
+  const cancellable = opts.cancellable;
+  return (si?: number, ptr?: number) => {
+    trapIf(!inst.mayLeave, "waitable-set.poll: cannot leave component instance");
+    const wset = requireWaitableSet(inst, si ?? 0, "waitable-set.poll");
+    const event = wset.poll(currentTask(), cancellable);
+    return unpackEvent(opts, inst, ptr ?? 0, event);
+  };
+}
+
+/** definitions.py `canon_waitable_set_drop` (line 2448). */
+export function createWaitableSetDrop(inst: ComponentInstanceState): CoreFn {
+  return (i?: number) => {
+    trapIf(!inst.mayLeave, "waitable-set.drop: cannot leave component instance");
+    const wset = inst.handles.remove(i ?? 0);
+    trapIf(
+      !(wset instanceof WaitableSet),
+      "waitable-set.drop: handle is not a waitable set",
+    );
+    (wset as WaitableSet).drop();
+  };
+}
+
+/** definitions.py `canon_waitable_join` (line 2458). */
+export function createWaitableJoin(inst: ComponentInstanceState): CoreFn {
+  return (wi?: number, si?: number) => {
+    trapIf(!inst.mayLeave, "waitable.join: cannot leave component instance");
+    const w = inst.handles.get(wi ?? 0);
+    trapIf(!(w instanceof Waitable), "waitable.join: handle is not a waitable");
+    trapIf(
+      (w as Waitable).hasSyncWaiter,
+      "waitable.join on a waitable with a synchronous waiter",
+    );
+    if ((si ?? 0) === 0) {
+      (w as Waitable).join(null);
+      return;
+    }
+    const wset = requireWaitableSet(inst, si!, "waitable.join");
+    (w as Waitable).join(wset);
+  };
+}
+
+// ---------------------------------------------------------------------------
+// subtasks
+// ---------------------------------------------------------------------------
+
+/** definitions.py `canon_subtask_drop` (line 2501). */
+export function createSubtaskDrop(inst: ComponentInstanceState): CoreFn {
+  return (i?: number) => {
+    trapIf(!inst.mayLeave, "subtask.drop: cannot leave component instance");
+    const s = inst.handles.remove(i ?? 0);
+    trapIf(!(s instanceof Subtask), "subtask.drop: handle is not a subtask");
+    (s as Subtask).drop();
+  };
+}
+
+/**
+ * definitions.py `canon_subtask_cancel` (line 2476).
+ *
+ * The synchronous form blocks (`subtask.wait_for_pending_event()`) when the
+ * callee does not resolve promptly; from a stackless guest that is JSPI
+ * territory. The async form returns `BLOCKED` instead of blocking, and is
+ * fully supported.
+ */
+export function createSubtaskCancel(decl: { async?: boolean }): CoreFn {
+  const async_ = decl.async === true;
+  return (i?: number) => {
+    const thread = currentThread<Thread>();
+    const inst = thread.task.inst as ComponentInstanceState;
+    trapIf(!inst.mayLeave, "subtask.cancel: cannot leave component instance");
+    const subtask = inst.handles.get(i ?? 0);
+    trapIf(
+      !(subtask instanceof Subtask),
+      "subtask.cancel: handle is not a subtask",
+    );
+    const st = subtask as Subtask;
+    trapIf(
+      st.resolveDelivered(),
+      "subtask.cancel on a subtask whose resolution was already delivered",
+    );
+    trapIf(
+      st.cancellationRequested,
+      "subtask.cancel on a subtask that was already cancelled",
+    );
+    trapIf(
+      st.inWaitableSet() && !async_,
+      "synchronous subtask.cancel on a subtask that is in a waitable set",
+    );
+    if (st.resolved()) {
+      assert_(
+        st.hasPendingEvent(),
+        "resolved subtask without a pending event at cancellation",
+      );
+    } else {
+      st.cancellationRequested = true;
+      assert_(
+        st.onCancel !== null,
+        "subtask.cancel on a subtask with no cancellation handler",
+      );
+      st.onCancel!(inst);
+      if (!st.resolved()) {
+        if (!async_) {
+          needsJspi(
+            "synchronous subtask.cancel whose callee did not resolve " +
+              "immediately (the calling wasm frame must block)",
+          );
+        }
+        return BLOCKED;
+      }
+    }
+    const [code, index, payload] = st.getPendingEvent();
+    assert_(
+      code === EventCode.SUBTASK && index === (i ?? 0) && payload === st.state,
+      "unexpected event delivered by subtask.cancel",
+    );
+    assert_(
+      st.resolveDelivered(),
+      "subtask.cancel did not deliver the resolution",
+    );
+    return st.state;
+  };
+}
+
+// ---------------------------------------------------------------------------
+// thread.yield
+// ---------------------------------------------------------------------------
+
+/**
+ * definitions.py `canon_thread_yield` (line 2735).
+ *
+ * Yielding blocks the calling wasm frame until the scheduler comes back to
+ * it. A callback-ABI guest expresses the same intent by returning the `YIELD`
+ * callback code, which this runtime implements fully (exec/boundary.ts); the
+ * *built-in* form needs a suspendable stack.
+ */
+export function createThreadYield(decl: { cancellable?: boolean }): CoreFn {
+  const cancellable = decl.cancellable === true;
+  return () => {
+    const thread = currentThread<Thread>();
+    trapIf(
+      !thread.task.inst.mayLeave,
+      "thread.yield: cannot leave component instance",
+    );
+    // A pending cancellation is deliverable without suspending at all
+    // (definitions.py `Thread.yield_` -> `wait_until` -> `deliver_pending_cancel`).
+    if (thread.task.deliverPendingCancel(cancellable)) return 1;
+    needsJspi(
+      "thread.yield (the calling wasm frame must block; a callback-ABI " +
+        "guest should return the YIELD code instead)",
+    );
+  };
+}
+
+// ---------------------------------------------------------------------------
+// helpers
+// ---------------------------------------------------------------------------
+
+function requireWaitableSet(
+  inst: ComponentInstanceState,
+  si: number,
+  what: string,
+): WaitableSet {
+  const wset = inst.handles.get(si);
+  trapIf(
+    !(wset instanceof WaitableSet),
+    `${what}: handle ${si} is not a waitable set`,
+  );
+  return wset as WaitableSet;
+}
+
+/**
+ * definitions.py `unpack_event` (line 2429): store the two payload words at
+ * `ptr` and return the event code.
+ */
+function unpackEvent(
+  opts: ResolvedOptions,
+  inst: ComponentInstanceState,
+  ptr: number,
+  e: EventTuple,
+): number {
+  const [event, p1, p2] = e;
+  const cx = new LiftLowerContext(cabiOptions(opts), inst, null);
+  storeValue(cx, p1, { kind: "u32" }, ptr);
+  storeValue(cx, p2, { kind: "u32" }, ptr + 4);
+  return event;
+}
+
+/** i32 lanes arrive signed from the JS API; canonicalize as elsewhere. */
+function normalizeFlat(args: CoreValue[], expected: number): CoreValue[] {
+  assert_(
+    args.length === expected,
+    `expected ${expected} flat argument(s), got ${args.length}`,
+  );
+  return args.map((v) => (typeof v === "number" ? v >>> 0 : v));
+}
+
+/** Structural ValType equality, for the `task.return` result-type check. */
+function valTypesEqual(a: ValType[], b: ValType[]): boolean {
+  return a.length === b.length &&
+    a.every((t, i) => JSON.stringify(t) === JSON.stringify(b[i]));
+}
+
+/** Unused-import guard: `trap` is re-exported for symmetry with cabi. */
+void trap;

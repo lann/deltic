@@ -12,6 +12,7 @@
 import { assertEq, assertTrap } from "../support/asserts.ts";
 import { Translator } from "../../src/shim/mod.ts";
 import { instantiateComponent } from "../../src/exec/mod.ts";
+import { SUPPORTED_FORMAT_VERSION } from "../../src/plan/mod.ts";
 
 function assert(cond: boolean, msg: string): asserts cond {
   if (!cond) throw new Error(`assertion failed: ${msg}`);
@@ -40,7 +41,7 @@ Deno.test("hello: full pipeline shim -> plan -> executor -> greet()", async () =
   const translator = await Translator.create(shimWasm);
   const { plan, adapters } = translator.translate(helloWasm);
 
-  assertEq(plan.formatVersion, 0);
+  assertEq(plan.formatVersion, SUPPORTED_FORMAT_VERSION);
   assertEq(plan.producer.wasmtimeEnviron, "47.0.3");
   assertEq(adapters.size, 0); // no cross-component links in hello
 
@@ -93,7 +94,7 @@ Deno.test("hello: executor validates formatVersion and hash", async () => {
   const { plan, adapters } = translator.translate(helloWasm);
 
   // formatVersion mismatch fails fast.
-  const bumped = { ...plan, formatVersion: 1 };
+  const bumped = { ...plan, formatVersion: SUPPORTED_FORMAT_VERSION + 1 };
   let failed = "";
   try {
     await instantiateComponent({

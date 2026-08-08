@@ -216,7 +216,7 @@ fn hello_plan_shape() {
     let t = translate(&bytes).unwrap();
     let plan = &t.plan;
 
-    assert_eq!(plan.format_version, 0);
+    assert_eq!(plan.format_version, FORMAT_VERSION);
     assert_eq!(plan.producer.wasmtime_environ, "47.0.3");
     assert_eq!(plan.component.len, bytes.len());
     assert_eq!(plan.component.sha256.len(), 64);
@@ -371,18 +371,81 @@ fn resources_plan_shape() {
         .any(|e| matches!(e, ExportDecl::LiftedFunc { .. })));
 }
 
-/// wit-bindgen 0.60 async guests use `context.{get,set}` which wasmtime 47
-/// models as `CoreDef::UnsafeIntrinsic` — rejected by plan v0 per contract.
-/// Lock the failure mode (clear error, not panic/silent drop).
+/// wit-bindgen 0.60 async guests use `context.{get,set}`, which wasmtime 47
+/// models as `CoreDef::UnsafeIntrinsic`. Plan v0 rejected it outright; plan
+/// v1 (contracts/plan-format.md v0.3) emits it as
+/// `{"kind":"unsafe-intrinsic","intrinsic":"<symbol>"}`.
+///
+/// This locks the wire shape *and* the symbol vocabulary: the guest uses
+/// context slot 0 only (wit-bindgen 0.60 stores its task pointer there), so
+/// exactly `context-get-i32-0` / `context-set-i32-0` must appear, spelled with
+/// wasmtime's stable `UnsafeIntrinsic::name()` symbols rather than enum
+/// ordinals.
 #[test]
-fn async_probe_rejected_with_unsafe_intrinsic_error() {
+fn async_probe_emits_unsafe_intrinsic_core_defs() {
     let Some(bytes) = fixture("async-probe") else { return };
-    let err = translate(&bytes).unwrap_err();
-    let msg = format!("{err:?}");
+    let t = translate(&bytes).expect("async-probe must translate in plan v1");
+    let json = serde_json::to_value(&t.plan).unwrap();
+
+    let mut symbols: Vec<String> = Vec::new();
+    collect_unsafe_intrinsics(&json, &mut symbols);
+    symbols.sort();
+    symbols.dedup();
+
     assert!(
-        msg.contains("UnsafeIntrinsic"),
-        "expected UnsafeIntrinsic rejection, got: {msg}"
+        !symbols.is_empty(),
+        "async-probe should contain UnsafeIntrinsic core defs; found none"
     );
+    for s in &symbols {
+        assert!(
+            s.starts_with("context-get-i32-") || s.starts_with("context-set-i32-"),
+            "unexpected unsafe intrinsic {s:?} in async-probe (expected only \
+             context.{{get,set}}); the runtime implements no others"
+        );
+    }
+    assert!(
+        symbols.contains(&"context-set-i32-0".to_string()),
+        "wit-bindgen 0.60 stores its task pointer in context slot 0; \
+         got {symbols:?}"
+    );
+}
+
+/// Every `{"kind":"unsafe-intrinsic"}` object's `intrinsic` field, anywhere in
+/// the plan (they occur as instantiate-module args, and could occur in any
+/// other `CoreDef` position).
+fn collect_unsafe_intrinsics(v: &serde_json::Value, out: &mut Vec<String>) {
+    match v {
+        serde_json::Value::Object(map) => {
+            if map.get("kind").and_then(|k| k.as_str()) == Some("unsafe-intrinsic") {
+                out.push(
+                    map.get("intrinsic")
+                        .and_then(|i| i.as_str())
+                        .expect("unsafe-intrinsic core def must carry `intrinsic`")
+                        .to_string(),
+                );
+            }
+            for sub in map.values() {
+                collect_unsafe_intrinsics(sub, out);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for sub in items {
+                collect_unsafe_intrinsics(sub, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// plan-format.md "Determinism": byte-identical plan for identical input.
+/// Re-asserted specifically for the async fixture, since v1's new variant is
+/// the first `CoreDef` carrying a non-numeric payload.
+#[test]
+fn async_probe_translation_is_deterministic() {
+    let Some(bytes) = fixture("async-probe") else { return };
+    let a = serde_json::to_string(&translate(&bytes).unwrap().plan).unwrap();
+    let b = serde_json::to_string(&translate(&bytes).unwrap().plan).unwrap();
+    assert_eq!(a, b, "async-probe plan emission is not deterministic");
 }
 
 /// Invalid input must error, not panic.

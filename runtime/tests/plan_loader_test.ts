@@ -10,6 +10,7 @@ import {
   loadPlan,
   loadValType,
   PlanError,
+  SUPPORTED_FORMAT_VERSION,
 } from "../src/plan/mod.ts";
 import type { WirePlan, WireValType } from "../src/plan/mod.ts";
 import { ResourceTypeInfo } from "../src/cabi/mod.ts";
@@ -27,7 +28,7 @@ function assertPlanError(fn: () => unknown, includes: string) {
 
 function minimalPlan(overrides: Partial<WirePlan> = {}): WirePlan {
   return {
-    formatVersion: 0,
+    formatVersion: SUPPORTED_FORMAT_VERSION,
     producer: { shimVersion: "0", wasmtimeEnviron: "47.0.3", features: [] },
     component: { sha256: "0".repeat(64), len: 0 },
     modules: [],
@@ -44,10 +45,15 @@ function minimalPlan(overrides: Partial<WirePlan> = {}): WirePlan {
 }
 
 Deno.test("loader: formatVersion is validated and fails fast", () => {
-  loadPlan(minimalPlan()); // v0 loads
+  loadPlan(minimalPlan()); // the supported version loads
+  // Both directions are rejected: an older producer (v0) and a newer one.
   assertPlanError(
-    () => loadPlan(minimalPlan({ formatVersion: 1 })),
-    "formatVersion 1",
+    () => loadPlan(minimalPlan({ formatVersion: 0 })),
+    "formatVersion 0",
+  );
+  assertPlanError(
+    () => loadPlan(minimalPlan({ formatVersion: SUPPORTED_FORMAT_VERSION + 1 })),
+    `formatVersion ${SUPPORTED_FORMAT_VERSION + 1}`,
   );
 });
 
@@ -58,7 +64,7 @@ Deno.test("loader: envelope error and shape handling", () => {
     plan: minimalPlan(),
     adapters: [{ file: "adapters/1.wasm", wasm: btoa("\x00asm") }],
   }));
-  assertEq(wire.formatVersion, 0);
+  assertEq(wire.formatVersion, SUPPORTED_FORMAT_VERSION);
   assertEq(adapters.get("adapters/1.wasm"), new Uint8Array([0, 97, 115, 109]));
 });
 

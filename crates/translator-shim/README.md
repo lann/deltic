@@ -47,7 +47,7 @@ pinned toolchain. `translate twice ⇒ byte-identical envelope` is asserted by
 | phase | meaning | may be scored as a correct rejection? |
 |---|---|---|
 | `validation` | wasmtime's frontend rejected the input: the component is invalid or malformed | **yes** |
-| `unsupported` | valid component, shape not representable in plan v0 (module exports, `InstantiateModule::Import`, `CoreDef::UnsafeIntrinsic`, GC data model, …) | no — triage item |
+| `unsupported` | valid component, shape not representable in the plan format (module exports, `InstantiateModule::Import`, GC data model, …) | no — triage item |
 | `internal` | shim invariant broken | no — bug |
 
 `assert_malformed` (decoding) and `assert_invalid` (type checking) are *not*
@@ -151,5 +151,11 @@ code is `src/plan.rs`.
   (`--example suite-inventory`).
 - **`CoreDef::UnsafeIntrinsic` is real**: wit-bindgen 0.60 async guests
   (`context.get`/`context.set`) produce it (variants
-  `context-{get,set}-i32-{0,1}`). Plan v0 rejects it per contract; M2 must
-  extend the plan format.
+  `context-{get,set}-i32-{0,1}`, slot 0 in practice — that is where the
+  generated async executor keeps its task pointer). Plan **v1**
+  (`formatVersion: 1`, contracts/plan-format.md v0.3) emits it as
+  `{"kind": "unsafe-intrinsic", "intrinsic": "<symbol>"}`, carrying
+  wasmtime's stable `UnsafeIntrinsic::name()` rather than the `#[repr(u32)]`
+  ordinal. All 21 variants are representable; the runtime implements the four
+  `context-*` ones and refuses the rest (raw host-memory access) at
+  instantiate time.

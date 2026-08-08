@@ -9,8 +9,8 @@
 //     ops (milestone-aware, contracts/intrinsics.md)
 //   - component hash verification against plan.component
 
-import type { ComponentValue, FuncType } from "../cabi/types.ts";
-import { ComponentInstanceState } from "../task/mod.ts";
+import type { ComponentValue, FuncType, ValType } from "../cabi/types.ts";
+import { ComponentInstanceState, Store } from "../task/mod.ts";
 import {
   loadPlan,
   PlanError,
@@ -36,6 +36,7 @@ import {
 } from "./boundary.ts";
 import {
   createTrampoline,
+  createUnsafeIntrinsic,
   type HostTrapState,
   type SyncCallScope,
   TranscodeMemory,
@@ -147,6 +148,17 @@ class Executor {
   readonly modules: WebAssembly.Module[] = [];
   readonly instances: WebAssembly.Instance[] = [];
   readonly componentInstances = new Map<number, ComponentInstanceState>();
+  /**
+   * One scheduler `Store` for the whole component, shared by every component
+   * instance in it — matching definitions.py, where a linked graph of
+   * `ComponentInstance`s shares the `Store` that owns the waiting-thread list
+   * (`ComponentInstance.__init__` takes `store`). A per-instance store would
+   * make a thread blocked in one instance invisible to a driving loop in
+   * another.
+   */
+  readonly store = new Store();
+  /** Memoized `unsafe-intrinsic` core functions, by symbol. */
+  readonly unsafeIntrinsics = new Map<string, CoreFn>();
   readonly taskMayBlock = new WebAssembly.Global(
     { value: "i32", mutable: true },
     1,
@@ -470,10 +482,19 @@ class Executor {
   componentInstance(index: number): ComponentInstanceState {
     let state = this.componentInstances.get(index);
     if (state === undefined) {
-      state = new ComponentInstanceState(index);
+      state = new ComponentInstanceState(index, this.store);
       this.componentInstances.set(index, state);
     }
     return state;
+  }
+
+  unsafeIntrinsic(symbol: string): CoreFn {
+    let fn = this.unsafeIntrinsics.get(symbol);
+    if (fn === undefined) {
+      fn = createUnsafeIntrinsic(symbol);
+      this.unsafeIntrinsics.set(symbol, fn);
+    }
+    return fn;
   }
 
   resolveCoreDef(def: WireCoreDef): Importable {
@@ -488,6 +509,12 @@ class Executor {
         return this.componentInstance(def.instance).flags;
       case "trampoline":
         return this.trampoline(def.index);
+      case "unsafe-intrinsic":
+        // plan v1: wasmtime compile-time builtins imported directly by a core
+        // module. `context.{get,set}` become host functions over the *current
+        // thread's* context slots (definitions.py `Thread.storage`); every
+        // other symbol fails here, at instantiate time.
+        return this.unsafeIntrinsic(def.intrinsic);
       case "task-may-block":
         return this.taskMayBlock;
       default: {
@@ -557,6 +584,8 @@ class Executor {
         }
         return this.componentInstance(table.instance);
       },
+      options: (i) => this.resolveOptions(i),
+      resultTypes: (i) => this.resultTypes(i),
       syncCallStack: this.syncCallStack,
       trapState: this.trapState,
       loweredImport: (d) => this.buildLoweredImport(d),
@@ -630,6 +659,24 @@ class Executor {
     return value;
   }
 
+  /**
+   * Element types of an interned *results tuple* — the `results` field of a
+   * `task-return` trampoline (the shim interns a lifted function's result
+   * list as a single tuple type, `intern_results_tuple`).
+   */
+  resultTypes(index: number): ValType[] {
+    const entry: LoadedType | undefined = this.loaded.types[index];
+    if (entry === undefined) {
+      throw new PlanError(`task-return results: no type ${index}`);
+    }
+    if (entry.kind !== "value" || entry.type.kind !== "tuple") {
+      throw new PlanError(
+        `task-return results: type ${index} is not a tuple type`,
+      );
+    }
+    return entry.type.elements;
+  }
+
   funcType(index: number, what: string): FuncType {
     const entry: LoadedType | undefined = this.loaded.types[index];
     if (entry === undefined) throw new PlanError(`${what}: no type ${index}`);
@@ -662,6 +709,7 @@ class Executor {
         ? null
         : () => this.callbacks[wire.callback!],
       async: wire.async,
+      cancellable: wire.cancellable,
       coreType: wire.coreType,
       instance: this.componentInstance(wire.instance),
     };

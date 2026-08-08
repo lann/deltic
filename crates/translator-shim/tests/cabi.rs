@@ -48,7 +48,11 @@ fn cabi_roundtrip_all_testdata() {
             "{name}: unexpected error: {}",
             v["error"]
         );
-        assert_eq!(v["plan"]["formatVersion"].as_u64(), Some(0), "{name}");
+        assert_eq!(
+            v["plan"]["formatVersion"].as_u64(),
+            Some(u64::from(translator_shim::plan::FORMAT_VERSION)),
+            "{name}"
+        );
         let adapter_modules = v["plan"]["modules"]
             .as_array()
             .unwrap()

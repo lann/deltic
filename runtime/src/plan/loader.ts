@@ -58,8 +58,17 @@ export class TranslateError extends Error {
   }
 }
 
-/** The single formatVersion this executor understands. */
-export const SUPPORTED_FORMAT_VERSION = 0;
+/**
+ * The single formatVersion this executor understands.
+ *
+ * v1 (contracts/plan-format.md v0.3): `CoreDef` gained `"unsafe-intrinsic"`.
+ * The change is purely additive, but the contract's compat rule is a strict
+ * equality check ("Validate `formatVersion` and fail fast on mismatch",
+ * producer and consumer bumped in the same commit), so v0 plans are refused
+ * rather than best-effort accepted — a stale cached artifact must be a loud
+ * failure, not a subtly different execution.
+ */
+export const SUPPORTED_FORMAT_VERSION = 1;
 
 /** A types-table entry after conversion. */
 export type LoadedType =

@@ -25,8 +25,25 @@ import { trapIf } from "../cabi/trap.ts";
 import { assert_ } from "../cabi/trap.ts";
 import type { ResourceTypeInfo } from "../cabi/types.ts";
 import type { ComponentInstanceState } from "../task/mod.ts";
+import { PendingCapability } from "../task/mod.ts";
 import type { WireTrampoline } from "../plan/format.ts";
 import type { CoreFn, ExecutionStats } from "../exec/boundary.ts";
+import { UnsupportedFeatureError } from "./errors.ts";
+import {
+  type AsyncTrampolineContext,
+  createBackpressureDec,
+  createBackpressureInc,
+  createSubtaskCancel,
+  createSubtaskDrop,
+  createTaskCancel,
+  createTaskReturn,
+  createThreadYield,
+  createWaitableJoin,
+  createWaitableSetDrop,
+  createWaitableSetNew,
+  createWaitableSetPoll,
+  createWaitableSetWait,
+} from "./async_builtins.ts";
 import {
   createTranscoder,
   type TranscodeMemory,
@@ -35,6 +52,8 @@ import {
 } from "./transcode.ts";
 
 export * from "./transcode.ts";
+export * from "./context.ts";
+export * from "./async_builtins.ts";
 
 /**
  * Where a host trap thrown *inside* a FACT adapter is remembered.
@@ -94,16 +113,7 @@ const FACT_TRAP_MESSAGES: Record<number, string> = {
 /** Ordinal of `Trap::UncaughtException` in wasmtime's trap encoding. */
 const TRAP_UNCAUGHT_EXCEPTION = 49;
 
-/** Instantiate-time failure for functionality scheduled after M0. */
-export class UnsupportedFeatureError extends Error {
-  constructor(public milestone: "M1" | "M2", what: string) {
-    super(
-      `${what} — scheduled for ${milestone}, not implemented in the M0 ` +
-        `executor (contracts/intrinsics.md §B)`,
-    );
-    this.name = "UnsupportedFeatureError";
-  }
-}
+export { UnsupportedFeatureError } from "./errors.ts";
 
 /** Milestone at which each trampoline kind stops instantiate-failing. */
 const TRAMPOLINE_MILESTONE: Record<string, "M0" | "M1" | "M2"> = {
@@ -190,6 +200,13 @@ export interface TrampolineContext {
   syncCallStack: SyncCallScope[];
   /** See `HostTrapState`. */
   trapState: HostTrapState;
+  /**
+   * Resolved canonical options by index, and the element types of an interned
+   * results tuple — needed by the async built-ins (task.return,
+   * waitable-set.{wait,poll}). See `AsyncTrampolineContext`.
+   */
+  options(index: number): import("../exec/boundary.ts").ResolvedOptions;
+  resultTypes(index: number): import("../cabi/types.ts").ValType[];
   /** Build the lowered-import body for `lowered` (LoweredIndex). */
   loweredImport(decl: {
     lowered: number;
@@ -232,6 +249,38 @@ export function createTrampoline(
       throw e;
     }
   };
+}
+
+/**
+ * A trampoline that instantiates fine but fails at its first call, naming the
+ * phase that will implement it. See the CONTRACT note at the stream/future
+ * cases for why these are not instantiate-time failures.
+ */
+function deferredCapability(kind: string, capability: string): CoreFn {
+  return () => {
+    throw new PendingCapability(
+      `built-in '${kind}' is not implemented yet: ${capability}`,
+    );
+  };
+}
+
+/**
+ * The component instance a trampoline is declared in (wasmtime names it in
+ * every instance-scoped `Trampoline` variant). This is the static answer to
+ * definitions.py's `current_instance()`, and unlike it, it is defined during
+ * instantiation — when a core module's start function may already be calling
+ * these built-ins. See the header of ./async_builtins.ts.
+ */
+function declaredInstance(
+  decl: WireTrampoline,
+  ctx: TrampolineContext,
+): ComponentInstanceState {
+  const instance = (decl as unknown as { instance?: number }).instance;
+  assert_(
+    typeof instance === "number",
+    `trampoline '${decl.kind}' has no declared component instance`,
+  );
+  return ctx.componentInstance(instance);
 }
 
 function createTrampolineBody(
@@ -375,6 +424,95 @@ function createTrampolineBody(
         ctx.runtimeMemory(d.to),
       ) as CoreFn;
     }
+
+    // --- 0.3 async built-ins (contracts/intrinsics.md §B "M2") -------------
+    // All ported in ./async_builtins.ts; the ones that would have to block a
+    // wasm frame fail there, at the call site, with a JSPI-shaped message.
+    case "task-return":
+      return createTaskReturn(
+        decl as unknown as { results: number; options: number },
+        ctx as AsyncTrampolineContext,
+      );
+    case "task-cancel":
+      return createTaskCancel();
+    // No `backpressure-set` case on purpose: wasmtime-environ 47.0.3 has only
+    // `Trampoline::BackpressureInc` / `BackpressureDec`
+    // (`component/info.rs:775,781`) — there is no `BackpressureSet` variant to
+    // dispatch, so a case for it would be unreachable code implying a wire
+    // shape that cannot occur. definitions.py still carries
+    // `canon_backpressure_set` (line 2368), but it is dead there too; see
+    // upstream-component-model-repo-findings.md CM-2, where we propose its
+    // removal upstream.
+    case "backpressure-inc":
+      return createBackpressureInc(declaredInstance(decl, ctx));
+    case "backpressure-dec":
+      return createBackpressureDec(declaredInstance(decl, ctx));
+    case "waitable-set-new":
+      return createWaitableSetNew(declaredInstance(decl, ctx));
+    case "waitable-set-wait":
+      return createWaitableSetWait(
+        decl as unknown as { options: number },
+        ctx as AsyncTrampolineContext,
+        declaredInstance(decl, ctx),
+      );
+    case "waitable-set-poll":
+      return createWaitableSetPoll(
+        decl as unknown as { options: number },
+        ctx as AsyncTrampolineContext,
+        declaredInstance(decl, ctx),
+      );
+    case "waitable-set-drop":
+      return createWaitableSetDrop(declaredInstance(decl, ctx));
+    case "waitable-join":
+      return createWaitableJoin(declaredInstance(decl, ctx));
+    case "subtask-drop":
+      return createSubtaskDrop(declaredInstance(decl, ctx));
+    case "subtask-cancel":
+      return createSubtaskCancel(decl as unknown as { async?: boolean });
+    case "thread-yield":
+      return createThreadYield(decl as unknown as { cancellable?: boolean });
+
+    // --- stream / future / error-context (M2 phase 2) ---------------------
+    //
+    // CONTRACT: contracts/plan-format.md "Executor obligations" says
+    // "Instantiate-time (not call-time) failure for any trampoline kind,
+    // intrinsic, or op the executor doesn't support". That rule was written
+    // for the sync corpus, where an unsupported trampoline meant the whole
+    // component was out of reach anyway. It does not survive contact with
+    // 0.3 async: a single wit-bindgen guest routinely mixes exports we fully
+    // support (callback-ABI async) with exports we do not yet (streams), and
+    // the *only* thing the stream trampolines are reachable from is the
+    // stream-using export. Failing instantiation would make the supported
+    // exports unreachable because of a capability their code never touches —
+    // strictly less information for the embedder, and it would block the
+    // async-probe end-to-end test on a phase-2 feature.
+    //
+    // The conservative reading is therefore applied at the finest granularity
+    // the contract's *intent* allows: instantiation succeeds, and the
+    // capability failure is raised at the first call, naming the phase. It is
+    // still loud, still never a `Trap`, and still impossible to mistake for a
+    // conformance verdict (`PendingCapability`, not `Trap`). Reported as v0.3
+    // contract friction: the obligation needs an explicit carve-out for
+    // capability-scoped built-ins.
+    case "stream-new":
+    case "stream-read":
+    case "stream-write":
+    case "stream-cancel-read":
+    case "stream-cancel-write":
+    case "stream-drop-readable":
+    case "stream-drop-writable":
+    case "future-new":
+    case "future-read":
+    case "future-write":
+    case "future-cancel-read":
+    case "future-cancel-write":
+    case "future-drop-readable":
+    case "future-drop-writable":
+      return deferredCapability(decl.kind, "streams and futures (M2 phase 2)");
+    case "error-context-new":
+    case "error-context-debug-message":
+    case "error-context-drop":
+      return deferredCapability(decl.kind, "error-context (M2 phase 2)");
 
     case "resource-transfer-own":
       return (handle: number, srcTable: number, dstTable: number) =>

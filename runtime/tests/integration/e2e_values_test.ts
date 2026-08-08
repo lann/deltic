@@ -116,5 +116,7 @@ Deno.test("values: every call went through the task model", () => {
   assertEq(component.stats.liftedCalls > 0, true);
   const inst = component.componentInstances[0];
   assertEq(inst.mayEnter, true);
-  assertEq(inst.threads.size, 0);
+  // `inst.threads` is the reference's `Table[Thread]` (definitions.py
+  // `ComponentInstance.threads`), so "no threads left" is an empty iteration.
+  assertEq([...inst.threads].length, 0);
 });
