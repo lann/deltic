@@ -32,6 +32,7 @@ import {
   driveSyncLift,
   clearResumingThread,
   EventCode,
+  hasResumingThread,
   type EventTuple,
   NeedsJspi,
   needsJspi,
@@ -373,8 +374,12 @@ function drive(
     if (store.hostFailure !== undefined) throw takeHostFailure(store);
     if (done()) return;
     // A thread parked on a Promise (jspi) can only progress after a microtask
-    // turn, exactly like an outstanding host call.
-    if (store.awaiting.size > 0) return driveAsync(store, done, what);
+    // turn, exactly like an outstanding host call. So can an outstanding
+    // ambient claim: a suspension has been settled and its activation has not
+    // run yet (see `Store.tick`).
+    if (store.awaiting.size > 0 || hasResumingThread()) {
+      return driveAsync(store, done, what);
+    }
     if (store.pendingHostCalls.size === 0) {
       trapIf(
         true,
@@ -400,6 +405,12 @@ async function driveAsync(
     }
     if (store.hostFailure !== undefined) throw takeHostFailure(store);
     if (done()) return;
+    // Let a settled-but-not-yet-run activation take its turn before we do
+    // anything else (`Store.tick` refuses to progress while a claim is live).
+    if (hasResumingThread()) {
+      await Promise.resolve();
+      continue;
+    }
     // Service one promise-parked thread (jspi). Resuming it re-enters wasm,
     // which may park again; the loop handles that.
     if (store.awaiting.size > 0) {

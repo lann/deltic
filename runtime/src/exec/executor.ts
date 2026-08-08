@@ -280,19 +280,17 @@ class Executor {
     //
     // Until instantiation-time calls are separated from the suspendable
     // import set, jspi mode stays an explicit embedder opt-in.
-    // Auto-detection is OFF pending ONE remaining issue, precisely located.
+    // Auto-detection is OFF. See the M2 phase 3g report: the JSPI path is
+    // green for the whole runtime suite (215/215, both terminating and
+    // producer activation shapes) but under the conformance harness a
+    // background activation still reaches `exit-sync-call` with no task in
+    // scope — reached directly from wasm, with no JS frame above it, which
+    // none of the three claim sites explains. Three incremental attempts have
+    // each fixed a real bug and uncovered another; this needs a dedicated
+    // session with tracing rather than another guess.
     //
-    // Background activations (M2 phase 3f) mean an `exit-sync-call` can run
-    // after its export call returned. The bracket stack was made per-task for
-    // exactly that reason (`Task.syncCallStack`), and the runtime suite is
-    // green with detection on (215/215) — but under the conformance harness a
-    // background resume still reaches `exit-sync-call` with the wrong stack in
-    // scope, i.e. one resumption path does not establish the right ambient
-    // task. `HostActivity.#drainAsync` and `driveAsync` both claim it; the
-    // gap is in a third path.
-    //
-    // `planNeedsSuspension` computes the right answer; `input.jspi` forces the
-    // mode for experimentation.
+    // `planNeedsSuspension` computes the right answer and `input.jspi` forces
+    // the mode, so the whole path stays exercisable.
     this.suspensionMode = chooseMode(input.jspi);
     void planNeedsSuspension;
   }

@@ -141,3 +141,47 @@ core" is a feature, not a crash.
    correct per #5; a future amendment could permit lazily-trapping
    trampolines for exports the embedder never calls — deliberate
    silent-acceptance tradeoff, not adopted without discussion.
+
+## JSPI integration constraints (M2 phase 3, empirically derived)
+
+Every one of these is pinned by a test under `runtime/tests/jspi/`; they
+generalize to any JS host of the 0.3 task model and are the distilled cost
+of three debugging rounds.
+
+1. **The `current_thread()` ambient has no free implementation in JS.**
+   definitions.py resolves the running task via a thread-local, exact
+   because its threads are OS threads. A JSPI host gets resumed in a
+   microtask outside every frame it controls. Two working mechanisms, both
+   pinned: (h) `AsyncLocalStorage` propagates across a resumption (the
+   engine registers its continuation at suspension time, inside the host's
+   frame); (i) a resumed activation runs strictly before the host regains
+   control, so a single "resuming activation" slot is unambiguous between
+   settling a suspension and the host's next turn. The slot mechanism
+   needs no async-context support — the safer floor for a browser matrix.
+   (Probe discipline: a suspension probe must call the import at least
+   TWICE; a single-call fixture has no post-resumption observation point
+   and reads indistinguishably from "context lost" — this produced a wrong
+   verdict once.)
+2. **"Task resolved" and "activation finished" are different events.**
+   The reference collapses them (threads run to completion synchronously
+   once resolved); a suspending host must model both. A guest may
+   `task.return` and keep executing — the wit-bindgen producer pattern.
+   Abandoning the activation on resolution leaks task state (exclusive
+   thread, table slots); waiting for it deadlocks producers. Required: a
+   detached-but-live activation the scheduler keeps servicing after the
+   export call returns. Corollary: **audit every piece of host state
+   assumed to nest within one export call** — our FACT sync-call bracket
+   stack had to become per-task the moment activations could interleave.
+3. **Resolve at most one suspension per scheduler turn.** Settling a
+   Suspending import's Promise hands control to wasm in a microtask: the
+   settling call returns with the activation not yet run. A tight
+   `while (tick())` drain — natural for a purely cooperative scheduler —
+   overwrites the ambient claim and mis-attributes the first activation's
+   built-ins. `tick()` must refuse progress while a claim is live; drains
+   must yield to the microtask queue.
+
+Status: bridge, entry wrapping, mode invariant, ambient, background
+activations all landed and runtime-suite-green with detection forced on;
+auto-detection ships off pending one un-traced resumption path that
+surfaces only under the conformance harness (see the site comment at
+`chooseMode`).

@@ -239,6 +239,11 @@ export function setResumingThread(t: any): void {
   resumingThread = t;
 }
 
+/** Is a settled-but-not-yet-run activation holding the ambient? */
+export function hasResumingThread(): boolean {
+  return resumingThread !== null;
+}
+
 /** Release the claim; called once we are back in our own continuation. */
 export function clearResumingThread(): void {
   resumingThread = null;
@@ -372,6 +377,18 @@ export class Store {
    * "made progress" from "stuck" without inspecting the queue themselves.
    */
   tick(): boolean {
+    // One suspension resolved per turn.
+    //
+    // Settling a suspension hands control to wasm in a *microtask*, not
+    // synchronously — so `tick` returns with the resumed activation not yet
+    // run and its ambient claim still outstanding. Resolving a second one
+    // before that happens would overwrite the claim, and the first
+    // activation's built-ins would then attribute themselves to the wrong
+    // task (observed as `exit-sync-call` popping another task's bracket).
+    // Refusing to make progress while a claim is live forces the caller to
+    // yield to the microtask queue first, which is exactly what `driveAsync`
+    // does.
+    if (resumingThread !== null) return false;
     const candidates = this.readyCandidates();
     if (candidates.length === 0) return false;
     const thread = chooseCandidate(candidates);
