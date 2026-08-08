@@ -1,0 +1,10 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/translator-spike",
+    "crates/testgen",
+]
+
+[workspace.package]
+edition = "2021"
+publish = false

@@ -1,0 +1,3 @@
+{
+  "workspace": ["./runtime", "./harness"]
+}

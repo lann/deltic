@@ -1,0 +1,5 @@
+[package]
+name = "translator-spike"
+version = "0.0.0"
+edition.workspace = true
+publish.workspace = true

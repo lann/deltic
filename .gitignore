@@ -1,0 +1,6 @@
+/target/
+harness/generated/
+examples/guests/build/
+node_modules/
+dist/
+*.tmp
