@@ -434,7 +434,7 @@ a built artifact per release of the shim (reproducible from source).
 | S0 | **Spike**: wasmtime-environ + FACT on wasm32 | **DONE — GO** (2026-08-08). `wasmtime-environ =47.0.3` builds for wasm32-unknown-unknown with zero imports; runs under Deno; FACT adapters (sync + async) emitted as core wasm; 1.66 MiB size-tuned (~0.5 MiB gzip); sub-ms steady-state translation. Fallback (vendoring FACT) not needed. See `crates/translator-spike/`. |
 | M0 | Contracts + plan executor on the task-model skeleton | `contracts/{plan-format,descriptor-ir,intrinsics}.md` v0 pinned (the Phase-2 fan-out gate); spike promoted to `translator-shim` emitting plan v0; runtime structured around Task/Thread/Subtask from the start; **`examples/guests/build/hello.component.wasm` (real wit-bindgen guest: strings, realloc, post-return) runs in Deno** |
 | M1 | Canonical ABI core | **DONE** (2026-08-08). Official suite green on Deno across all five sync directories — binary 119/122 (3 xfail: wasmtime-pin drift ×2, module-exports plan gap), validation 446/448 (+2 same-drift xfails), linking 272/272, resources 36/36, values 155/191 (+36 xfails, all M2-task-core-shaped) — zero unexpected failures; sync + async wit-bindgen guest fixtures roundtrip; transcoder trampoline (all 12 ops); imported resources; live component imports; structured verdicts; canonical world digest handshake (contracts/digest.md); typed TS facades for fixture worlds. Multi-agent per §15: 3 parallel tracks, 2 reviewer rounds (5 blocking findings fixed), interrupted mid-flight by a driver restart and recovered via task_id resumes. |
-| M2 | **Concurrency complete on Deno** | task scheduler; callback ABI; streams/futures/error-context; waitable sets; backpressure + cancellation; JSPI paths (stackful lifts, blocking sync lowers, async host imports); reentrance gates under suspension; official `test/async` green; async Rust guest roundtrip green |
+| M2 | **Concurrency complete on Deno** | **Phase 1 done** (2026-08-08): task core mirroring definitions.py (Task/Thread-as-generators/Subtask/WaitableSet, backpressure, cancellation, reentrance gates), full callback-ABI lift loop, async lowers incl. **Promise-returning JS host imports with zero JSPI**, context slots via plan-v1 unsafe-intrinsics; wit-bindgen `wait-then-double` e2e green; async suite 0→31 passing, remainder precisely triaged (dominant blocker: FACT `{async,sync}-start-call` — 49 commands + most cascades; then streams 41; JSPI a distant third). JSPI mechanics empirically pinned (frame-rule = async `SuspendError` rejection; fast path requires a promising activation; engine permits reentry-while-suspended). **Remaining phases**: (2) FACT async start-calls + shim 0x28 decoder fix + streams/futures/error-context; (3) JSPI paths (stackful lifts, blocking sync lowers); exit = official `test/async` green + async Rust guest roundtrip green |
 | M3 | Cross-engine | browser CI matrix (Chrome, Firefox+pref, WebKit best-effort); artifact cache; full suite green on all lanes; code-cache empirical check |
 | P1 | Perf track (post-success) | generated-JS host-boundary executor (differential-tested vs interpreter); deploy-time unbundled layout |
 
@@ -518,10 +518,10 @@ orchestrator's own aborted turns; that layer belongs to the human/driver.
 
 ## 16. Open questions
 
-- Scheduler determinism policy (§6): the reference scheduler chooses randomly
-  among ready threads; decide how much determinism we impose (seeded / FIFO)
-  for debuggability within spec-allowed nondeterminism, and whether CI
-  exercises multiple schedules.
+- Scheduler determinism policy (§6): **DECIDED (M2)** — deterministic FIFO
+  ready-queue by default; seeded-shuffle mode via `CE_SCHED_SEED` env var
+  exercises spec-allowed nondeterminism in tests (verified across seeds).
+  Documented at `runtime/src/task/scheduler.ts`.
 - Plan encoding: JSON vs postcard vs custom section inside a wasm container.
   (Decide at M0; deterministic + versioned is what matters.)
 - Trust boundary: how much does the TS runtime re-validate translated

@@ -78,9 +78,10 @@ core" is a feature, not a crash.
 - Exact `Transcode` op inventory to implement in M0/M1 (drive from fixtures:
   utf8 copies first; the full matrix is already reference-tested in
   `runtime/src/cabi/strings.ts`).
-- `UnsafeIntrinsic` (`CoreDef` variant): rejected by the shim; known M2
-  blocker for wit-bindgen async guests (`context-{get,set}-i32-{0,1}`) — see
-  plan-format.md v0.1 amendments.
+- `UnsafeIntrinsic` (`CoreDef` variant): **resolved at M2 phase 1** — now
+  wire-represented per plan-format.md v1 amendments; the four
+  `context-{get,set}-i32-{0,1}` symbols are implemented (per-thread storage),
+  the 17 raw-host-memory symbols are refused at instantiate time.
 
 ## v0.1 amendments (post-M0 reality)
 

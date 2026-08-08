@@ -219,3 +219,32 @@ Additions/corrections from the M0 integration, normative as of v0.1:
 5. Known M2 blocker (unchanged, restated for visibility):
    `CoreDef::UnsafeIntrinsic` (`context-{get,set}-i32-{0,1}`) remains
    unrepresentable; the M2 plan extension owns it.
+
+## v1 amendments (M2 phase 1)
+
+1. **`formatVersion` is now `1`.** Additive change, but the compat rule is
+   strict equality; producer and consumer bumped in the same commit. v0
+   plans are refused — a stale cached artifact fails loudly rather than
+   executing subtly differently.
+2. **`CoreDef` gains `unsafe-intrinsic`** (supersedes v0.2 amendment #5):
+   `{"kind": "unsafe-intrinsic", "intrinsic": "<symbol>"}` where the symbol
+   is wasmtime's stable `UnsafeIntrinsic::name()` (`"context-get-i32-0"`,
+   …), never the `#[repr(u32)]` ordinal (unstable internal). All 21 variants
+   are wire-representable. Executor obligation: implement
+   `context-{get,set}-i32-{0,1}` as canonical `context.{get,set}` over
+   **per-thread** storage (definitions.py `Thread.storage`); refuse the 17
+   raw-host-memory symbols at instantiate time.
+3. **Carve-out to instantiate-time failure**: capability-scoped built-ins
+   whose absence affects only the exports that use them (stream / future /
+   error-context) may instantiate successfully and fail at first call — the
+   failure must be `PendingCapability`-shaped, never a `Trap` (so it can
+   never satisfy a conformance trap assertion). Rationale: one wit-bindgen
+   guest routinely mixes supported callback-ABI exports with stream exports;
+   instantiate-time refusal would make supported exports unreachable over a
+   capability their code never touches.
+4. **Open gap: no wire form for the component-instance tree.**
+   `ComponentInstance.parent` drives the reference's `entering_set`; the
+   flat instance space means nested instances never lock their ancestors —
+   admitting reentrance the reference forbids. Pinned by a `// CONTRACT:`
+   comment in `runtime/src/task/mod.ts`; fix is a nesting field in the plan,
+   scheduled with the FACT-async work that will exercise it.
