@@ -12,9 +12,15 @@
 # (wasm-tools 1.247's own `validate --features component-model,cm-async` also
 # passes, but its validator predates the async-function-type requirement that
 # wasmparser 0.252 enforces, so it is not the authority here.)
+#
+# Fixtures whose syntax is newer than the installed CLI (e.g. `relend-borrow`,
+# which uses `(dtor (core func ...))`) are generated from the pinned `wat`
+# crate instead:
+#
+#   cargo run -p translator-shim --example emit-testdata -- <name>
 set -e
 cd "$(dirname "$0")"
-for f in trivial linked async-lift async-linked; do
+for f in trivial linked async-lift async-linked imports imported-resource; do
   wasm-tools parse "$f.wat" -o "$f.wasm"
   echo "generated $f.wasm"
 done

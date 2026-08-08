@@ -33,6 +33,14 @@ import {
 } from "../task/mod.ts";
 import { PlanError } from "../plan/loader.ts";
 
+/**
+ * Structural view of an intrinsics `SyncCallScope`: everything this module
+ * needs in order to unwind a FACT sync-call bracket a trap escaped.
+ */
+export interface LenderScope {
+  releaseLenders(): void;
+}
+
 /** A raw core function as exposed through the JS WebAssembly API. */
 // deno-lint-ignore no-explicit-any
 export type CoreFn = (...args: any[]) => unknown;
@@ -244,8 +252,30 @@ export function createLiftedFunction(input: {
   opts: ResolvedOptions;
   core: CoreFn;
   stats: ExecutionStats;
+  /** Optional; see intrinsics `HostTrapState`. */
+  trapState?: { pending: unknown };
+  /**
+   * Optional; the executor's sync-call scope stack (intrinsics
+   * `SyncCallScope`). Structural, to keep this module free of an import
+   * cycle with `../intrinsics/`.
+   */
+  syncCallStack?: LenderScope[];
+  /**
+   * Optional; every component instance of this component, for restoring
+   * `may_leave` when a trap unwinds out of a FACT adapter.
+   */
+  allInstances?: () => Iterable<{ mayLeave: boolean }>;
 }): (...args: ComponentValue[]) => unknown {
-  const { name, ft, opts, core, stats } = input;
+  const {
+    name,
+    ft,
+    opts,
+    core,
+    stats,
+    trapState,
+    syncCallStack,
+    allInstances,
+  } = input;
   const inst = opts.instance;
 
   if (ft.async) {
@@ -278,6 +308,11 @@ export function createLiftedFunction(input: {
       );
     }
     stats.liftedCalls++;
+    // A trap remembered during an earlier call must never be attributed to
+    // this one (see intrinsics `HostTrapState`).
+    if (trapState !== undefined) trapState.pending = undefined;
+    // Depth of the sync-call scope stack on entry; see the `finally` below.
+    const syncCallDepth = syncCallStack?.length ?? 0;
 
     // Reference Store.lift: trap_if(!may_enter); enter_from; ...; leave_to.
     trapIf(
@@ -285,6 +320,7 @@ export function createLiftedFunction(input: {
       `cannot enter component instance ${inst.index} (reentrance forbidden)`,
     );
     inst.enter();
+    let completed = false;
     try {
       let resolved: ComponentValue[] | null = null;
       const task = new Task(
@@ -332,8 +368,38 @@ export function createLiftedFunction(input: {
       });
       driveTaskToResolution(task, thread);
       assert_(resolved !== null, "task resolved without results");
+      completed = true;
       return resultsToHost(resolved!);
     } finally {
+      // Unwind any FACT sync-call brackets a trap escaped.
+      //
+      // A trap thrown inside an adapter skips that adapter's
+      // `exit-sync-call`, so its `SyncCallScope` (and the `num_lends` it
+      // holds on the caller's handles) would otherwise survive the call.
+      // wasmtime does not need this: it poisons the whole store on trap
+      // (`Store::call_hook`/panic-on-reuse semantics), so no later call can
+      // observe the stale state. This runtime deliberately supports
+      // post-trap re-entry — the `trapState.pending` reset above exists for
+      // exactly that — so the state has to be unwound instead. Leaving it
+      // would attach the next `transfer-borrow` to a dead scope and leave
+      // lent handles permanently un-droppable ("while borrowed" forever).
+      if (!completed) {
+        if (syncCallStack !== undefined) {
+          while (syncCallStack.length > syncCallDepth) {
+            syncCallStack.pop()!.releaseLenders();
+          }
+        }
+        // FACT clears the callee's / caller's `may_leave` flag around each
+        // lift and lower (`fact/trampoline.rs`, `set_may_leave_false`) and
+        // restores it afterwards. A trap in between skips the restore, so an
+        // instance can be left permanently unable to leave — every later call
+        // through an adapter then trips FACT's own `CannotLeaveComponent`
+        // check. With the stack unwound to the host boundary no lift or lower
+        // is in flight, so `may_leave` is true for every instance by
+        // definition; assert that resting state rather than leaving the
+        // component bricked.
+        for (const i of allInstances?.() ?? []) i.mayLeave = true;
+      }
       inst.leave();
     }
   };

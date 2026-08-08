@@ -18,6 +18,7 @@ import {
 } from "../cabi/types.ts";
 import type {
   WireEnvelope,
+  WireErrorDetail,
   WirePlan,
   WireTypeDecl,
   WireValType,
@@ -28,6 +29,32 @@ export class PlanError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "PlanError";
+  }
+}
+
+/**
+ * A structured translation verdict from the shim (envelope `errorDetail`).
+ *
+ * Distinguished from `PlanError` on purpose: a `TranslateError` with
+ * `phase === "validation"` is *the translator's judgment about the input
+ * component* and is the only failure that satisfies `assert_invalid` /
+ * `assert_malformed`. `PlanError` and the other phases are failures of our
+ * own pipeline and must never be scored as conformance passes.
+ */
+export class TranslateError extends Error {
+  readonly phase: WireErrorDetail["phase"];
+  readonly detail: string;
+
+  constructor(d: WireErrorDetail) {
+    super(`translator error [${d.phase}]: ${d.message}`);
+    this.name = "TranslateError";
+    this.phase = d.phase;
+    this.detail = d.detail ?? d.message;
+  }
+
+  /** True iff the shim judged the *input component* invalid or malformed. */
+  get isValidationVerdict(): boolean {
+    return this.phase === "validation";
   }
 }
 
@@ -49,6 +76,12 @@ export interface LoadedPlan {
    * `resource` initializers.
    */
   resourceTokens: ResourceTypeInfo[];
+  /**
+   * Number of imported resource types. `ResourceIndex =
+   * numImportedResources + DefinedResourceIndex`
+   * (plan-format.md v0.1 amendment #2 / v0.2 `importedResources`).
+   */
+  numImportedResources: number;
 }
 
 /**
@@ -79,13 +112,44 @@ export function loadPlan(wire: WirePlan): LoadedPlan {
     }
   }
 
+  const importedResources = wire.importedResources ?? [];
+  for (const [i, ir] of importedResources.entries()) {
+    if (
+      typeof ir?.import !== "number" || ir.import < 0 ||
+      ir.import >= wire.imports.length
+    ) {
+      throw new PlanError(
+        `importedResources[${i}].import = ${ir?.import} is not a valid ` +
+          `index into plan.imports (length ${wire.imports.length})`,
+      );
+    }
+  }
+
   const resourceTokens = wire.resourceTables.map(() =>
     new ResourceTypeInfo(null, null)
   );
   const types = wire.types.map((t, i) =>
     loadTypeDecl(t, resourceTokens, `types[${i}]`)
   );
-  return { wire, types, resourceTokens };
+  return {
+    wire,
+    types,
+    resourceTokens,
+    numImportedResources: importedResources.length,
+  };
+}
+
+/**
+ * Component-wide `ResourceIndex` for a `DefinedResourceIndex` (the `index`
+ * field of a `resource` initializer). Mirrors wasmtime
+ * `Component::resource_index` (wasmtime-environ 47.0.3
+ * `component/info.rs:222`).
+ */
+export function resourceIndexOfDefined(
+  plan: LoadedPlan,
+  definedIndex: number,
+): number {
+  return plan.numImportedResources + definedIndex;
 }
 
 /**
@@ -105,7 +169,13 @@ export function loadEnvelope(json: string): {
     throw new PlanError(`envelope is not valid JSON: ${e}`);
   }
   if (envelope.error !== undefined) {
-    throw new PlanError(`translator error: ${envelope.error}`);
+    // v0.1 producers send only `error`; treat the missing structured verdict
+    // as "internal" — an unknown phase must never be read as a validation
+    // verdict (see TranslateError).
+    throw new TranslateError(
+      envelope.errorDetail ??
+        { phase: "internal", message: envelope.error },
+    );
   }
   if (!envelope.plan) throw new PlanError("envelope missing `plan`");
   loadPlan(envelope.plan); // validate early; discard (see docstring)

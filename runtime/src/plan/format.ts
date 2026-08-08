@@ -20,6 +20,17 @@ export interface WirePlan {
   canonicalOptions: WireCanonicalOptions[];
   types: WireTypeDecl[];
   resourceTables: WireResourceTable[];
+  /**
+   * Resource types the component imports, in `ResourceIndex` order:
+   * `ResourceIndex = importedResources.length + DefinedResourceIndex`
+   * (wasmtime `Component::resource_index`).
+   *
+   * plan-format.md v0.1 amendment #2 documents this as a *gap*; the field is
+   * a **v0.2 proposal** emitted by the shim. Optional here so plans produced
+   * by a v0.1 shim still load — absent is read as "no imported resources",
+   * which is exactly what v0.1 asserted.
+   */
+  importedResources?: WireImportedResource[];
   imports: WireImport[];
   exports: WireExport[];
   worldDigest: string;
@@ -168,6 +179,12 @@ export type WireResourceTable =
   | { kind: "concrete"; resource: number; instance: number }
   | { kind: "abstract"; id: number };
 
+/** One imported resource type: back-reference into `plan.imports`. */
+export interface WireImportedResource {
+  /** `RuntimeImportIndex` — index into `plan.imports`. */
+  import: number;
+}
+
 export interface WireImport {
   name: string;
   path: string[];
@@ -198,5 +215,29 @@ export type WireTypeExport =
 export interface WireEnvelope {
   plan?: WirePlan;
   adapters?: { file: string; wasm: string }[];
+  /** Failure message (v0.1 shape; unchanged meaning). */
   error?: string;
+  /**
+   * Structured verdict accompanying `error` (contracts v0.2 proposal). Absent
+   * from v0.1 producers; consumers must tolerate that (treat as phase
+   * `"internal"`, i.e. "not a statement about the component").
+   */
+  errorDetail?: WireErrorDetail;
+}
+
+/**
+ * Structured translation failure.
+ *
+ * `phase` is the load-bearing field: only `"validation"` means *the component
+ * is invalid/malformed* — the verdict the official suite's `assert_invalid` /
+ * `assert_malformed` commands require. `"unsupported"` means the component is
+ * valid but uses a shape this plan-format version cannot express, and
+ * `"internal"` is a shim bug. Neither of the latter two may be scored as a
+ * correct rejection.
+ */
+export interface WireErrorDetail {
+  phase: "validation" | "unsupported" | "internal";
+  message: string;
+  /** Full error chain, diagnostics only. */
+  detail?: string;
 }

@@ -3,10 +3,10 @@
 //! fixture (contracts/plan-format.md).
 
 use translator_shim::plan::{
-    CoreDefJson, ExportDecl, Initializer, ModuleEntry, TrampolineDecl, TypeDecl, ValTypeJson,
-    FORMAT_VERSION,
+    CoreDefJson, ExportDecl, Initializer, ModuleEntry, ResourceTableDecl, TrampolineDecl, TypeDecl,
+    ValTypeJson, FORMAT_VERSION,
 };
-use translator_shim::{to_envelope_json, translate, Translation};
+use translator_shim::{to_envelope_json, translate, Phase, Translation};
 
 fn build(name: &str) -> Vec<u8> {
     let path = format!("{}/testdata/{name}.wat", env!("CARGO_MANIFEST_DIR"));
@@ -188,7 +188,13 @@ fn async_linked_generates_async_adapters() {
 /// byte-identical envelope (plan JSON + adapters).
 #[test]
 fn determinism() {
-    for name in ["linked", "async-linked"] {
+    for name in [
+        "linked",
+        "async-linked",
+        "imports",
+        "imported-resource",
+        "relend-borrow",
+    ] {
         let bytes = build(name);
         let a = to_envelope_json(&translate(&bytes).unwrap()).unwrap();
         let b = to_envelope_json(&translate(&bytes).unwrap()).unwrap();
@@ -385,4 +391,167 @@ fn invalid_component_errors() {
     // A plain core module is not a component either.
     let core = wat::parse_str("(module)").unwrap();
     assert!(translate(&core).is_err());
+}
+
+/// The three-component re-lend fixture must produce the transfer intrinsics
+/// the runtime's borrow bookkeeping depends on: a resource table per
+/// component instance, plus own *and* borrow transfers.
+#[test]
+fn relend_fixture_shape() {
+    let bytes = build("relend-borrow");
+    let t = translate(&bytes).unwrap();
+
+    // Four component instances (outer + $Def + $Mid + $App) each get their
+    // own table for the single resource (ResourceIndex 0).
+    assert_eq!(t.plan.resource_tables.len(), 4);
+    for table in &t.plan.resource_tables {
+        match table {
+            ResourceTableDecl::Concrete { resource, .. } => assert_eq!(*resource, 0),
+            other => panic!("expected concrete resource table, got {other:?}"),
+        }
+    }
+    let kinds: Vec<&str> = t
+        .plan
+        .trampolines
+        .iter()
+        .map(|t| match t {
+            TrampolineDecl::ResourceTransferOwn { .. } => "own",
+            TrampolineDecl::ResourceTransferBorrow { .. } => "borrow",
+            _ => "other",
+        })
+        .collect();
+    assert!(kinds.contains(&"own"), "{kinds:?}");
+    assert!(kinds.contains(&"borrow"), "{kinds:?}");
+    // Two fused adapters: $App -> $Mid and $Mid -> $Def.
+    assert_eq!(t.adapters.len(), 2);
+}
+
+// ---------------------------------------------------------------------------
+// Structured verdicts (src/error.rs; contracts v0.2 proposal)
+// ---------------------------------------------------------------------------
+
+/// Malformed bytes and invalid components are both `validation`: the shim's
+/// judgment about the *input*. This is the only phase a conformance runner
+/// may score as a correct `assert_invalid` / `assert_malformed` rejection.
+#[test]
+fn verdict_phase_validation() {
+    for bytes in [
+        b"not a component".to_vec(),
+        wat::parse_str("(module)").unwrap(),
+        // Valid binary structure, invalid types: lift a core func with the
+        // wrong signature.
+        wat::parse_str(
+            r#"(component
+                 (core module $m (func (export "f")))
+                 (core instance $i (instantiate $m))
+                 (func (export "f") (result u32)
+                   (canon lift (core func $i "f"))))"#,
+        )
+        .unwrap(),
+        // Core function *body* validation: wasmtime defers this to its
+        // compiler backend, so the shim runs the deferred validators itself
+        // (official suite test/validation/core-modules.wast:24).
+        wat::parse_str(r#"(component (core module (func i32.add)))"#).unwrap(),
+    ] {
+        let e = translate(&bytes).unwrap_err();
+        assert_eq!(e.phase, Phase::Validation, "{e}");
+        assert!(!e.message.is_empty());
+    }
+}
+
+/// A valid component the plan format cannot express is `unsupported` — never
+/// `validation`, which would be a false claim about the component.
+#[test]
+fn verdict_phase_unsupported() {
+    let bytes = wat::parse_str(
+        r#"(component (core module $m) (export "m" (core module $m)))"#,
+    )
+    .unwrap();
+    let e = translate(&bytes).unwrap_err();
+    assert_eq!(e.phase, Phase::Unsupported, "{e}");
+    assert!(e.message.contains("module exports"), "{e}");
+}
+
+// ---------------------------------------------------------------------------
+// Component imports (plan-format.md v0.1 amendment #4) and imported resources
+// ---------------------------------------------------------------------------
+
+/// Direct function imports and instance imports: the latter produce one plan
+/// import per *leaf*, sharing the instance's name and carrying the walk in
+/// `path`.
+#[test]
+fn imports_carry_instance_paths() {
+    let bytes = build("imports");
+    let t = translate(&bytes).unwrap();
+
+    let names: Vec<(String, Vec<String>, &str)> = t
+        .plan
+        .imports
+        .iter()
+        .map(|i| (i.name.clone(), i.path.clone(), i.kind))
+        .collect();
+    assert_eq!(
+        names,
+        vec![
+            ("log".to_string(), vec![], "func"),
+            ("host:api/math".to_string(), vec!["add".to_string()], "func"),
+            ("host:api/math".to_string(), vec!["greet".to_string()], "func"),
+        ],
+        "imports: {names:?}"
+    );
+    // Every import is reached through a lower-import initializer + trampoline.
+    let lowered = t
+        .plan
+        .initializers
+        .iter()
+        .filter(|i| matches!(i, Initializer::LowerImport { .. }))
+        .count();
+    assert_eq!(lowered, 3);
+    assert_eq!(
+        t.plan
+            .trampolines
+            .iter()
+            .filter(|t| matches!(t, TrampolineDecl::LowerImport { .. }))
+            .count(),
+        3
+    );
+    assert!(t.plan.imported_resources.is_empty());
+}
+
+/// An imported resource type: `importedResources` back-references the plan
+/// import, and the resource table's `resource` is the *component-wide*
+/// ResourceIndex (0 here — imported resources come first).
+#[test]
+fn imported_resources_are_emitted() {
+    let bytes = build("imported-resource");
+    let t = translate(&bytes).unwrap();
+
+    assert_eq!(t.plan.imported_resources.len(), 1);
+    let import_idx = t.plan.imported_resources[0].import as usize;
+    let imp = &t.plan.imports[import_idx];
+    assert_eq!(imp.kind, "resource");
+    assert_eq!(imp.name, "host:api/res");
+    assert_eq!(imp.path, vec!["R".to_string()]);
+
+    // ResourceIndex 0 is the imported resource; no defined resources exist,
+    // so no `resource` initializer is emitted.
+    assert_eq!(t.plan.resource_tables.len(), 1);
+    match &t.plan.resource_tables[0] {
+        ResourceTableDecl::Concrete { resource, .. } => assert_eq!(*resource, 0),
+        other => panic!("expected concrete resource table, got {other:?}"),
+    }
+    assert!(
+        !t.plan
+            .initializers
+            .iter()
+            .any(|i| matches!(i, Initializer::Resource { .. })),
+        "no resource is *defined* by this component"
+    );
+    // resource.drop on an imported type still needs its trampoline.
+    assert!(
+        t.plan
+            .trampolines
+            .iter()
+            .any(|t| matches!(t, TrampolineDecl::ResourceDrop { .. }))
+    );
 }

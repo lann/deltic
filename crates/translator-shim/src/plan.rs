@@ -27,6 +27,8 @@ use std::collections::HashMap;
 use std::fmt::Write as _;
 
 use anyhow::{anyhow, bail, Context, Result};
+
+use crate::unsupported;
 use serde::Serialize;
 use wasmtime_environ::component::{
     CanonicalOptions, CanonicalOptionsDataModel, Component, ComponentTypes, CoreDef, CoreExport,
@@ -59,9 +61,28 @@ pub struct Plan {
     /// `TypeResourceTableIndex`. (Extension over the letter of plan-format.md,
     /// which references "the plan's resource table" without defining it.)
     pub resource_tables: Vec<ResourceTableDecl>,
+    /// Resource types this component *imports*, in `ResourceIndex` order
+    /// (entry `i` is `ResourceIndex(i)`). Defined resources follow:
+    /// `ResourceIndex = importedResources.len() + DefinedResourceIndex`,
+    /// exactly wasmtime's `Component::resource_index`
+    /// (wasmtime-environ 47.0.3, `component/info.rs:222`).
+    ///
+    /// contracts/plan-format.md v0.1 amendment #2 named this gap; the field
+    /// is a **v0.2 proposal** (see the M1-A track report). Emitting it is
+    /// purely additive — v0.1 consumers ignore it, and it is empty for every
+    /// component that imports no resource type, which is every M0 fixture.
+    pub imported_resources: Vec<ImportedResourceDecl>,
     pub imports: Vec<ImportDecl>,
     pub exports: Vec<ExportDecl>,
     pub world_digest: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportedResourceDecl {
+    /// Index into `plan.imports` (`RuntimeImportIndex`) naming the host
+    /// value that supplies this resource type.
+    pub import: u32,
 }
 
 #[derive(Debug, Serialize)]
@@ -617,6 +638,22 @@ impl<'a> PlanBuilder<'a> {
             });
         }
 
+        // 6b. Imported resources, in ResourceIndex order (v0.2 proposal; see
+        //     the `Plan::imported_resources` docs). Emitted *after* imports so
+        //     the `import` back-references can be range-checked here.
+        let mut imported_resources = Vec::new();
+        for (_, runtime_import) in component.imported_resources.iter() {
+            let idx = runtime_import.as_u32();
+            if idx as usize >= imports.len() {
+                bail!(
+                    "imported resource references runtime import {idx}, but the \
+                     component has {} runtime imports",
+                    imports.len()
+                );
+            }
+            imported_resources.push(ImportedResourceDecl { import: idx });
+        }
+
         // 7. Exports (component export-name insertion order).
         let mut exports = Vec::new();
         for (name, (export_idx, _)) in component.exports.raw_iter() {
@@ -636,6 +673,7 @@ impl<'a> PlanBuilder<'a> {
             canonical_options,
             types: self.type_table,
             resource_tables,
+            imported_resources,
             imports,
             exports,
             world_digest,
@@ -661,7 +699,7 @@ impl<'a> PlanBuilder<'a> {
                             args,
                         }
                     }
-                    InstantiateModule::Import(..) => bail!(
+                    InstantiateModule::Import(..) => unsupported!(
                         "imported-module instantiation (InstantiateModule::Import) is not \
                          supported in plan v0 (contracts/plan-format.md open items)"
                     ),
@@ -715,7 +753,7 @@ impl<'a> PlanBuilder<'a> {
                 instance: i.as_u32(),
             },
             CoreDef::Trampoline(i) => CoreDefJson::Trampoline { index: i.as_u32() },
-            CoreDef::UnsafeIntrinsic(i) => bail!(
+            CoreDef::UnsafeIntrinsic(i) => unsupported!(
                 "CoreDef::UnsafeIntrinsic({i:?}) encountered; rejected in plan v0 \
                  (contracts/plan-format.md) — report this component"
             ),
@@ -1099,7 +1137,7 @@ impl<'a> PlanBuilder<'a> {
                     })?;
                     current = ext.ty;
                 }
-                other => bail!(
+                other => unsupported!(
                     "import path walks through non-instance type {}: unsupported",
                     other.desc()
                 ),
@@ -1115,7 +1153,7 @@ impl<'a> PlanBuilder<'a> {
             TypeDef::ComponentInstance(_) => ("instance", None),
             TypeDef::Resource(_) => ("resource", None),
             TypeDef::Interface(it) => ("type", Some(self.intern_val_type_entry(*it)?)),
-            other => bail!("unsupported import kind: {}", other.desc()),
+            other => unsupported!("unsupported import kind: {}", other.desc()),
         })
     }
 
@@ -1148,14 +1186,14 @@ impl<'a> PlanBuilder<'a> {
                     TypeDef::Interface(it) => TypeExportJson::Value {
                         r#type: self.intern_val_type_entry(*it)?,
                     },
-                    other => bail!("unsupported type export: {}", other.desc()),
+                    other => unsupported!("unsupported type export: {}", other.desc()),
                 };
                 ExportDecl::Type {
                     name: name.to_string(),
                     r#type: ty,
                 }
             }
-            Export::ModuleStatic { .. } | Export::ModuleImport { .. } => bail!(
+            Export::ModuleStatic { .. } | Export::ModuleImport { .. } => unsupported!(
                 "module exports are not supported in plan v0 (export '{name}'); \
                  report this component"
             ),
@@ -1367,7 +1405,7 @@ impl<'a> PlanBuilder<'a> {
                 lm.memory.map(|m| m.as_u32()),
                 lm.realloc.map(|r| r.as_u32()),
             ),
-            CanonicalOptionsDataModel::Gc {} => bail!(
+            CanonicalOptionsDataModel::Gc {} => unsupported!(
                 "GC data model in canonical options is rejected in plan v0 \
                  (contracts/descriptor-ir.md)"
             ),
@@ -1415,7 +1453,7 @@ fn wasm_val_type(t: &WasmValType) -> Result<&'static str> {
         WasmValType::I64 => "i64",
         WasmValType::F32 => "f32",
         WasmValType::F64 => "f64",
-        other => bail!("unsupported core value type in plan v0: {other:?}"),
+        other => unsupported!("unsupported core value type in plan v0: {other:?}"),
     })
 }
 

@@ -5,6 +5,8 @@
 import { assertEq } from "./support/asserts.ts";
 import {
   loadEnvelope,
+  resourceIndexOfDefined,
+  TranslateError,
   loadPlan,
   loadValType,
   PlanError,
@@ -51,10 +53,6 @@ Deno.test("loader: formatVersion is validated and fails fast", () => {
 
 Deno.test("loader: envelope error and shape handling", () => {
   assertPlanError(() => loadEnvelope("not json"), "not valid JSON");
-  assertPlanError(
-    () => loadEnvelope(`{"error":"boom"}`),
-    "translator error: boom",
-  );
   assertPlanError(() => loadEnvelope(`{}`), "missing `plan`");
   const { wire, adapters } = loadEnvelope(JSON.stringify({
     plan: minimalPlan(),
@@ -163,4 +161,87 @@ Deno.test("loader: nested structural types convert recursively", () => {
       },
     ],
   });
+});
+
+
+// --- structured translation verdicts (contracts v0.2 proposal) -------------
+
+Deno.test("loader: envelope errorDetail becomes a TranslateError with phase", () => {
+  // A `validation` phase is the shim's judgment about the *component* — the
+  // only verdict that satisfies assert_invalid / assert_malformed.
+  try {
+    loadEnvelope(JSON.stringify({
+      error: "type mismatch",
+      errorDetail: {
+        phase: "validation",
+        message: "type mismatch",
+        detail: "type mismatch (at offset 0x1)",
+      },
+    }));
+    throw new Error("expected TranslateError");
+  } catch (e) {
+    if (!(e instanceof TranslateError)) throw e;
+    assertEq(e.phase, "validation");
+    assertEq(e.isValidationVerdict, true);
+    assertEq(e.detail.includes("offset"), true);
+    // Deliberately *not* a PlanError: a plan-document fault and a verdict
+    // about the input component must not be conflated.
+    assertEq(e instanceof PlanError, false);
+  }
+});
+
+Deno.test("loader: unsupported/internal phases are not validation verdicts", () => {
+  for (const phase of ["unsupported", "internal"] as const) {
+    try {
+      loadEnvelope(JSON.stringify({
+        error: "nope",
+        errorDetail: { phase, message: "nope" },
+      }));
+      throw new Error("expected TranslateError");
+    } catch (e) {
+      if (!(e instanceof TranslateError)) throw e;
+      assertEq(e.phase, phase);
+      assertEq(e.isValidationVerdict, false);
+    }
+  }
+});
+
+Deno.test("loader: v0.1 envelope without errorDetail is not a validation verdict", () => {
+  try {
+    loadEnvelope(`{"error":"boom"}`);
+    throw new Error("expected TranslateError");
+  } catch (e) {
+    if (!(e instanceof TranslateError)) throw e;
+    assertEq(e.phase, "internal");
+    assertEq(e.isValidationVerdict, false);
+    assertEq(String(e).includes("boom"), true);
+  }
+});
+
+// --- imported resources (contracts v0.2 proposal) --------------------------
+
+Deno.test("loader: ResourceIndex = imported + defined", () => {
+  const withImports = loadPlan(minimalPlan({
+    imports: [
+      { name: "r", path: [], kind: "resource" },
+      { name: "s", path: [], kind: "resource" },
+    ],
+    importedResources: [{ import: 0 }, { import: 1 }],
+  }));
+  assertEq(withImports.numImportedResources, 2);
+  assertEq(resourceIndexOfDefined(withImports, 0), 2);
+  assertEq(resourceIndexOfDefined(withImports, 1), 3);
+
+  // Absent field (a v0.1 plan) reads as "no imported resources", which is
+  // exactly what v0.1 asserted.
+  const v01 = loadPlan(minimalPlan());
+  assertEq(v01.numImportedResources, 0);
+  assertEq(resourceIndexOfDefined(v01, 0), 0);
+});
+
+Deno.test("loader: importedResources back-references are range-checked", () => {
+  assertPlanError(
+    () => loadPlan(minimalPlan({ importedResources: [{ import: 3 }] })),
+    "not a valid index into plan.imports",
+  );
 });

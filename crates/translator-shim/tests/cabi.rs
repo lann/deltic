@@ -31,7 +31,15 @@ fn roundtrip(name: &str) -> String {
 /// adapter module in the plan's module table.
 #[test]
 fn cabi_roundtrip_all_testdata() {
-    for name in ["trivial", "linked", "async-lift", "async-linked"] {
+    for name in [
+        "trivial",
+        "linked",
+        "async-lift",
+        "async-linked",
+        "imports",
+        "imported-resource",
+        "relend-borrow",
+    ] {
         let json = roundtrip(name);
         let v: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert!(
@@ -58,10 +66,30 @@ fn cabi_roundtrip_all_testdata() {
     }
 }
 
-/// Errors come back as an `{"error": ...}` envelope, not a panic/trap.
+/// Errors come back as an `{"error": ...}` envelope, not a panic/trap, and
+/// carry the structured verdict in `errorDetail` (contracts v0.2 proposal;
+/// `src/error.rs`). The `error` string keeps its v0.1 meaning.
 #[test]
 fn cabi_error_envelope() {
     let json = roundtrip_bytes(b"not a component");
     let v: serde_json::Value = serde_json::from_str(&json).unwrap();
     assert!(v["error"].is_string(), "{json}");
+    assert_eq!(v["errorDetail"]["phase"], "validation", "{json}");
+    assert_eq!(v["errorDetail"]["message"], v["error"], "{json}");
+    assert!(v["errorDetail"]["detail"].is_string(), "{json}");
+    assert!(v["plan"].is_null(), "{json}");
+}
+
+/// A *valid* component the plan cannot represent must be distinguishable from
+/// an invalid one: phase `unsupported`, never `validation`.
+#[test]
+fn cabi_unsupported_phase_is_distinct() {
+    // Module exports are rejected by plan v0 (`Export::ModuleStatic`).
+    let comp = wat::parse_str(
+        r#"(component (core module $m) (export "m" (core module $m)))"#,
+    )
+    .unwrap();
+    let json = roundtrip_bytes(&comp);
+    let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(v["errorDetail"]["phase"], "unsupported", "{json}");
 }

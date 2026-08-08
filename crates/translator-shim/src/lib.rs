@@ -38,8 +38,10 @@ use serde::Serialize;
 use wasmtime_environ::component::{ComponentTypesBuilder, Translator};
 use wasmtime_environ::{ScopeVec, Tunables};
 
+pub mod error;
 pub mod plan;
 
+pub use error::{Phase, TranslateError};
 pub use plan::Plan;
 
 /// One FACT adapter artifact: file name (as referenced from
@@ -61,21 +63,42 @@ pub struct Translation {
 ///
 /// `wasmparser` 0.252 defaults already include `component_model` and
 /// `cm_async` (component-model-async). We additionally enable the async
-/// trailing features; this mirrors wasmtime's
-/// `-W component-model-async=y,component-model-error-context=y`.
+/// trailing features (mirroring wasmtime's
+/// `-W component-model-async=y,component-model-error-context=y`) and the
+/// gated component-model extensions the official suite exercises:
+/// fixed-length lists, maps, `implements`, and threading. Rationale: those
+/// suite files contain components the suite expects to *decode* (`module` /
+/// `module_definition` commands); with the gates off the shim rejects them
+/// with a feature-gate error, which is not a conformance verdict we want to
+/// claim. Enabling them was checked against the whole corpus: it does not
+/// turn any `assert_invalid`/`assert_malformed` case into an acceptance
+/// (`cargo run -p translator-shim --example suite-inventory`).
 fn features() -> wasmparser::WasmFeatures {
     let mut f = wasmparser::WasmFeatures::default();
     f.insert(wasmparser::WasmFeatures::CM_ASYNC);
     f.insert(wasmparser::WasmFeatures::CM_ASYNC_STACKFUL);
     f.insert(wasmparser::WasmFeatures::CM_MORE_ASYNC_BUILTINS);
     f.insert(wasmparser::WasmFeatures::CM_ERROR_CONTEXT);
+    f.insert(wasmparser::WasmFeatures::CM_FIXED_LENGTH_LISTS);
+    f.insert(wasmparser::WasmFeatures::CM_MAP);
+    f.insert(wasmparser::WasmFeatures::CM_IMPLEMENTS);
+    f.insert(wasmparser::WasmFeatures::CM_THREADING);
     f
 }
 
 /// Feature names recorded in `plan.producer.features`. Must describe
 /// `features()` — part of the artifact-cache key.
 fn feature_names() -> Vec<String> {
-    ["cm-async", "cm-async-stackful", "cm-more-async-builtins", "cm-error-context"]
+    [
+        "cm-async",
+        "cm-async-stackful",
+        "cm-more-async-builtins",
+        "cm-error-context",
+        "cm-fixed-length-lists",
+        "cm-map",
+        "cm-implements",
+        "cm-threading",
+    ]
         .map(String::from)
         .to_vec()
 }
@@ -85,7 +108,13 @@ fn feature_names() -> Vec<String> {
 /// Runs wasmtime's full component frontend: parse + validate + type-check the
 /// component, resolve its linking structure to a flat initializer list, run
 /// FACT to synthesize fused adapters, then map everything to the plan schema.
-pub fn translate(component_bytes: &[u8]) -> Result<Translation> {
+pub fn translate(component_bytes: &[u8]) -> std::result::Result<Translation, TranslateError> {
+    translate_inner(component_bytes)
+}
+
+fn translate_inner(
+    component_bytes: &[u8],
+) -> std::result::Result<Translation, TranslateError> {
     // `default_u32()` rather than `default_host()`: keeps native tests and the
     // wasm32 build byte-identical. FACT consults only `concurrency_support`
     // (true) and `debug_adapter_modules` (false) from tunables.
@@ -94,9 +123,38 @@ pub fn translate(component_bytes: &[u8]) -> Result<Translation> {
     let mut types = ComponentTypesBuilder::new(&validator);
     let scope = ScopeVec::new();
 
-    let (translation, modules) =
-        Translator::new(&tunables, &mut validator, &mut types, &scope).translate(component_bytes)?;
+    // Everything up to and including this call is wasmtime's frontend:
+    // a failure here means the input is invalid/malformed (Phase::Validation).
+    let (translation, modules) = Translator::new(&tunables, &mut validator, &mut types, &scope)
+        .translate(component_bytes)
+        .map_err(|e| TranslateError::from_frontend(e.into()))?;
 
+    // Core function *bodies* are not validated by `Translator::translate`:
+    // wasmtime defers that to its compiler backend, which consumes the
+    // `FuncToValidate` handed out in `FunctionBodyData`. We have no compiler
+    // backend, so we run those validators here — otherwise components with
+    // an invalid nested core module (official suite
+    // `test/validation/core-modules.wast:24`) would translate successfully
+    // and only be rejected later by the JS engine's `WebAssembly.compile`.
+    // Verdict phase is `validation`: this is still "the input is invalid".
+    validate_function_bodies(component_bytes, &modules)?;
+
+    // From here on we are mapping wasmtime's (already accepted) output into
+    // the plan schema: failures are `unsupported` or `internal`, never
+    // `validation` (see `error.rs`).
+    map_translation(component_bytes, translation, modules, types)
+        .map_err(TranslateError::from_plan_error)
+}
+
+fn map_translation(
+    component_bytes: &[u8],
+    translation: wasmtime_environ::component::ComponentTranslation,
+    modules: wasmtime_environ::PrimaryMap<
+        wasmtime_environ::component::StaticModuleIndex,
+        wasmtime_environ::ModuleTranslation<'_>,
+    >,
+    types: ComponentTypesBuilder,
+) -> Result<Translation> {
     // Capture counts only available on the builder, then finish the type
     // tables (moves core module types in as well).
     let num_resource_tables = types.num_resource_tables();
@@ -184,6 +242,57 @@ pub fn translate(component_bytes: &[u8]) -> Result<Translation> {
     Ok(Translation { plan, adapters })
 }
 
+/// Run wasmparser's deferred per-function validators over every core module in
+/// the translation.
+///
+/// The verdict phase depends on *whose* module failed, which is the same
+/// embedded-vs-FACT distinction `map_translation` makes by pointer
+/// containment: an **embedded** module belongs to the input, so a bad body
+/// means the component is invalid (`validation`); a **FACT-generated** adapter
+/// is code we asked wasmtime to synthesize, so a bad body is a defect in our
+/// pipeline (`internal`) and must never be reported as a judgment about the
+/// input component.
+fn validate_function_bodies(
+    component_bytes: &[u8],
+    modules: &wasmtime_environ::PrimaryMap<
+        wasmtime_environ::component::StaticModuleIndex,
+        wasmtime_environ::ModuleTranslation<'_>,
+    >,
+) -> std::result::Result<(), TranslateError> {
+    let base = component_bytes.as_ptr() as usize;
+    let end = base + component_bytes.len();
+    let mut allocs = wasmparser::FuncValidatorAllocations::default();
+    for (idx, mt) in modules.iter() {
+        let ptr = mt.wasm.as_ptr() as usize;
+        let embedded = ptr >= base && ptr + mt.wasm.len() <= end;
+        for (_, body) in mt.function_body_inputs.iter() {
+            let to_validate = wasmparser::FuncToValidate {
+                resources: body.validator.resources.clone(),
+                index: body.validator.index,
+                ty: body.validator.ty,
+                features: body.validator.features,
+            };
+            let mut validator = to_validate.into_validator(allocs);
+            if let Err(e) = validator.validate(&body.body) {
+                return Err(if embedded {
+                    TranslateError::new(Phase::Validation, format!("{e}"))
+                } else {
+                    TranslateError::new(
+                        Phase::Internal,
+                        format!(
+                            "FACT-generated adapter module {} failed core \
+                             validation: {e}",
+                            idx.as_u32()
+                        ),
+                    )
+                });
+            }
+            allocs = validator.into_allocations();
+        }
+    }
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Envelope (C-ABI wire format)
 // ---------------------------------------------------------------------------
@@ -222,11 +331,30 @@ pub fn to_envelope_json(t: &Translation) -> Result<String> {
 /// This is the function behind `ts_translate`; it never panics on invalid
 /// input, returning `{"error": "..."}` instead.
 pub fn translate_to_envelope(component_bytes: &[u8]) -> String {
-    match translate(component_bytes).and_then(|t| to_envelope_json(&t)) {
-        Ok(json) => json,
-        Err(e) => serde_json::to_string(&serde_json::json!({ "error": format!("{e:?}") }))
-            .unwrap_or_else(|_| r#"{"error":"unknown"}"#.to_string()),
-    }
+    let err = match translate(component_bytes) {
+        Ok(t) => match to_envelope_json(&t) {
+            Ok(json) => return json,
+            // Serializing our own plan cannot fail on valid data; if it does,
+            // that is a shim bug, not a verdict about the component.
+            Err(e) => TranslateError::new(Phase::Internal, format!("{e:?}")),
+        },
+        Err(e) => e,
+    };
+    error_envelope_json(&err)
+}
+
+/// The C-ABI error envelope.
+///
+// CONTRACT: contracts/plan-format.md / translator-shim README pin the error
+// envelope as `{"error": "<message>"}` and "no other field present". The
+// `error` string keeps exactly that meaning; `errorDetail` is an additive
+// sibling carrying the structured verdict (phase + message). v0.2 proposal.
+pub fn error_envelope_json(e: &TranslateError) -> String {
+    serde_json::to_string(&serde_json::json!({
+        "error": e.message,
+        "errorDetail": e,
+    }))
+    .unwrap_or_else(|_| r#"{"error":"unknown","errorDetail":{"phase":"internal","message":"unknown","detail":""}}"#.to_string())
 }
 
 /// C-ABI surface for the wasm32 build (used by the Deno driver).

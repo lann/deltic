@@ -14,6 +14,7 @@ import { ComponentInstanceState } from "../task/mod.ts";
 import {
   loadPlan,
   PlanError,
+  resourceIndexOfDefined,
 } from "../plan/loader.ts";
 import type {
   WireCanonicalOptions,
@@ -33,11 +34,56 @@ import {
   newStats,
   type ResolvedOptions,
 } from "./boundary.ts";
-import { createTrampoline } from "../intrinsics/mod.ts";
+import {
+  createTrampoline,
+  type HostTrapState,
+  type SyncCallScope,
+} from "../intrinsics/mod.ts";
 
-/** Host-provided imports, keyed by the component's import name, with nested
- * records for instance imports (walked by `plan.imports[].path`). */
+/**
+ * Host-provided imports: a nested record keyed by the component's *exact*
+ * import strings. A plan import with a non-empty `path` (an item extracted
+ * from an imported instance — plan-format.md v0.1 amendment #4) is looked up
+ * by walking `imports[name]` then each path segment in order. So an import
+ * of `"ns:pkg/iface"` exposing `f` is supplied as
+ * `{ "ns:pkg/iface": { f: (…) => … } }`.
+ *
+ * Leaf values by import kind:
+ *   - `func`     — a JS function; arguments/results are host-shaped
+ *                  component values (contracts/descriptor-ir.md).
+ *   - `resource` — a `HostResourceType` (see `hostResourceType`).
+ *   - `instance` — a plain object; only its leaves are ever read.
+ *   - `module`   — not supported (see `InstantiateModule::Import` below).
+ */
 export type HostImports = Record<string, unknown>;
+
+/**
+ * Identity token for a resource type **defined by the host** and imported by
+ * a component (plan `importedResources`). One object per resource type;
+ * object identity is the type identity, exactly as for guest-defined
+ * resources whose identity is the per-instantiation `ResourceTypeInfo`.
+ */
+export class HostResourceType {
+  constructor(
+    readonly options: {
+      /** Debug name, used in error messages only. */
+      readonly name?: string;
+      /**
+       * Destructor for handles owned by a component and dropped there.
+       * Per PLAN.md §7 / CanonicalABI.md `canon resource.drop`, it runs
+       * synchronously and may not block.
+       */
+      readonly dtor?: (rep: number) => void;
+    } = {},
+  ) {}
+}
+
+/** Convenience constructor for {@link HostResourceType}. */
+export function hostResourceType(
+  options?: HostResourceType["options"],
+): HostResourceType {
+  return new HostResourceType(options ?? {});
+}
 
 export interface InstantiateInput {
   plan: WirePlan;
@@ -58,6 +104,8 @@ export interface ComponentHandle {
   componentInstances: ComponentInstanceState[];
   coreInstances: WebAssembly.Instance[];
   taskMayBlock: WebAssembly.Global;
+  /** `ResourceIndex` -> the `HostResourceType` bound to it, if any. */
+  hostResourceTypes: Map<number, HostResourceType>;
 }
 
 export async function instantiateComponent(
@@ -69,6 +117,7 @@ export async function instantiateComponent(
   const executor = new Executor(loaded, input);
   await executor.verifyComponent();
   await executor.compileModules();
+  executor.bindImportedResources();
   await executor.runInitializers();
   return executor.finish();
 }
@@ -106,6 +155,15 @@ class Executor {
   /** LoweredIndex -> RuntimeImportIndex (from lower-import initializers). */
   readonly lowerings = new Map<number, number>();
   readonly trampolineCache = new Map<number, CoreFn>();
+  /**
+   * ResourceIndex -> the host token bound to it (imported resource types).
+   * Surfaced on the component handle for embedder introspection.
+   */
+  readonly hostResourceTypes = new Map<number, HostResourceType>();
+  /** In-flight sync cross-component calls (see intrinsics `SyncCallScope`). */
+  readonly syncCallStack: SyncCallScope[] = [];
+  /** Host trap held across a FACT exception barrier (see `HostTrapState`). */
+  readonly trapState: HostTrapState = { pending: undefined };
 
   constructor(loaded: LoadedPlan, input: InstantiateInput) {
     this.loaded = loaded;
@@ -166,6 +224,43 @@ class Executor {
       return WebAssembly.compile(bytes.slice().buffer as ArrayBuffer);
     }));
     this.modules.push(...compiled);
+  }
+
+  /**
+   * Bind every imported resource type to the `HostResourceType` the embedder
+   * supplied at the corresponding import path, before any initializer runs.
+   *
+   * Identity: all resource *tables* whose `resource` is this imported
+   * ResourceIndex share the host token's dtor. `impl` stays null — an
+   * imported resource is implemented by the host, not by any component
+   * instance in this component, which is what the reference's
+   * `ResourceType.impl` means (definitions.py `class ResourceType`).
+   */
+  bindImportedResources(): void {
+    const imported = this.wire.importedResources ?? [];
+    imported.forEach((ir, resourceIndex) => {
+      const imp = this.wire.imports[ir.import];
+      const label = importLabel(imp.name, imp.path);
+      const value = this.lookupHostImport(imp.name, imp.path, label);
+      if (!(value instanceof HostResourceType)) {
+        throw new PlanError(
+          `host import '${label}' must be a HostResourceType (the component ` +
+            `imports a resource type); got ${describe(value)}`,
+        );
+      }
+      const dtor = value.options.dtor;
+      this.wire.resourceTables.forEach((table, tableIndex) => {
+        if (table.kind !== "concrete" || table.resource !== resourceIndex) {
+          return;
+        }
+        // A type-only import may have no concrete table at all; that is fine,
+        // there is simply no runtime state to bind.
+        const token = this.loaded.resourceTokens[tableIndex];
+        token.impl = null;
+        token.dtor = dtor === undefined ? null : (rep: number) => dtor(rep);
+      });
+      this.hostResourceTypes.set(resourceIndex, value);
+    });
   }
 
   async runInitializers(): Promise<void> {
@@ -250,17 +345,13 @@ class Executor {
             ? null
             : this.resolveFunction(init.dtor, `resource ${init.index} dtor`);
           const inst = this.componentInstance(init.instance);
-          // M0 restriction: without imported-resource metadata in the plan,
-          // ResourceIndex == DefinedResourceIndex only when nothing imports
-          // resources.
-          if (this.wire.imports.some((imp) => imp.kind === "resource")) {
-            throw new PlanError(
-              "imported resources are not supported by the M0 executor " +
-                "(ResourceIndex mapping undefined in plan v0)",
-            );
-          }
+          // `init.index` is a DefinedResourceIndex; resource *tables* key off
+          // the component-wide ResourceIndex, which counts imported resources
+          // first (plan-format.md v0.1 amendment #2 / v0.2
+          // `importedResources`; wasmtime `Component::resource_index`).
+          const resourceIndex = resourceIndexOfDefined(this.loaded, init.index);
           this.wire.resourceTables.forEach((table, tableIndex) => {
-            if (table.kind === "concrete" && table.resource === init.index) {
+            if (table.kind === "concrete" && table.resource === resourceIndex) {
               const token = this.loaded.resourceTokens[tableIndex];
               token.impl = inst;
               token.dtor = dtor === null ? null : (rep: number) => {
@@ -296,6 +387,7 @@ class Executor {
       componentInstances,
       coreInstances: this.instances,
       taskMayBlock: this.taskMayBlock,
+      hostResourceTypes: this.hostResourceTypes,
     };
   }
 
@@ -313,6 +405,9 @@ class Executor {
           opts,
           core,
           stats: this.stats,
+          trapState: this.trapState,
+          syncCallStack: this.syncCallStack,
+          allInstances: () => this.componentInstances.values(),
         });
       }
       case "instance": {
@@ -409,6 +504,21 @@ class Executor {
         }
         return token;
       },
+      resourceTableInstance: (i) => {
+        const table = this.wire.resourceTables[i];
+        if (table === undefined) {
+          throw new PlanError(`no resource table ${i} in plan`);
+        }
+        if (table.kind !== "concrete") {
+          throw new PlanError(
+            `resource table ${i} is abstract (type-only) and has no runtime ` +
+              `handle table`,
+          );
+        }
+        return this.componentInstance(table.instance);
+      },
+      syncCallStack: this.syncCallStack,
+      trapState: this.trapState,
       loweredImport: (d) => this.buildLoweredImport(d),
       stats: this.stats,
     });
@@ -433,19 +543,13 @@ class Executor {
     if (imp === undefined) {
       throw new PlanError(`no import ${importIndex} in plan`);
     }
-    const label = [imp.name, ...imp.path].join(".");
-    let value: unknown = this.hostImports[imp.name];
-    for (const segment of imp.path) {
-      if (value === null || typeof value !== "object") {
-        throw new PlanError(
-          `host import '${label}': missing intermediate object at ` +
-            `'${segment}'`,
-        );
-      }
-      value = (value as Record<string, unknown>)[segment];
-    }
+    const label = importLabel(imp.name, imp.path);
+    const value = this.lookupHostImport(imp.name, imp.path, label);
     if (typeof value !== "function") {
-      throw new PlanError(`host import '${label}' missing or not a function`);
+      throw new PlanError(
+        `host import '${label}' missing or not a function (got ` +
+          `${describe(value)})`,
+      );
     }
     const ft = this.funcType(decl.type, `import '${label}'`);
     const opts = this.resolveOptions(decl.options);
@@ -456,6 +560,34 @@ class Executor {
       hostFn: value as (...args: unknown[]) => unknown,
       stats: this.stats,
     });
+  }
+
+  /**
+   * Resolve one plan import against the host-provided import record: index by
+   * the component's exact import string, then walk `path` (instance imports —
+   * plan-format.md v0.1 amendment #4).
+   */
+  lookupHostImport(name: string, path: string[], label: string): unknown {
+    if (!(name in this.hostImports)) {
+      throw new PlanError(
+        `host import '${label}' not provided (no key '${name}' in imports)`,
+      );
+    }
+    let value: unknown = this.hostImports[name];
+    const walked: string[] = [];
+    for (const segment of path) {
+      if (value === null || typeof value !== "object") {
+        throw new PlanError(
+          `host import '${label}': '${
+            [name, ...walked].join("/")
+          }' is ${describe(value)}, expected an object to read ` +
+            `'${segment}' from`,
+        );
+      }
+      value = (value as Record<string, unknown>)[segment];
+      walked.push(segment);
+    }
+    return value;
   }
 
   funcType(index: number, what: string): FuncType {
@@ -494,6 +626,18 @@ class Executor {
       instance: this.componentInstance(wire.instance),
     };
   }
+}
+
+/** `name` plus instance path, for diagnostics: `"ns:pkg/iface"."f"`. */
+function importLabel(name: string, path: string[]): string {
+  return path.length === 0 ? name : `${name}/${path.join("/")}`;
+}
+
+function describe(v: unknown): string {
+  if (v === null) return "null";
+  if (v === undefined) return "undefined";
+  if (typeof v === "object") return `a ${v.constructor?.name ?? "object"}`;
+  return `a ${typeof v}`;
 }
 
 /** Convenience for callers: typed view of a lifted export. */

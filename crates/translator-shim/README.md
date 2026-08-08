@@ -26,7 +26,8 @@ packed into **one JSON envelope** — a shim-internal wire format, mapped 1:1:
 | `plan`              | the `plan.json` document (as a JSON object; its byte form is this crate's serde serialization, which is deterministic) |
 | `adapters[i].file`  | the artifact path, identical to `plan.modules[].file` (`adapters/<static module index>.wasm`) |
 | `adapters[i].wasm`  | that artifact's bytes, base64 (standard alphabet, padded) |
-| `error`             | (error envelopes only) failure message; no other field present |
+| `error`             | (error envelopes only) failure message (unchanged v0.1 meaning) |
+| `errorDetail`       | (error envelopes only) structured verdict `{phase, message, detail}` — see "Verdicts" below. **contracts v0.2 proposal**; additive, v0.1 consumers ignore it |
 
 Nothing else is in the envelope; consumers that want the on-disk artifact set
 write `plan` and the decoded adapters out verbatim. The runtime-side decoder
@@ -37,14 +38,47 @@ no maps, integers only; adapter bytes are FACT output, deterministic for a
 pinned toolchain. `translate twice ⇒ byte-identical envelope` is asserted by
 `tests/translate.rs::determinism` and by the runtime e2e test.
 
+## Verdicts (`src/error.rs`)
+
+`translate` fails with a `TranslateError { phase, message, detail }`. The
+`phase` is what makes the official suite's `assert_invalid` /
+`assert_malformed` commands decidable:
+
+| phase | meaning | may be scored as a correct rejection? |
+|---|---|---|
+| `validation` | wasmtime's frontend rejected the input: the component is invalid or malformed | **yes** |
+| `unsupported` | valid component, shape not representable in plan v0 (module exports, `InstantiateModule::Import`, `CoreDef::UnsafeIntrinsic`, GC data model, …) | no — triage item |
+| `internal` | shim invariant broken | no — bug |
+
+`assert_malformed` (decoding) and `assert_invalid` (type checking) are *not*
+split: wasmparser reports both as `BinaryReaderError` and the distinction is
+not recoverable without matching wasmtime's message text. Both are
+`validation`, which is what both commands require.
+
+Note that `Translator::translate` does **not** validate core function
+*bodies* — wasmtime defers that to its compiler backend, which we do not
+have. The shim therefore runs the deferred `FuncToValidate`s itself; without
+that, a component with an invalid nested core module (official suite
+`test/validation/core-modules.wast:24`) would translate successfully and only
+be rejected later by the JS engine.
+
 ## API surface
 
-- `translate(&[u8]) -> Result<Translation { plan, adapters }>` — library.
+- `translate(&[u8]) -> Result<Translation { plan, adapters }, TranslateError>`
+  — library.
 - `to_envelope_json(&Translation) -> Result<String>` — envelope.
 - `cabi`: `ts_alloc` / `ts_translate` / `ts_dealloc` (wasm32 C-ABI; contract
   in `src/lib.rs`).
 - `examples/dump-plan.rs` — debugging: dump a component's plan
   (`cargo run -p translator-shim --example dump-plan <component> [--full]`).
+- `examples/emit-testdata.rs` — regenerate `testdata/<name>.wasm` from its
+  `.wat` using the pinned `wat` crate, for fixtures whose syntax is newer than
+  the installed `wasm-tools` CLI
+  (`cargo run -p translator-shim --example emit-testdata -- relend-borrow`).
+- `examples/suite-inventory.rs` — triage: translate every component artifact
+  of the official suite (`cargo run -p testgen` first) and report
+  translated/rejected counts, rejection phases and the plan features seen per
+  directory (`cargo run -p translator-shim --example suite-inventory`).
 - `driver.ts` — Deno smoke driver over the wasm32 build
   (`deno run --allow-read driver.ts`).
 
@@ -104,6 +138,17 @@ code is `src/plan.rs`.
   `may_leave` (no bit masks); initial value 1.
 - **`ResourceDrop` has no `async` field** in 47.0.3 (`{ instance, ty }`) —
   plan-format.md's example shows one.
+- **`Component::imported_resources: PrimaryMap<ResourceIndex,
+  RuntimeImportIndex>`** is emitted as the plan's `importedResources`
+  (contracts v0.2 proposal). `Component::resource_index` (`info.rs:222`) is
+  the mapping the runtime must reproduce:
+  `ResourceIndex = importedResources.len() + DefinedResourceIndex`.
+- **Feature gates**: beyond the async set, the shim enables
+  `cm-fixed-length-lists`, `cm-map`, `cm-implements` and `cm-threading`,
+  because the official suite contains components it expects to *decode* which
+  use them. Verified over the whole corpus that this turns no
+  `assert_invalid`/`assert_malformed` case into an acceptance
+  (`--example suite-inventory`).
 - **`CoreDef::UnsafeIntrinsic` is real**: wit-bindgen 0.60 async guests
   (`context.get`/`context.set`) produce it (variants
   `context-{get,set}-i32-{0,1}`). Plan v0 rejects it per contract; M2 must
