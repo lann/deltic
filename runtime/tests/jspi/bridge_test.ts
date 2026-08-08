@@ -12,14 +12,19 @@ import {
   assertModeConsistent,
   chooseMode,
   enterWasm,
+  planNeedsSuspension,
   SuspensionPoint,
   suspendingImport,
 } from "../../src/jspi/mod.ts";
 import { isSupported } from "../../src/jspi/mechanics.ts";
 import {
   ComponentInstanceState,
+  maybeCurrentThread,
+  popCurrentThread,
+  pushCurrentThread,
   Store,
   Task,
+  Thread,
 } from "../../src/task/mod.ts";
 import type { FuncType } from "../../src/cabi/types.ts";
 
@@ -194,4 +199,140 @@ Deno.test("bridge: the invariant is checked, not hoped for", () => {
     }
     assert(threw, `mixture (${mode}, entries=${e}, imports=${i}) must be rejected`);
   }
+});
+
+// ---------------------------------------------------------------------------
+// Plain mode must stay exactly the M1 synchronous API
+// ---------------------------------------------------------------------------
+
+Deno.test("bridge: planNeedsSuspension recognises both sources of blocking", () => {
+  const none = { canonicalOptions: [], trampolines: [] };
+  assertEq(planNeedsSuspension(none), false);
+  // A callback-ABI async lift is stackless — it never blocks a wasm frame.
+  assertEq(
+    planNeedsSuspension({
+      canonicalOptions: [{ async: true, callback: 0 }],
+      trampolines: [],
+    }),
+    false,
+  );
+  // A stackful async lift (async options, no callback) does.
+  assertEq(
+    planNeedsSuspension({
+      canonicalOptions: [{ async: true, callback: null }],
+      trampolines: [],
+    }),
+    true,
+  );
+  // ... as does any synchronously-blocking built-in.
+  for (
+    const kind of [
+      "sync-start-call",
+      "waitable-set-wait",
+      "thread-yield",
+      "subtask-cancel",
+      "stream-read",
+      "future-write",
+    ]
+  ) {
+    assertEq(
+      planNeedsSuspension({ canonicalOptions: [], trampolines: [{ kind }] }),
+      true,
+      kind,
+    );
+  }
+  // Non-blocking built-ins must NOT flip a component to jspi mode.
+  for (const kind of ["stream-new", "waitable-set-poll", "task-return"]) {
+    assertEq(
+      planNeedsSuspension({ canonicalOptions: [], trampolines: [{ kind }] }),
+      false,
+      kind,
+    );
+  }
+});
+
+Deno.test("plain mode: lifted exports still return values, not Promises", async () => {
+  // The stop-the-line property. M1's synchronous API must not silently become
+  // async for everyone just because JSPI exists: a component that is not in
+  // jspi mode returns `T`, not `Promise<T>`, from every lifted export.
+  const root = new URL("../../../", import.meta.url);
+  let shim: Uint8Array, guest: Uint8Array;
+  try {
+    shim = await Deno.readFile(
+      new URL("target/wasm32-unknown-unknown/release/translator_shim.wasm", root),
+    );
+    guest = await Deno.readFile(
+      new URL("examples/guests/build/hello.component.wasm", root),
+    );
+  } catch {
+    return; // artifacts absent; the conformance run covers this too
+  }
+  const { Translator } = await import("../../src/shim/mod.ts");
+  const { instantiateComponent } = await import("../../src/exec/mod.ts");
+  const t = await Translator.create(shim);
+  const { plan, adapters } = t.translate(guest);
+  const c = await instantiateComponent({
+    plan,
+    componentBytes: guest,
+    adapters,
+  });
+  const greet = c.exports.greet as (n: string) => unknown;
+  const out = greet("plain");
+  assert(
+    !(out instanceof Promise),
+    "a plain-mode export must return its value synchronously",
+  );
+  assertEq(out, "Hello, plain!");
+});
+
+// ---------------------------------------------------------------------------
+// The blocker that actually gates the light-up
+// ---------------------------------------------------------------------------
+
+Deno.test({
+  name: "jspi: the ambient current-thread does not survive a suspension",
+  ignore: !isSupported(),
+  fn: async () => {
+    // This is the real reason `planNeedsSuspension` auto-detection is off, and
+    // it is worth pinning so the next attempt does not re-diagnose it.
+    //
+    // `currentThread()` is ambient: `pushCurrentThread` brackets a synchronous
+    // generator step. Under JSPI the engine resumes a suspended wasm
+    // activation in a microtask of its own, outside any JS frame we control,
+    // so a built-in called after the resume finds an empty stack. Every
+    // built-in that reads current_thread/task/instance is affected —
+    // `context.{get,set}`, `task.{return,cancel}`, `subtask.*`,
+    // `thread.yield`, and the stream/future built-ins.
+    //
+    // The test models exactly that shape without needing a guest: run a step
+    // under the ambient, suspend, and observe the ambient from a later
+    // microtask.
+    const store = new Store();
+    const inst = new ComponentInstanceState(0, store);
+    const task = mkTask(inst);
+    const thread = new Thread(task, (function* () {})());
+
+    pushCurrentThread(thread);
+    const insideStep = maybeCurrentThread() !== undefined;
+    popCurrentThread(thread);
+
+    // A resumption delivered through a Promise — the JSPI shape.
+    const point = new SuspensionPoint<number>(
+      store,
+      task,
+      () => true,
+      false,
+      () => 1,
+    );
+    point.resume();
+    await point.promise;
+    const afterResume = maybeCurrentThread() !== undefined;
+
+    assertEq(insideStep, true); // ambient is set while a step runs
+    assertEq(afterResume, false); // ... and gone once we are in a microtask
+    assert(
+      insideStep && !afterResume,
+      "the ambient current-thread is frame-scoped; JSPI resumption is not",
+    );
+  },
 });

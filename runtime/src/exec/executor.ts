@@ -14,8 +14,31 @@ import { ComponentInstanceState, Store } from "../task/mod.ts";
 import {
   assertModeConsistent,
   chooseMode,
+  planNeedsSuspension,
+  suspendingImport,
   type SuspensionMode,
 } from "../jspi/mod.ts";
+
+/**
+ * Trampoline kinds that can block a wasm frame, and so are handed to wasm as
+ * `Suspending` imports in jspi mode. Mirrors `planNeedsSuspension`'s list —
+ * the two must agree, or a component could be judged "needs suspension" while
+ * the built-in it needs it for is imported plainly.
+ */
+const BLOCKING_TRAMPOLINES: ReadonlySet<string> = new Set([
+  "sync-start-call",
+  "waitable-set-wait",
+  "thread-yield",
+  "subtask-cancel",
+  "stream-read",
+  "stream-write",
+  "future-read",
+  "future-write",
+  "stream-cancel-read",
+  "stream-cancel-write",
+  "future-cancel-read",
+  "future-cancel-write",
+]);
 import {
   loadPlan,
   PlanError,
@@ -148,6 +171,7 @@ export async function instantiateComponent(
 }
 
 type Importable =
+  | WebAssembly.Suspending
   | CoreFn
   | WebAssembly.Global
   | WebAssembly.Memory
@@ -198,10 +222,14 @@ class Executor {
   wrappedImports = false;
 
   /** Record that an entry / import wrapping site ran under the current mode. */
-  noteWrapped(kind: "entry" | "import"): void {
-    if (this.suspensionMode !== "jspi") return;
-    if (kind === "entry") this.wrappedEntries = true;
-    else this.wrappedImports = true;
+  noteEntry(): SuspensionMode {
+    if (this.suspensionMode === "jspi") this.wrappedEntries = true;
+    return this.suspensionMode;
+  }
+
+  noteImport(): SuspensionMode {
+    if (this.suspensionMode === "jspi") this.wrappedImports = true;
+    return this.suspensionMode;
   }
   readonly taskMayBlock = new WebAssembly.Global(
     { value: "i32", mutable: true },
@@ -237,24 +265,45 @@ class Executor {
     this.adapterBytes = input.adapters ?? new Map();
     this.hostImports = input.imports ?? {};
     this.verifyHash = input.verifyHash ?? true;
+    // AUTO-DETECTION IS DELIBERATELY OFF (see the report / bridge.ts).
+    //
+    // `planNeedsSuspension(loaded.wire)` computes the right answer and is
+    // used by the opt-in path, but it must not fire automatically yet: a core
+    // module's **start function** is a JS→wasm entry that `WebAssembly.
+    // instantiate` gives us no way to `promising`-wrap, and a start function
+    // may legitimately call a blocking-capable built-in (the same shape
+    // `test/async/dont-block-start.wast` exercises). By jspi pin (c) a
+    // `Suspending` import called from that non-promising activation traps
+    // unconditionally — even on the plain-value fast path — so switching a
+    // component to jspi mode can break its *instantiation*. Observed exactly
+    // that on the async-probe/stream-echo guests.
+    //
+    // Until instantiation-time calls are separated from the suspendable
+    // import set, jspi mode stays an explicit embedder opt-in.
+    // AUTO-DETECTION IS OFF — but NOT for the reason phase 3b recorded.
+    //
+    // 3b blamed the start-section lifecycle (a start function reaching a
+    // `Suspending` import from a non-promising activation, jspi pin (c)).
+    // That diagnosis is WRONG and has been disproven empirically: with
+    // detection on and imports `Suspending`-wrapped, async-probe and
+    // stream-echo both instantiate fine on an engine that does implement
+    // JSPI. No start-section surgery is required for this.
+    //
+    // The real blocker is the scheduler's **ambient current thread**.
+    // `currentThread()` is established by `pushCurrentThread` around a
+    // synchronous generator step (task/scheduler.ts). Under JSPI the engine
+    // resumes a suspended wasm activation in a microtask, outside any JS
+    // frame we control, so by the time that wasm calls `context.set` (or any
+    // other built-in reading `current_thread()` / `current_task()` /
+    // `current_instance()`) the stack is empty and the lookup fails.
+    // Reproduced as: `canonContextSet` <- `[async-lift]sum-stream` <-
+    // `driveAsync`.
+    //
+    // definitions.py has the same ambient (`thread_local_handler`) but gets
+    // it for free because its threads are real OS threads. Ours needs an
+    // activation identity the built-ins can recover without a JS frame —
+    // see the report for the options. Until then, jspi is opt-in only.
     this.suspensionMode = chooseMode(input.jspi);
-    if (this.suspensionMode === "jspi") {
-      // The bridge (jspi/bridge.ts) is built and unit-tested, but the entry
-      // path is not yet asynchronous end to end: in `jspi` mode a lifted
-      // export's core function is `promising`-wrapped and therefore returns a
-      // Promise, which `liftBody` and the callback loop must await. Refusing
-      // here keeps the invariant honest — a half-wired `jspi` mode would
-      // `Suspending`-wrap imports while entries stayed plain, which by
-      // empirical fact (c) traps unconditionally on the first blocking
-      // built-in. Better a clear refusal at instantiate time.
-      throw new PendingCapability(
-        "JSPI suspension (M2 phase 3): the scheduler bridge and the " +
-          "promising/Suspending wrapping are implemented " +
-          "(runtime/src/jspi/bridge.ts), but the lifted-export entry path is " +
-          "still synchronous, so `jspi: true` cannot be honoured yet. Every " +
-          "blocking built-in continues to raise its precise NeedsJspi",
-      );
-    }
   }
 
   async verifyComponent(): Promise<void> {
@@ -363,7 +412,7 @@ class Executor {
           }
           const importObject: WebAssembly.Imports = {};
           declared.forEach((imp, i) => {
-            const value = this.resolveCoreDef(init.args[i]);
+            const value = this.importValue(init.args[i]);
             (importObject[imp.module] ??=
               {} as WebAssembly.ModuleImports)[imp.name] =
                 value as WebAssembly.ImportValue;
@@ -455,19 +504,20 @@ class Executor {
   }
 
   finish(): ComponentHandle {
-    // Structural check of jspi/bridge.ts's invariant: both wrapping sites must
-    // agree with the mode. `wrappedEntries`/`wrappedImports` are set by the
-    // sites themselves, so this cannot pass by accident.
-    assertModeConsistent(
-      this.suspensionMode,
-      this.wrappedEntries,
-      this.wrappedImports,
-    );
     const exports: Record<string, unknown> = {};
     for (const exp of this.wire.exports) {
       const built = this.buildExport(exp, exp.name);
       if (built.kind === "value") exports[exp.name] = built.value;
     }
+    // Structural check of jspi/bridge.ts's invariant, run once both wrapping
+    // sites have had their chance: entries are wrapped while building exports
+    // (just above) and imports while running `instantiate-module`. Neither
+    // flag can be set by accident — only the wrapping helpers set them.
+    assertModeConsistent(
+      this.suspensionMode,
+      this.wrappedEntries,
+      this.wrappedImports,
+    );
     const componentInstances: ComponentInstanceState[] = [];
     for (const [i, state] of this.componentInstances) {
       componentInstances[i] = state;
@@ -513,7 +563,7 @@ class Executor {
             opts,
             core,
             stats: this.stats,
-            suspensionMode: this.suspensionMode,
+            suspensionMode: this.noteEntry(),
             trapState: this.trapState,
             syncCallStack: this.syncCallStack,
             allInstances: () => this.componentInstances.values(),
@@ -578,6 +628,33 @@ class Executor {
     return fn;
   }
 
+  /**
+   * Resolve a core-instantiation argument.
+   *
+   * Identical to `resolveCoreDef` except that in jspi mode a *blocking-capable*
+   * trampoline is handed to wasm as a `WebAssembly.Suspending`, so that
+   * returning a Promise from it suspends the calling activation instead of
+   * trapping. Only this path wraps: the same trampoline resolved anywhere the
+   * host will *call* it from JS (extract-callback, post-return, realloc) must
+   * stay an ordinary function.
+   */
+  importValue(def: WireCoreDef): Importable {
+    const value = this.resolveCoreDef(def);
+    if (
+      this.suspensionMode !== "jspi" || def.kind !== "trampoline" ||
+      typeof value !== "function"
+    ) {
+      return value;
+    }
+    const kind = this.wire.trampolines[def.index]?.kind ?? "";
+    if (!BLOCKING_TRAMPOLINES.has(kind)) return value;
+    this.noteImport();
+    return suspendingImport(
+      value as (...a: never[]) => unknown,
+      "jspi",
+    ) as unknown as Importable;
+  }
+
   resolveCoreDef(def: WireCoreDef): Importable {
     switch (def.kind) {
       case "export": {
@@ -628,7 +705,7 @@ class Executor {
     if (typeof value !== "function") {
       throw new PlanError(`${what}: resolved to non-function`);
     }
-    return value;
+    return value as CoreFn;
   }
 
   trampoline(index: number): CoreFn {

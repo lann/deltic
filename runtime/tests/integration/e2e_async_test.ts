@@ -72,7 +72,7 @@ Deno.test("async-probe: plan v1 carries the context unsafe-intrinsics", () => {
 Deno.test("async-probe: wait-then-double runs the callback ABI to EXIT", async () => {
   const component = await instantiate();
   const f = component.exports["wait-then-double"] as (x: number) => unknown;
-  assertEq(f(21), 42);
+  assertEq(await f(21), 42);
   assertEq(component.stats.liftedCalls, 1);
   assertEq(component.stats.tasksResolved, 1);
   // The guest yields once, so the host invokes the callback export at least
@@ -92,7 +92,7 @@ Deno.test("async-probe: wait-then-double runs the callback ABI to EXIT", async (
 Deno.test("async-probe: the task model is left clean after the call", async () => {
   const component = await instantiate();
   const f = component.exports["wait-then-double"] as (x: number) => unknown;
-  assertEq(f(1), 2);
+  assertEq(await f(1), 2);
   const inst = component.componentInstances[0];
   assertEq(inst.mayEnter, true);
   assertEq(inst.mayLeave, true);
@@ -107,7 +107,7 @@ Deno.test("async-probe: the task model is left clean after the call", async () =
 Deno.test("async-probe: repeated calls are independent tasks", async () => {
   const component = await instantiate();
   const f = component.exports["wait-then-double"] as (x: number) => unknown;
-  for (let i = 0; i < 5; i++) assertEq(f(i), i * 2);
+  for (let i = 0; i < 5; i++) assertEq(await f(i), i * 2);
   assertEq(component.stats.liftedCalls, 5);
   assertEq(component.stats.tasksResolved, 5);
 });
@@ -121,7 +121,7 @@ Deno.test("async-probe: sum-stream lifts a real stream handle", async () => {
   const sum = component.exports["sum-stream"] as (v: unknown) => unknown;
   let raised: unknown;
   try {
-    sum(0);
+    await sum(0);
   } catch (e) {
     raised = e;
   }

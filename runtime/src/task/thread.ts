@@ -113,6 +113,18 @@ export class Thread implements SchedulableThread {
    * header). What remains is: leave the waiting list if we were on it, become
    * the current thread, and step the generator with the cancelled flag.
    */
+  /** Pending `awaitValue` promise, if this thread is parked on one. */
+  awaiting: Promise<unknown> | null = null;
+
+  /** Resume a promise-parked thread with the settled result. */
+  resumeWith(value: unknown, failure?: { error: unknown }): void {
+    assert_(this.awaiting !== null, "resumeWith on a thread that is not awaiting");
+    this.awaiting = null;
+    this.#store.awaiting.delete(this);
+    this.#state = "suspended";
+    this.#resumeInternal(value, failure);
+  }
+
   resume(cancelled: Cancelled = CANCELLED_FALSE): void {
     assert_(
       !this.running() && !this.done(),
@@ -123,11 +135,19 @@ export class Thread implements SchedulableThread {
       "cancelled resume of a non-cancellable block point",
     );
     if (this.waiting()) this.#stopWaiting(cancelled);
+    this.#resumeInternal(cancelled);
+  }
+
+  #resumeInternal(sendValue: unknown, failure?: { error: unknown }): void {
     this.#state = "running";
     pushCurrentThread(this);
     let step: IteratorResult<BlockRequest, void>;
     try {
-      step = this.#body.next(cancelled);
+      step = failure === undefined
+        ? this.#body.next(sendValue)
+        // Throw the rejection *into* the body so a post-resume trap unwinds
+        // through the same `finally`s a synchronous one would (jspi pin (e)).
+        : this.#body.throw(failure.error);
     } catch (e) {
       // The body threw (a trap, or one of our capability errors). The thread
       // is finished either way; the exception propagates to whoever was
@@ -143,6 +163,14 @@ export class Thread implements SchedulableThread {
     }
     const req = step.value;
     this.cancellable = req.cancellable;
+    if (req.awaitValue !== undefined) {
+      // Parked on a Promise, not on a scheduler condition. The driving loop
+      // owns it from here (exec/boundary.ts `drive`).
+      this.#state = "suspended";
+      this.awaiting = req.awaitValue;
+      this.#store.awaiting.add(this);
+      return;
+    }
     if (req.readyFunc === null) {
       // `suspend`: resumable only by an explicit `resume`/`resumeLater`.
       this.#state = "suspended";

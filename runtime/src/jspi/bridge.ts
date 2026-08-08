@@ -56,8 +56,59 @@ export type SuspensionMode = "plain" | "jspi";
  * back to the precise `NeedsJspi` it raised before this module existed, which
  * is the M3 browser-matrix degradation path (PLAN.md §13 M3).
  */
-export function chooseMode(requested: boolean | undefined): SuspensionMode {
-  return requested === true && isSupported() ? "jspi" : "plain";
+export function chooseMode(
+  requested: boolean | undefined,
+  needed?: boolean,
+): SuspensionMode {
+  if (requested === false) return "plain";
+  const want = requested === true || needed === true;
+  return want && isSupported() ? "jspi" : "plain";
+}
+
+/**
+ * Does this component contain anything that can block a wasm frame?
+ *
+ * Computed from the plan, on the runtime side, so embedders (and the
+ * conformance harness) stay dumb — no plan v3 field, no flag to thread
+ * through. Deliberately a slight over-approximation: it asks "could this
+ * component ever reach a blocking built-in", not "will this call". A false
+ * positive costs a promising-wrapped entry (the export returns a Promise); a
+ * false negative would be a hard trap at the blocking site, so the bias is the
+ * safe one.
+ *
+ * The two sources of blocking, both straight from the reference:
+ *
+ *   * a **stackful async lift** — async canonical options with no callback
+ *     (`canon_lift` line 2179 runs the callee to completion on its own stack);
+ *   * a **blocking built-in** reached synchronously — the `sync` form of
+ *     `waitable-set.wait`, a stream/future copy or cancel, `subtask.cancel`,
+ *     `thread.yield`, or a `sync-start-call` into an async-lifted callee.
+ */
+export function planNeedsSuspension(plan: {
+  canonicalOptions: { async: boolean; callback: number | null }[];
+  trampolines: { kind: string }[];
+}): boolean {
+  for (const o of plan.canonicalOptions) {
+    if (o.async && o.callback === null) return true;
+  }
+  for (const t of plan.trampolines) {
+    switch (t.kind) {
+      case "sync-start-call":
+      case "waitable-set-wait":
+      case "thread-yield":
+      case "subtask-cancel":
+      case "stream-read":
+      case "stream-write":
+      case "future-read":
+      case "future-write":
+      case "stream-cancel-read":
+      case "stream-cancel-write":
+      case "future-cancel-read":
+      case "future-cancel-write":
+        return true;
+    }
+  }
+  return false;
 }
 
 /**

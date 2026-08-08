@@ -141,7 +141,7 @@ Deno.test({
     const wrong = hostStream<number>({ kind: "u64" });
     let raised: unknown;
     try {
-      (c.exports["sum-stream"] as (v: unknown) => unknown)(wrong.value);
+      await (c.exports["sum-stream"] as (v: unknown) => unknown)(wrong.value);
     } catch (e) {
       raised = e;
     }

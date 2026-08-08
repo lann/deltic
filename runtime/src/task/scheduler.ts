@@ -63,10 +63,28 @@ export interface BlockRequest {
   /** Resumable once this returns true; `null` = only an explicit resume. */
   readyFunc: (() => boolean) | null;
   cancellable: boolean;
+  /**
+   * JSPI seam. When present the thread is not waiting on a scheduler
+   * condition at all — it is waiting for a **Promise**, namely the one a
+   * `promising`-wrapped wasm entry returned. The driving loop awaits it and
+   * resumes the body with the resolved value (or throws the rejection into
+   * the body, so a post-resume trap unwinds exactly like a synchronous one —
+   * jspi pin (e)).
+   *
+   * This is what lets one generator body serve both modes: in plain mode the
+   * core call returns a value and the body never yields such a request, so
+   * the synchronous path is bit-for-bit what it was before JSPI existed.
+   */
+  awaitValue?: Promise<unknown>;
 }
 
-/** A thread body: yields block requests, receives the cancelled flag back. */
-export type ThreadBody = Generator<BlockRequest, void, Cancelled>;
+/**
+ * A thread body: yields block requests, and receives back either the
+ * cancelled flag (for a scheduler block point) or the resolved value of an
+ * `awaitValue` request.
+ */
+// deno-lint-ignore no-explicit-any
+export type ThreadBody = Generator<BlockRequest, void, any>;
 
 /**
  * Failure raised where the reference genuinely needs to suspend a wasm frame.
@@ -290,6 +308,14 @@ export class Store {
   readyCandidates(): SchedulableThread[] {
     return this.waiting.filter((t) => t.ready());
   }
+
+  /**
+   * Threads parked on a Promise (the jspi `awaitValue` seam). They are not in
+   * `waiting` — nothing the scheduler can do makes them ready — so the driving
+   * loop tracks them separately and resumes them when their promise settles.
+   */
+  // deno-lint-ignore no-explicit-any
+  readonly awaiting = new Set<any>();
 
   /**
    * definitions.py `Store.tick` (line 597): resume one ready thread, bracketed

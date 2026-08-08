@@ -370,6 +370,9 @@ function drive(
     }
     if (store.hostFailure !== undefined) throw takeHostFailure(store);
     if (done()) return;
+    // A thread parked on a Promise (jspi) can only progress after a microtask
+    // turn, exactly like an outstanding host call.
+    if (store.awaiting.size > 0) return driveAsync(store, done, what);
     if (store.pendingHostCalls.size === 0) {
       trapIf(
         true,
@@ -392,6 +395,25 @@ async function driveAsync(
     }
     if (store.hostFailure !== undefined) throw takeHostFailure(store);
     if (done()) return;
+    // Service one promise-parked thread (jspi). Resuming it re-enters wasm,
+    // which may park again; the loop handles that.
+    if (store.awaiting.size > 0) {
+      const t = [...store.awaiting][0] as {
+        awaiting: Promise<unknown> | null;
+        resumeWith(v: unknown, f?: { error: unknown }): void;
+      };
+      store.awaiting.delete(t);
+      const p = t.awaiting!;
+      let value: unknown;
+      let failure: { error: unknown } | undefined;
+      try {
+        value = await p;
+      } catch (e) {
+        failure = { error: e };
+      }
+      t.resumeWith(value, failure);
+      continue;
+    }
     if (store.pendingHostCalls.size === 0) {
       trapIf(
         true,
@@ -726,6 +748,37 @@ export function createLiftedFunction(input: {
   };
 }
 
+/**
+ * Call into wasm and hand back the result, awaiting it only if it is a
+ * Promise.
+ *
+ * This is the whole of the jspi entry seam. In **plain** mode the entry is not
+ * `promising`-wrapped, `callCore` returns core values, and this returns them
+ * without yielding — no await, no Promise allocation, the identical
+ * synchronous path M1 shipped. In **jspi** mode the entry *is* wrapped, so the
+ * call returns a Promise (jspi pin (e)) and we park the thread on it via the
+ * `awaitValue` block request; the driving loop resumes us with the values, or
+ * throws the rejection in (a post-resume trap).
+ */
+function* awaitCore(
+  fn: CoreFn,
+  args: CoreValue[],
+): Generator<BlockRequest, CoreValue[], unknown> {
+  const raw = callCore(fn, args);
+  // `callCore` normalizes a bare value to a one-element array; a promising
+  // entry yields `[Promise]`.
+  if (raw.length === 1 && isPromiseLike(raw[0])) {
+    const settled = yield {
+      readyFunc: null,
+      cancellable: false,
+      awaitValue: Promise.resolve(raw[0] as unknown as Promise<unknown>),
+    };
+    if (settled === undefined) return [];
+    return Array.isArray(settled) ? settled as CoreValue[] : [settled as CoreValue];
+  }
+  return raw;
+}
+
 /** definitions.py `CallbackCode` (line 2220). */
 enum CallbackCode {
   EXIT = 0,
@@ -770,7 +823,7 @@ function* liftBody(input: {
 
   if (!opts.async) {
     const flatResults = normalizeCoreValues(
-      callCore(core, flatArgs),
+      yield* awaitCore(core, flatArgs),
       opts.coreType.results,
       `${name} results`,
     );
@@ -801,10 +854,21 @@ function* liftBody(input: {
     // whatever built-in it chooses. There is no return-to-host between the
     // call and the block, so the only way to model it is genuine wasm-frame
     // suspension.
-    needsJspi(
-      `stackful async lift of export '${name}' (async canonical options ` +
-        `without a callback)`,
-    );
+    //
+    // In jspi mode that is exactly what happens and no special handling is
+    // needed: the entry is `promising`-wrapped, so the activation suspends on
+    // whichever blocking built-in it reaches and `awaitCore` parks this thread
+    // until it finishes. Results arrive through `task.return`, so there is
+    // nothing to lift here.
+    if (input.mode !== "jspi") {
+      needsJspi(
+        `stackful async lift of export '${name}' (async canonical options ` +
+          `without a callback)`,
+      );
+    }
+    yield* awaitCore(core, flatArgs);
+    task.exitImplicitThread(thread);
+    return;
   }
 
   // --- callback ABI (definitions.py lines 2183-2214) ----------------------
@@ -814,7 +878,7 @@ function* liftBody(input: {
   // path wit-bindgen 0.60 emits for every async export, and it needs no JSPI.
   const callback = require(opts.callback, `${name} callback`)!;
   const [packed] = normalizeCoreValues(
-    callCore(core, flatArgs),
+    yield* awaitCore(core, flatArgs),
     opts.coreType.results,
     `${name} results`,
   ) as [number];
@@ -1087,7 +1151,7 @@ export function* runCallbackLoop(input: {
     inst.exclusiveThread = task.implicitThread;
     stats.callbackInvocations++;
     const [next] = normalizeCoreValues(
-      callCore(callback, [event[0], event[1], event[2]]),
+      yield* awaitCore(callback, [event[0], event[1], event[2]]),
       ["i32"],
       `${name} callback result`,
     ) as [number];
