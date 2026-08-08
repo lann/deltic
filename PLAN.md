@@ -243,6 +243,10 @@ within the concurrency work is: task core + callback ABI first (pure
 event-loop bookkeeping, which JS is good at), then the JSPI-backed
 stackful/blocking paths on the same task core. This is construction sequence,
 not a phase boundary — concurrency is not done until `test/async` is green.
+Empirical confirmation (S0 fixtures): wit-bindgen 0.60 emits **exclusively
+callback-ABI async lifts** — running wit-bindgen async guests requires the
+task core, not JSPI, so the build order front-loads exactly the compat that
+matters.
 
 Determinism note: the reference scheduler makes explicitly nondeterministic
 choices (`random.choice` over ready threads). Our scheduler must stay inside
@@ -259,7 +263,8 @@ decide deliberately and document here.
   Lowering a JS string with lone surrogates uses WebIDL `USVString`
   replacement semantics (U+FFFD). Guest→host lift via `TextDecoder`;
   host→guest lower via `TextEncoder.encodeInto` directly into guest memory.
-  `latin1+utf16` deferred until a test forces it (wit-bindgen guests use utf8).
+  `latin1+utf16` implemented in the v1 interpreter (the ported reference
+  tests forced it immediately; wit-bindgen guests themselves use utf8).
 - **Numbers.** `u64`/`s64` ↔ `BigInt`; everything else ↔ `number`.
   `list<u8>` ↔ `Uint8Array` (copy; views into guest memory are never exposed).
 - **Memory views** are re-acquired after any call that can grow memory
@@ -281,6 +286,9 @@ decide deliberately and document here.
   - Note: `CanonicalABI.md` line ~4013 still shows a vestigial `$async?`
     immediate on `resource.drop`; the Explainer grammar and definitions.py
     have no async drop. File an upstream issue; implement sync-only.
+    Second upstream finding: `canon_backpressure_set` exists in
+    definitions.py but is absent from the CanonicalABI.md prose (the repo's
+    own `diff.py` flags it) — file alongside.
 - **Component `value` imports/exports**: wasmtime doesn't implement them;
   excluded from parity scope. `test/values/` is skipped and documented as such.
 - **Reentrance**: gates per spec Component Invariants, enforced in the runtime
@@ -366,13 +374,15 @@ There is no single official conformance suite; the corpus is assembled:
 | wit-bindgen runtime tests | guest programs exercising bindings | build Rust guests, sync and async, (wit-bindgen + `wasm-tools component new`); run against our host = the executable wit-bindgen-compat claim |
 | wasmtime `tests/misc_testsuite/component-model/` | engine-grade wast corpus | supplementary coverage |
 
-Harness pipeline: an offline Rust step runs `wasm-tools json-from-wast`
-(the `wast` crate supports component syntax) to convert `.wast` into JSON
-commands + `.wasm` binaries — the core-spec `wast2json` model. The TS harness
-executes the JSON identically under `deno test` and in browsers (static server
-+ automated Chrome / Firefox-with-pref / WebKit-best-effort). If
-`json-from-wast` misses component directives, a small Rust tool on the `wast`
-crate fills the gap.
+Harness pipeline: an offline Rust step (`crates/testgen`) converts `.wast`
+into JSON commands + `.wasm` binaries — the core-spec `wast2json` model. It
+uses the `wast` crate directly (resolved: `wasm-tools json-from-wast`'s JSON
+model is adequate, but the pinned CLI's bundled parser predates current suite
+syntax — 15/59 files vs 59/59 with `wast` 255; owning the emitter also let us
+tag every artifact `core` vs `component`, which the harness needs since V8
+cannot even validate component binaries). The TS harness executes the JSON
+identically under `deno test` and in browsers (static server + automated
+Chrome / Firefox-with-pref / WebKit-best-effort).
 
 Also planned: differential testing of interpreter vs generated-JS executors
 (§8); later, differential fuzzing against native wasmtime with
@@ -406,7 +416,7 @@ a built artifact per release of the shim (reproducible from source).
 
 | # | Deliverable | Exit criteria |
 |---|---|---|
-| S0 | **Spike**: wasmtime-environ + FACT on wasm32 | trivial component → plan + adapters under Deno; CM-async features + FACT async adapters verified in pinned wasmtime; go/no-go on §4.1 (fallback: vendor FACT) |
+| S0 | **Spike**: wasmtime-environ + FACT on wasm32 | **DONE — GO** (2026-08-08). `wasmtime-environ =47.0.3` builds for wasm32-unknown-unknown with zero imports; runs under Deno; FACT adapters (sync + async) emitted as core wasm; 1.66 MiB size-tuned (~0.5 MiB gzip); sub-ms steady-state translation. Fallback (vendoring FACT) not needed. See `crates/translator-spike/`. |
 | M0 | Plan executor on the task-model skeleton | hello-world component runs in Deno; runtime structured around Task/Thread/Subtask from the start |
 | M1 | Canonical ABI core | values + resources + intrinsics + host-boundary interpreter; official `test/{binary,validation,linking,resources}` green on Deno; sync wit-bindgen Rust guest roundtrip green |
 | M2 | **Concurrency complete on Deno** | task scheduler; callback ABI; streams/futures/error-context; waitable sets; backpressure + cancellation; JSPI paths (stackful lifts, blocking sync lowers, async host imports); reentrance gates under suspension; official `test/async` green; async Rust guest roundtrip green |
