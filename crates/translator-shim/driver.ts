@@ -1,37 +1,45 @@
-// S0 spike headline demo: wasmtime's component frontend (wasmtime-environ +
-// FACT), compiled to wasm32-unknown-unknown, running under a JS engine and
-// translating Component Model binaries.
+// Shim smoke driver: wasmtime's component frontend (wasmtime-environ + FACT),
+// compiled to wasm32-unknown-unknown, running under a JS engine and
+// translating Component Model binaries into plan v0 envelopes
+// (contracts/plan-format.md; envelope wire format: README.md).
 //
 // Usage:
 //   deno run --allow-read driver.ts [--wasm <path>] [component.wasm ...]
 //
 // With no component args, runs the four testdata components and asserts the
-// spike's go/no-go expectations (trivial: no adapters; linked/async-linked:
-// FACT adapters present).
+// S0 go/no-go expectations (trivial: no adapters; linked/async-linked: FACT
+// adapters present) against the plan schema.
 
-type Summary = {
-  component_len: number;
-  num_embedded_modules: number;
-  num_adapter_modules: number;
-  modules: {
-    index: number;
-    kind: "embedded" | "fact-adapter";
-    offset_in_component: number | null;
-    len: number;
-    imports: string[];
-    exports: string[];
-  }[];
-  initializers: string[];
-  trampolines: string[];
-  num_runtime_instances: number;
-  component_debug: string;
+type CoreDef =
+  | { kind: "export"; instance: number; item: { name: string; space: string } }
+  | { kind: "instance-flags"; instance: number }
+  | { kind: "trampoline"; index: number }
+  | { kind: "task-may-block" };
+
+type Envelope = {
+  plan?: {
+    formatVersion: number;
+    modules: (
+      | { kind: "embedded"; offset: number; len: number }
+      | {
+        kind: "adapter";
+        file: string;
+        len: number;
+        intrinsics: { module: string; name: string; category: string; def: CoreDef }[];
+      }
+    )[];
+    initializers: { op: string; [k: string]: unknown }[];
+    trampolines: { kind: string; index: number }[];
+    exports: { kind: string; name: string }[];
+  };
+  adapters?: { file: string; wasm: string }[];
   error?: string;
 };
 
 const here = new URL(".", import.meta.url);
 const args = [...Deno.args];
 let wasmPath = new URL(
-  "../../target/wasm32-unknown-unknown/release/translator_spike.wasm",
+  "../../target/wasm32-unknown-unknown/release/translator_shim.wasm",
   import.meta.url,
 );
 const wasmFlag = args.indexOf("--wasm");
@@ -53,7 +61,7 @@ const exports = instance.exports as {
   ts_translate: (ptr: number, len: number, outLenPtr: number) => number;
 };
 
-function translate(component: Uint8Array): Summary {
+function translate(component: Uint8Array): Envelope {
   const inPtr = exports.ts_alloc(component.length);
   new Uint8Array(exports.memory.buffer, inPtr, component.length).set(component);
   // 4 bytes for the out-length (usize on wasm32).
@@ -70,33 +78,36 @@ function translate(component: Uint8Array): Summary {
   return JSON.parse(json);
 }
 
-function report(name: string, bytes: Uint8Array): Summary {
+function report(name: string, bytes: Uint8Array): NonNullable<Envelope["plan"]> {
   const start = performance.now();
-  const s = translate(bytes);
+  const e = translate(bytes);
   const ms = performance.now() - start;
-  if (s.error) {
-    console.error(`${name}: translation FAILED: ${s.error}`);
+  if (e.error || !e.plan) {
+    console.error(`${name}: translation FAILED: ${e.error}`);
     Deno.exit(1);
   }
-  console.log(`=== ${name} (${bytes.length} bytes, translated in ${ms.toFixed(1)} ms) ===`);
+  const plan = e.plan;
+  const adapters = plan.modules.filter((m) => m.kind === "adapter");
   console.log(
-    `  embedded core modules: ${s.num_embedded_modules}, FACT adapters: ${s.num_adapter_modules}, runtime instances: ${s.num_runtime_instances}`,
+    `=== ${name} (${bytes.length} bytes, translated in ${ms.toFixed(1)} ms) ===`,
   );
-  for (const m of s.modules) {
-    const where = m.kind === "embedded"
-      ? `bytes ${m.offset_in_component}..${m.offset_in_component! + m.len}`
-      : "FACT-generated";
-    console.log(`  module[${m.index}] ${m.kind} (${where}, ${m.len} bytes)`);
-    if (m.kind === "fact-adapter") {
-      for (const imp of m.imports) console.log(`      import ${imp}`);
-      console.log(`      exports: ${m.exports.join(", ")}`);
+  console.log(
+    `  modules: ${plan.modules.length} (${adapters.length} FACT adapters), ` +
+      `initializers: ${plan.initializers.length}, trampolines: ${plan.trampolines.length}`,
+  );
+  for (const m of plan.modules) {
+    if (m.kind === "embedded") {
+      console.log(`  embedded module: bytes ${m.offset}..${m.offset + m.len}`);
+    } else {
+      console.log(`  adapter ${m.file} (${m.len} bytes)`);
+      for (const i of m.intrinsics) {
+        console.log(`      import ${i.module}.${i.name}: ${i.category}`);
+      }
     }
   }
-  console.log(`  plan: ${s.initializers.length} initializers, ${s.trampolines.length} trampolines`);
-  for (const i of s.initializers) {
-    console.log(`    ${i.length > 120 ? i.slice(0, 117) + "..." : i}`);
-  }
-  return s;
+  for (const i of plan.initializers) console.log(`    op ${i.op}`);
+  for (const x of plan.exports) console.log(`  export ${x.name} (${x.kind})`);
+  return plan;
 }
 
 if (args.includes("--bench")) {
@@ -109,7 +120,9 @@ if (args.includes("--bench")) {
     const start = performance.now();
     for (let i = 0; i < N; i++) translate(bytes);
     const ms = (performance.now() - start) / N;
-    console.log(`${name}: ${ms.toFixed(3)} ms/translation (${bytes.length} bytes, N=${N})`);
+    console.log(
+      `${name}: ${ms.toFixed(3)} ms/translation (${bytes.length} bytes, N=${N})`,
+    );
   }
   Deno.exit(0);
 }
@@ -121,36 +134,37 @@ if (args.length > 0) {
 } else {
   const testdata = (name: string) =>
     Deno.readFile(new URL(`testdata/${name}.wasm`, here));
+  const countAdapters = (p: NonNullable<Envelope["plan"]>) =>
+    p.modules.filter((m) => m.kind === "adapter").length;
 
   const trivial = report("trivial", await testdata("trivial"));
-  if (trivial.num_embedded_modules !== 1 || trivial.num_adapter_modules !== 0) {
+  if (trivial.modules.length !== 1 || countAdapters(trivial) !== 0) {
     console.error("FAIL: trivial expectations");
     Deno.exit(1);
   }
 
   const linked = report("linked", await testdata("linked"));
-  if (linked.num_embedded_modules !== 2 || linked.num_adapter_modules < 1) {
+  if (countAdapters(linked) < 1) {
     console.error("FAIL: linked expectations (need >=1 FACT adapter)");
     Deno.exit(1);
   }
 
   const asyncLift = report("async-lift", await testdata("async-lift"));
-  if (!asyncLift.trampolines.some((t) => t.includes("TaskReturn"))) {
-    console.error("FAIL: async-lift should require a TaskReturn trampoline");
+  if (!asyncLift.trampolines.some((t) => t.kind === "task-return")) {
+    console.error("FAIL: async-lift should require a task-return trampoline");
     Deno.exit(1);
   }
 
   const asyncLinked = report("async-linked", await testdata("async-linked"));
-  const adapterImports = asyncLinked.modules
-    .filter((m) => m.kind === "fact-adapter")
-    .flatMap((m) => m.imports);
   if (
-    asyncLinked.num_adapter_modules < 1 ||
-    !adapterImports.some((i) => i.includes("[prepare-call]"))
+    countAdapters(asyncLinked) < 1 ||
+    !asyncLinked.trampolines.some((t) => t.kind === "prepare-call")
   ) {
     console.error("FAIL: async-linked expectations (async FACT adapters)");
     Deno.exit(1);
   }
 
-  console.log(`\nall checks passed (translator load+compile: ${tLoad.toFixed(1)} ms)`);
+  console.log(
+    `\nall checks passed (translator load+compile: ${tLoad.toFixed(1)} ms)`,
+  );
 }

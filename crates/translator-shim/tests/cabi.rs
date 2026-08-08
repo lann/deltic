@@ -1,0 +1,67 @@
+//! Native exercise of the exact C-ABI sequence the Deno driver performs:
+//! alloc -> write -> translate -> read JSON envelope -> dealloc(out) ->
+//! dealloc(in).
+//!
+//! Running this in debug (with glibc malloc + all Rust debug assertions)
+//! double-checks that the buffer-ownership contract is sound independent of
+//! the wasm32/dlmalloc build.
+use translator_shim::cabi::{ts_alloc, ts_dealloc, ts_translate};
+
+fn roundtrip_bytes(comp: &[u8]) -> String {
+    unsafe {
+        let ptr = ts_alloc(comp.len());
+        std::ptr::copy_nonoverlapping(comp.as_ptr(), ptr, comp.len());
+        let mut out_len: usize = 0;
+        let out_ptr = ts_translate(ptr, comp.len(), &mut out_len);
+        let json = std::str::from_utf8(std::slice::from_raw_parts(out_ptr, out_len))
+            .unwrap()
+            .to_string();
+        ts_dealloc(out_ptr, out_len);
+        ts_dealloc(ptr, comp.len());
+        json
+    }
+}
+
+fn roundtrip(name: &str) -> String {
+    let path = format!("{}/testdata/{name}.wat", env!("CARGO_MANIFEST_DIR"));
+    roundtrip_bytes(&wat::parse_file(&path).unwrap())
+}
+
+/// The envelope contains the plan plus one base64 adapter entry per
+/// adapter module in the plan's module table.
+#[test]
+fn cabi_roundtrip_all_testdata() {
+    for name in ["trivial", "linked", "async-lift", "async-linked"] {
+        let json = roundtrip(name);
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert!(
+            v["error"].is_null(),
+            "{name}: unexpected error: {}",
+            v["error"]
+        );
+        assert_eq!(v["plan"]["formatVersion"].as_u64(), Some(0), "{name}");
+        let adapter_modules = v["plan"]["modules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|m| m["kind"] == "adapter")
+            .count();
+        assert_eq!(
+            v["adapters"].as_array().unwrap().len(),
+            adapter_modules,
+            "{name}: adapter artifact/module mismatch"
+        );
+    }
+    // Repeat to stress allocator reuse the way the deno --bench loop does.
+    for _ in 0..20 {
+        roundtrip("linked");
+    }
+}
+
+/// Errors come back as an `{"error": ...}` envelope, not a panic/trap.
+#[test]
+fn cabi_error_envelope() {
+    let json = roundtrip_bytes(b"not a component");
+    let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert!(v["error"].is_string(), "{json}");
+}

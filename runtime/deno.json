@@ -1,10 +1,16 @@
 {
   "name": "@component-engine/runtime",
   "exports": {
-    "./cabi": "./src/cabi/mod.ts"
+    "./cabi": "./src/cabi/mod.ts",
+    "./plan": "./src/plan/mod.ts",
+    "./task": "./src/task/mod.ts",
+    "./exec": "./src/exec/mod.ts",
+    "./intrinsics": "./src/intrinsics/mod.ts",
+    "./shim": "./src/shim/mod.ts"
   },
   "tasks": {
-    "test": "deno test",
+    "test": "deno test --allow-read=..",
+    "check": "deno check src tests",
     "gen-fixtures": "python3 tests/fixtures/generate.py"
   }
 }

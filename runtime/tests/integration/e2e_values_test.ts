@@ -1,0 +1,120 @@
+// STRETCH (M0, not gating): the `values` fixture's 17 echo exports through
+// the same shim -> plan -> executor path as hello. Exercises the descriptor
+// IR + cabi interpreter across every WIT type shape in the fixture corpus.
+//
+// Host value shapes are the cabi v1 interpreter's (definitions.py shapes:
+// single-key variant/option/result objects, despecialized tuple records,
+// label->bool flags) — NOT the ergonomic mapping table of descriptor-ir.md
+// §"Host value mapping", which the interpreter does not implement yet. That
+// divergence is recorded in the M0 contract friction report.
+
+import { assertEq } from "../support/asserts.ts";
+import { Translator } from "../../src/shim/mod.ts";
+import { instantiateComponent } from "../../src/exec/mod.ts";
+import type { ComponentValue } from "../../src/cabi/mod.ts";
+
+const root = new URL("../../../", import.meta.url);
+
+async function readArtifact(rel: string, hint: string): Promise<Uint8Array> {
+  try {
+    return await Deno.readFile(new URL(rel, root));
+  } catch {
+    throw new Error(`missing build artifact ${rel} — run: ${hint}`);
+  }
+}
+
+const shimWasm = await readArtifact(
+  "target/wasm32-unknown-unknown/release/translator_shim.wasm",
+  "cargo build -p translator-shim --release --target wasm32-unknown-unknown",
+);
+const valuesWasm = await readArtifact(
+  "examples/guests/build/values.component.wasm",
+  "./examples/build.sh",
+);
+
+const translator = await Translator.create(shimWasm);
+const { plan, adapters } = translator.translate(valuesWasm);
+const component = await instantiateComponent({
+  plan,
+  componentBytes: valuesWasm,
+  adapters,
+});
+
+type EchoFn = (v: ComponentValue) => ComponentValue;
+const echo = (name: string): EchoFn => {
+  const fn = component.exports[name] as EchoFn | undefined;
+  if (typeof fn !== "function") {
+    throw new Error(`export ${name} missing; have: ${
+      Object.keys(component.exports).join(", ")
+    }`);
+  }
+  return fn;
+};
+
+function roundtrips(name: string, values: ComponentValue[]) {
+  Deno.test(`values: ${name} roundtrips`, () => {
+    const fn = echo(name);
+    for (const v of values) {
+      assertEq(fn(v), v, `${name}(${JSON.stringify(v, jsonBigint)})`);
+    }
+  });
+}
+
+// deno-lint-ignore no-explicit-any
+function jsonBigint(_k: string, v: any) {
+  return typeof v === "bigint" ? `${v}n` : v;
+}
+
+roundtrips("echo-bool", [true, false]);
+roundtrips("echo-u64", [0n, 1n, 18446744073709551615n]);
+roundtrips("echo-s64", [0n, -1n, -9223372036854775808n, 9223372036854775807n]);
+roundtrips("echo-f32", [0, 1.5, -3.25, NaN]);
+roundtrips("echo-f64", [0, Math.PI, -1e308, NaN]);
+roundtrips("echo-char", ["a", "é", "🎉"]);
+roundtrips("echo-string", ["", "hello", "héllo wörld 🌍", "\u0000embedded"]);
+roundtrips("echo-record", [
+  { a: 0, b: "", c: 0, d: false },
+  { a: 4294967295, b: "record string", c: -2.5, d: true },
+]);
+roundtrips("echo-variant", [
+  { point: null },
+  { circle: 2.5 },
+  { label: "hi" },
+  { rect: { w: 3, h: 4 } },
+]);
+roundtrips("echo-enum", [{ red: null }, { green: null }, { blue: null }]);
+roundtrips("echo-flags", [
+  { read: true, write: false, exec: true, admin: false },
+  { read: false, write: false, exec: false, admin: false },
+  { read: true, write: true, exec: true, admin: true },
+]);
+roundtrips("echo-option", [{ none: null }, { some: "present" }]);
+roundtrips("echo-option-nested", [
+  { none: null },
+  { some: { none: null } },
+  { some: { some: 7 } },
+]);
+roundtrips("echo-result", [{ ok: 42 }, { error: "went wrong" }]);
+roundtrips("echo-list-u8", [
+  new Uint8Array(0),
+  new Uint8Array([0, 1, 2, 254, 255]),
+  new Uint8Array(4096).fill(0xab),
+]);
+roundtrips("echo-list-string", [
+  [],
+  ["one"],
+  ["", "two", "threê", "🌍"],
+]);
+roundtrips("echo-tuple", [
+  { "0": 0, "1": "", "2": 0 },
+  { "0": 9, "1": "nine", "2": 9.25 },
+]);
+
+Deno.test("values: every call went through the task model", () => {
+  // One task per lifted call, all resolved, none leaked.
+  assertEq(component.stats.liftedCalls, component.stats.tasksResolved);
+  assertEq(component.stats.liftedCalls > 0, true);
+  const inst = component.componentInstances[0];
+  assertEq(inst.mayEnter, true);
+  assertEq(inst.threads.size, 0);
+});

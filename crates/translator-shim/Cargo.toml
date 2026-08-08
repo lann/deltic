@@ -1,6 +1,6 @@
 [package]
-name = "translator-spike"
-version = "0.0.0"
+name = "translator-shim"
+version = "0.1.0"
 edition.workspace = true
 publish.workspace = true
 
@@ -8,7 +8,7 @@ publish.workspace = true
 crate-type = ["lib", "cdylib"]
 
 [dependencies]
-# Pinned exactly for the spike: the same major (47) as the installed wasmtime
+# Pinned exactly (PLAN.md §4.1): the same major (47) as the installed wasmtime
 # CLI (47.0.1), so native behavior can be compared against `wasmtime compile`.
 wasmtime-environ = { version = "=47.0.3", features = ["component-model", "compile", "anyhow"] }
 # Validator comes from wasmparser; MUST match the version wasmtime-environ
@@ -17,6 +17,8 @@ wasmparser = "0.252.0"
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = { version = "0.10", default-features = false }
+base64 = { version = "0.22", default-features = false, features = ["alloc"] }
 
 [dev-dependencies]
 # For generating test components from WAT in tests (same wasm-tools family
