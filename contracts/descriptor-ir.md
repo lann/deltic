@@ -6,9 +6,10 @@ shim (inside `plan.json` `types` / `canonicalOptions` tables) and tests.
 Consumers: the v1 interpreter (`runtime/src/cabi/`), the future generated-JS
 executor, and the world-digest computation.
 
-Status: **v0 — no stability promise until M1 exit.** The normative in-memory
+Status: **v0.1** (v0 amended post-M0). The normative in-memory
 model is `runtime/src/cabi/types.ts`; this document defines its meaning and
-its JSON wire form inside the plan. Divergence between the two is a bug.
+its JSON wire form inside the plan. Known wire↔memory divergences are pinned
+in "v0.1 amendments"; any other divergence is a bug.
 
 ## Value type model
 
@@ -54,7 +55,15 @@ options' `coreType` is an instantiate-time assertion. (Precomputed lanes can
 be added later as a pure optimization without changing this contract's
 semantics.)
 
-## Host value mapping (normative for both executors)
+## Host value mapping (target — normative at M1)
+
+**Status note (v0.1):** this table is the *bindgen-era target*, normative
+once the M1 boundary layer lands. The v1 interpreter currently produces the
+`definitions.py` shapes (variant as single-key `{label: payload}`, enum as
+`{label: null}`, option as `{none: null} / {some: v}`, result error key
+`"error"`, tuple as despecialized record) and the M0 e2e tests lock those.
+Convergence is scheduled with bindgen; until then the interpreter shapes are
+the implementation truth and this table is the destination.
 
 | Component type | JS value |
 |---|---|
@@ -93,10 +102,23 @@ extension must land with fixtures.
 
 ## Open items (v0)
 
-- Resource-type representation in the plan (`resource` indices) vs types.ts's
-  identity-token `ResourceTypeInfo` — the shim emits indices; the runtime
-  builds tokens at instantiate; formalize in M0 integration.
+- Resource-type representation: the shim emits `resource` indices into the
+  plan's `resourceTables`; the runtime builds identity tokens
+  (`ResourceTypeInfo`) at plan-load time. **Pinned in v0.1: tokens must be
+  fresh per instantiation** (the executor re-runs plan loading per
+  instantiate), so resource-type identity never leaks across instances.
 - Variant/option host shapes are settled for the interpreter but bindgen (§9)
   may want ergonomic variations — any change lands here first.
 - `map` (in types.ts, from the reference) is not emitted by current
   translators; keep behind a fixture-only flag.
+
+## v0.1 amendments (post-M0 reality)
+
+1. **Wire naming pinned where it diverges from types.ts** (the plan loader
+   maps): wire `result.err` ↔ types.ts `result.error`; wire `FuncType.params`
+   are labeled `{label, type}[]` while types.ts drops names (this resolves
+   the runtime README's open question: names live on the wire and in bindgen,
+   not in the interpreter's hot path).
+2. **Flattening contract validated as written**: computed `flattenFunctype`
+   vs the options' `coreType` asserted at instantiate across the whole
+   fixture corpus with zero mismatches. No change.

@@ -6,7 +6,8 @@ the plan (`CoreDef::Trampoline` / `lower-import`). Producers of the
 requirement: the translator shim (per-plan manifest). Implementor: the runtime
 (`runtime/src/intrinsics/`).
 
-Status: **v0 — no stability promise until M1 exit.**
+Status: **v0.1** (v0 amended post-M0 — see "v0.1 amendments"; the §A/§B
+split turned out simpler in reality than as first written).
 
 Sources of truth (pinned `wasmtime-environ 47.0.3`):
 - (A) `wasmtime_environ::fact::Import` — every import FACT can emit.
@@ -78,8 +79,30 @@ core" is a feature, not a crash.
 - Exact `Transcode` op inventory to implement in M0/M1 (drive from fixtures:
   utf8 copies first; the full matrix is already reference-tested in
   `runtime/src/cabi/strings.ts`).
-- Whether instance-flags globals are shared with (B)-side state or duplicated
-  (M0 integration decides; contract only requires observable equivalence with
-  wasmtime).
-- `UnsafeIntrinsic` (`CoreDef` variant): rejected by the shim in v0; revisit
-  if a corpus component ever produces one.
+- `UnsafeIntrinsic` (`CoreDef` variant): rejected by the shim; known M2
+  blocker for wit-bindgen async guests (`context-{get,set}-i32-{0,1}`) — see
+  plan-format.md v0.1 amendments.
+
+## v0.1 amendments (post-M0 reality)
+
+1. **§A collapses into CoreDef wiring.** `translate/adapt.rs`
+   (`fact_import_to_core_def`) folds *every* `fact::Import` into
+   instantiation-argument `CoreDef`s — the runtime never sees `fact::Import`
+   directly. Intrinsic-like imports arrive as `CoreDef::Trampoline` entries
+   (Trap, Enter/ExitSyncCall, Transcoder, ResourceTransfer*, PrepareCall,
+   *StartCall, *Transfer) or plain wiring (callee funcs, memories, flags
+   globals, task-may-block). The per-adapter manifest is import-names ×
+   resolved args, categorized — which is exactly what the shim emits.
+2. **Instance flags decided** (was an open item): one
+   `WebAssembly.Global(i32, mutable, initial 1)` per component instance
+   serves as both the FACT-visible flags global and host-side `may_leave`;
+   FACT 47 reads/writes it as a plain 0/1 boolean (no bitmask).
+   `may_enter` is host-only state, not in the global.
+3. **`task-may-block` initial value = 1** (sync tasks may block).
+4. **`Trap` carries an i32 code.** v0.1 maps all codes to `ComponentTrap`;
+   enumerate codes later for diagnostics.
+5. **Lazy materialization is the general rule**: trampolines/intrinsics are
+   materialized at first *reference during instantiation* — unreferenced
+   unsupported kinds never fail, referenced unsupported kinds fail at
+   instantiate time with a milestone-aware message. ("Instantiate-time, never
+   call-time" is preserved.)

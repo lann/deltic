@@ -7,8 +7,10 @@ component binary. This document is the interface between `crates/translator-shim
 documents (with [descriptor-ir.md](descriptor-ir.md) and
 [intrinsics.md](intrinsics.md)).
 
-Status: **v0 — no stability promise until M1 exit.** Changes require updating
-both producer and consumer in the same commit and bumping `formatVersion`.
+Status: **v0.1** (v0 amended post-M0 with implementation reality — see
+"v0.1 amendments"). No stability promise until M1 exit. Changes require
+updating both producer and consumer in the same commit and bumping
+`formatVersion`.
 
 ## Decisions (with rationale)
 
@@ -84,16 +86,25 @@ plan never embeds it.
   //   { "kind": "instance-flags", "instance": n }           i32 flags global
   //   { "kind": "trampoline", "index": n }                  host trampoline
   //   { "kind": "task-may-block" }                          runtime-managed global
-  // ("unsafe-intrinsic" is rejected by the shim in v0 — report if ever hit.)
+  // ("unsafe-intrinsic" is rejected by the shim — KNOWN BLOCKER: wit-bindgen
+  //  0.60 async guests produce CoreDef::UnsafeIntrinsic for
+  //  context-{get,set}-i32-{0,1}; representing these is the M2 plan
+  //  extension. Sync corpus is unaffected.)
+  //
+  // CoreExport.item encoding (pinned): wasmtime's ExportItem is
+  // Index(EntityIndex) | Name(String); a JS embedder can only address core
+  // exports by *name*, so the shim resolves Index via Module::exports
+  // inversion and always emits:
+  //   { "name": "…", "space": "func" | "table" | "memory" | "global" | "tag" }
 
   // Host trampolines (ComponentTranslation::trampolines), one per
   // wasmtime_environ::component::Trampoline variant. v0 executors implement
   // the sync subset and must fail loudly (at *instantiate* time, not call
   // time) on unimplemented kinds. Full kind list: see intrinsics.md §B.
   "trampolines": [
-    { "kind": "lower-import", "index": 0, "lowered": 0,
+    { "kind": "lower-import", "lowered": 0 /* LoweredIndex */,
       "options": 0 /* -> canonicalOptions */, "type": 0 /* -> types */ },
-    { "kind": "resource-drop", "resource": 0, "async": false },
+    { "kind": "resource-drop", "instance": 0, "resource": 0 },
     { "kind": "task-return", "results": 0 /* -> types */, "options": 0 }
     // …
   ],
@@ -153,3 +164,35 @@ bug.
 - Imported-module instantiation (`InstantiateModule::Import`) — not emitted
   for our current corpus; shim rejects with a clear error until implemented.
 - Digest canonicalization details will firm up with bindgen (M1+).
+
+## v0.1 amendments (post-M0 reality)
+
+Additions/corrections from the M0 integration, normative as of v0.1:
+
+1. **`resourceTables` section exists** (referenced by descriptor-IR
+   `own`/`borrow` indices): index space = wasmtime `TypeResourceTableIndex`;
+   entries `{"kind":"concrete", "resource": n, "instance": n}` or
+   `{"kind":"abstract", "id": n}`.
+2. **Imported resources gap**: `ResourceIndex` = `imported_resources.len() +
+   DefinedResourceIndex`. The plan does not yet carry `importedResources`;
+   the executor asserts none exist. Add the field when a corpus component
+   imports a resource type.
+3. **Types table carries two families**: descriptor-IR `ValType`s *and*
+   function types tagged `{"kind":"func", "params": [{label,type}], "results":
+   [...], "async": bool}` — `"func"` is not a ValType kind; consumers must
+   discriminate.
+4. **`imports` entries carry `path: string[]`** — wasmtime's
+   `RuntimeImportIndex` is `(ImportIndex, Vec<String>)` walking into instance
+   imports. (Untested: current corpus has no imports.)
+5. **`canonicalOptions.memory/realloc` are flattened** from wasmtime's
+   `data_model: CanonicalOptionsDataModel::LinearMemory{memory, realloc}`;
+   the `Gc` data model is rejected per descriptor-ir.md.
+6. Runtime instance/memory/realloc **counts are derivable, not carried**;
+   executors create state lazily.
+7. **`worldDigest` needs redesign before M1 bindgen**: currently digests
+   types in interning order (deterministic per component, but not computable
+   from WIT alone). The bindgen handshake requires an order-independent
+   canonicalization. Structural, scheduled with bindgen.
+8. Confirmations: adapter naming = static-module index; embedded
+   `wasm_module_offset` equals slice position (shim-asserted); `NameMap` /
+   `IndexMap` iteration is insertion-ordered (determinism holds).
