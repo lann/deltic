@@ -1,0 +1,2822 @@
+{
+  "_meta": {
+    "deterministicProfile": true,
+    "generator": "runtime/tests/fixtures/generate.py",
+    "source": "third_party/component-model/design/mvp/canonical-abi/definitions.py"
+  },
+  "entries": [
+    {
+      "codePoints": [],
+      "lifts": [
+        {
+          "addrType": "i32",
+          "bytesHex": "",
+          "srcEncoding": "utf8",
+          "taggedCodeUnits": "0"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "",
+          "srcEncoding": "utf16",
+          "taggedCodeUnits": "0"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "0"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "2147483648"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "",
+          "srcEncoding": "utf8",
+          "taggedCodeUnits": "0"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "",
+          "srcEncoding": "utf16",
+          "taggedCodeUnits": "0"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "0"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "9223372036854775808"
+        }
+      ],
+      "lowers": [
+        {
+          "addrType": "i32",
+          "bytesHex": "",
+          "dstEncoding": "utf8",
+          "heapSize": 64,
+          "lastAlloc": 0,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "0"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "",
+          "dstEncoding": "utf16",
+          "heapSize": 64,
+          "lastAlloc": 0,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "0"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "",
+          "dstEncoding": "latin1+utf16",
+          "heapSize": 64,
+          "lastAlloc": 0,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "0"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "",
+          "dstEncoding": "utf8",
+          "heapSize": 64,
+          "lastAlloc": 0,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "0"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "",
+          "dstEncoding": "utf16",
+          "heapSize": 64,
+          "lastAlloc": 0,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "0"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "",
+          "dstEncoding": "latin1+utf16",
+          "heapSize": 64,
+          "lastAlloc": 0,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "0"
+        }
+      ],
+      "utf16Units": 0
+    },
+    {
+      "codePoints": [
+        97
+      ],
+      "lifts": [
+        {
+          "addrType": "i32",
+          "bytesHex": "61",
+          "srcEncoding": "utf8",
+          "taggedCodeUnits": "1"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "6100",
+          "srcEncoding": "utf16",
+          "taggedCodeUnits": "1"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "61",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "1"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "6100",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "2147483649"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "61",
+          "srcEncoding": "utf8",
+          "taggedCodeUnits": "1"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "6100",
+          "srcEncoding": "utf16",
+          "taggedCodeUnits": "1"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "61",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "1"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "6100",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "9223372036854775809"
+        }
+      ],
+      "lowers": [
+        {
+          "addrType": "i32",
+          "bytesHex": "61",
+          "dstEncoding": "utf8",
+          "heapSize": 72,
+          "lastAlloc": 1,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "1"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "6100",
+          "dstEncoding": "utf16",
+          "heapSize": 72,
+          "lastAlloc": 2,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "1"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "61",
+          "dstEncoding": "latin1+utf16",
+          "heapSize": 72,
+          "lastAlloc": 1,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "1"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "61",
+          "dstEncoding": "utf8",
+          "heapSize": 72,
+          "lastAlloc": 1,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "1"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "6100",
+          "dstEncoding": "utf16",
+          "heapSize": 72,
+          "lastAlloc": 2,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "1"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "61",
+          "dstEncoding": "latin1+utf16",
+          "heapSize": 72,
+          "lastAlloc": 1,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "1"
+        }
+      ],
+      "utf16Units": 1
+    },
+    {
+      "codePoints": [
+        104,
+        105
+      ],
+      "lifts": [
+        {
+          "addrType": "i32",
+          "bytesHex": "6869",
+          "srcEncoding": "utf8",
+          "taggedCodeUnits": "2"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "68006900",
+          "srcEncoding": "utf16",
+          "taggedCodeUnits": "2"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "6869",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "2"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "68006900",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "2147483650"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "6869",
+          "srcEncoding": "utf8",
+          "taggedCodeUnits": "2"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "68006900",
+          "srcEncoding": "utf16",
+          "taggedCodeUnits": "2"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "6869",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "2"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "68006900",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "9223372036854775810"
+        }
+      ],
+      "lowers": [
+        {
+          "addrType": "i32",
+          "bytesHex": "6869",
+          "dstEncoding": "utf8",
+          "heapSize": 80,
+          "lastAlloc": 2,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "2"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "68006900",
+          "dstEncoding": "utf16",
+          "heapSize": 80,
+          "lastAlloc": 4,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "2"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "6869",
+          "dstEncoding": "latin1+utf16",
+          "heapSize": 80,
+          "lastAlloc": 2,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "2"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "6869",
+          "dstEncoding": "utf8",
+          "heapSize": 80,
+          "lastAlloc": 2,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "2"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "68006900",
+          "dstEncoding": "utf16",
+          "heapSize": 80,
+          "lastAlloc": 4,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "2"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "6869",
+          "dstEncoding": "latin1+utf16",
+          "heapSize": 80,
+          "lastAlloc": 2,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "2"
+        }
+      ],
+      "utf16Units": 2
+    },
+    {
+      "codePoints": [
+        0
+      ],
+      "lifts": [
+        {
+          "addrType": "i32",
+          "bytesHex": "00",
+          "srcEncoding": "utf8",
+          "taggedCodeUnits": "1"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "0000",
+          "srcEncoding": "utf16",
+          "taggedCodeUnits": "1"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "00",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "1"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "0000",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "2147483649"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "00",
+          "srcEncoding": "utf8",
+          "taggedCodeUnits": "1"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "0000",
+          "srcEncoding": "utf16",
+          "taggedCodeUnits": "1"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "00",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "1"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "0000",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "9223372036854775809"
+        }
+      ],
+      "lowers": [
+        {
+          "addrType": "i32",
+          "bytesHex": "00",
+          "dstEncoding": "utf8",
+          "heapSize": 72,
+          "lastAlloc": 1,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "1"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "0000",
+          "dstEncoding": "utf16",
+          "heapSize": 72,
+          "lastAlloc": 2,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "1"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "00",
+          "dstEncoding": "latin1+utf16",
+          "heapSize": 72,
+          "lastAlloc": 1,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "1"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "00",
+          "dstEncoding": "utf8",
+          "heapSize": 72,
+          "lastAlloc": 1,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "1"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "0000",
+          "dstEncoding": "utf16",
+          "heapSize": 72,
+          "lastAlloc": 2,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "1"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "00",
+          "dstEncoding": "latin1+utf16",
+          "heapSize": 72,
+          "lastAlloc": 1,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "1"
+        }
+      ],
+      "utf16Units": 1
+    },
+    {
+      "codePoints": [
+        97,
+        0,
+        98
+      ],
+      "lifts": [
+        {
+          "addrType": "i32",
+          "bytesHex": "610062",
+          "srcEncoding": "utf8",
+          "taggedCodeUnits": "3"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "610000006200",
+          "srcEncoding": "utf16",
+          "taggedCodeUnits": "3"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "610062",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "3"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "610000006200",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "2147483651"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "610062",
+          "srcEncoding": "utf8",
+          "taggedCodeUnits": "3"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "610000006200",
+          "srcEncoding": "utf16",
+          "taggedCodeUnits": "3"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "610062",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "3"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "610000006200",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "9223372036854775811"
+        }
+      ],
+      "lowers": [
+        {
+          "addrType": "i32",
+          "bytesHex": "610062",
+          "dstEncoding": "utf8",
+          "heapSize": 88,
+          "lastAlloc": 3,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "3"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "610000006200",
+          "dstEncoding": "utf16",
+          "heapSize": 88,
+          "lastAlloc": 6,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "3"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "610062",
+          "dstEncoding": "latin1+utf16",
+          "heapSize": 88,
+          "lastAlloc": 3,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "3"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "610062",
+          "dstEncoding": "utf8",
+          "heapSize": 88,
+          "lastAlloc": 3,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "3"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "610000006200",
+          "dstEncoding": "utf16",
+          "heapSize": 88,
+          "lastAlloc": 6,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "3"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "610062",
+          "dstEncoding": "latin1+utf16",
+          "heapSize": 88,
+          "lastAlloc": 3,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "3"
+        }
+      ],
+      "utf16Units": 3
+    },
+    {
+      "codePoints": [
+        128
+      ],
+      "lifts": [
+        {
+          "addrType": "i32",
+          "bytesHex": "c280",
+          "srcEncoding": "utf8",
+          "taggedCodeUnits": "2"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "8000",
+          "srcEncoding": "utf16",
+          "taggedCodeUnits": "1"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "80",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "1"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "8000",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "2147483649"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "c280",
+          "srcEncoding": "utf8",
+          "taggedCodeUnits": "2"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "8000",
+          "srcEncoding": "utf16",
+          "taggedCodeUnits": "1"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "80",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "1"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "8000",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "9223372036854775809"
+        }
+      ],
+      "lowers": [
+        {
+          "addrType": "i32",
+          "bytesHex": "c280",
+          "dstEncoding": "utf8",
+          "heapSize": 72,
+          "lastAlloc": 4,
+          "ptr": 1,
+          "reallocCalls": 3,
+          "taggedCodeUnits": "2"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "8000",
+          "dstEncoding": "utf16",
+          "heapSize": 72,
+          "lastAlloc": 2,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "1"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "80",
+          "dstEncoding": "latin1+utf16",
+          "heapSize": 72,
+          "lastAlloc": 1,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "1"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "c280",
+          "dstEncoding": "utf8",
+          "heapSize": 72,
+          "lastAlloc": 4,
+          "ptr": 1,
+          "reallocCalls": 3,
+          "taggedCodeUnits": "2"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "8000",
+          "dstEncoding": "utf16",
+          "heapSize": 72,
+          "lastAlloc": 2,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "1"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "80",
+          "dstEncoding": "latin1+utf16",
+          "heapSize": 72,
+          "lastAlloc": 1,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "1"
+        }
+      ],
+      "utf16Units": 1
+    },
+    {
+      "codePoints": [
+        128,
+        98
+      ],
+      "lifts": [
+        {
+          "addrType": "i32",
+          "bytesHex": "c28062",
+          "srcEncoding": "utf8",
+          "taggedCodeUnits": "3"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "80006200",
+          "srcEncoding": "utf16",
+          "taggedCodeUnits": "2"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "8062",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "2"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "80006200",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "2147483650"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "c28062",
+          "srcEncoding": "utf8",
+          "taggedCodeUnits": "3"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "80006200",
+          "srcEncoding": "utf16",
+          "taggedCodeUnits": "2"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "8062",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "2"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "80006200",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "9223372036854775810"
+        }
+      ],
+      "lowers": [
+        {
+          "addrType": "i32",
+          "bytesHex": "c28062",
+          "dstEncoding": "utf8",
+          "heapSize": 80,
+          "lastAlloc": 8,
+          "ptr": 2,
+          "reallocCalls": 3,
+          "taggedCodeUnits": "3"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "80006200",
+          "dstEncoding": "utf16",
+          "heapSize": 80,
+          "lastAlloc": 4,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "2"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "8062",
+          "dstEncoding": "latin1+utf16",
+          "heapSize": 80,
+          "lastAlloc": 2,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "2"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "c28062",
+          "dstEncoding": "utf8",
+          "heapSize": 80,
+          "lastAlloc": 8,
+          "ptr": 2,
+          "reallocCalls": 3,
+          "taggedCodeUnits": "3"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "80006200",
+          "dstEncoding": "utf16",
+          "heapSize": 80,
+          "lastAlloc": 4,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "2"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "8062",
+          "dstEncoding": "latin1+utf16",
+          "heapSize": 80,
+          "lastAlloc": 2,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "2"
+        }
+      ],
+      "utf16Units": 2
+    },
+    {
+      "codePoints": [
+        97,
+        98,
+        239,
+        99
+      ],
+      "lifts": [
+        {
+          "addrType": "i32",
+          "bytesHex": "6162c3af63",
+          "srcEncoding": "utf8",
+          "taggedCodeUnits": "5"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "61006200ef006300",
+          "srcEncoding": "utf16",
+          "taggedCodeUnits": "4"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "6162ef63",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "4"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "61006200ef006300",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "2147483652"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "6162c3af63",
+          "srcEncoding": "utf8",
+          "taggedCodeUnits": "5"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "61006200ef006300",
+          "srcEncoding": "utf16",
+          "taggedCodeUnits": "4"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "6162ef63",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "4"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "61006200ef006300",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "9223372036854775812"
+        }
+      ],
+      "lowers": [
+        {
+          "addrType": "i32",
+          "bytesHex": "6162c3af63",
+          "dstEncoding": "utf8",
+          "heapSize": 96,
+          "lastAlloc": 16,
+          "ptr": 4,
+          "reallocCalls": 3,
+          "taggedCodeUnits": "5"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "61006200ef006300",
+          "dstEncoding": "utf16",
+          "heapSize": 96,
+          "lastAlloc": 8,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "4"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "6162ef63",
+          "dstEncoding": "latin1+utf16",
+          "heapSize": 96,
+          "lastAlloc": 4,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "4"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "6162c3af63",
+          "dstEncoding": "utf8",
+          "heapSize": 96,
+          "lastAlloc": 16,
+          "ptr": 4,
+          "reallocCalls": 3,
+          "taggedCodeUnits": "5"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "61006200ef006300",
+          "dstEncoding": "utf16",
+          "heapSize": 96,
+          "lastAlloc": 8,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "4"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "6162ef63",
+          "dstEncoding": "latin1+utf16",
+          "heapSize": 96,
+          "lastAlloc": 4,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "4"
+        }
+      ],
+      "utf16Units": 4
+    },
+    {
+      "codePoints": [
+        511,
+        121
+      ],
+      "lifts": [
+        {
+          "addrType": "i32",
+          "bytesHex": "c7bf79",
+          "srcEncoding": "utf8",
+          "taggedCodeUnits": "3"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "ff017900",
+          "srcEncoding": "utf16",
+          "taggedCodeUnits": "2"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "ff017900",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "2147483650"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "c7bf79",
+          "srcEncoding": "utf8",
+          "taggedCodeUnits": "3"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "ff017900",
+          "srcEncoding": "utf16",
+          "taggedCodeUnits": "2"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "ff017900",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "9223372036854775810"
+        }
+      ],
+      "lowers": [
+        {
+          "addrType": "i32",
+          "bytesHex": "c7bf79",
+          "dstEncoding": "utf8",
+          "heapSize": 80,
+          "lastAlloc": 8,
+          "ptr": 2,
+          "reallocCalls": 3,
+          "taggedCodeUnits": "3"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "ff017900",
+          "dstEncoding": "utf16",
+          "heapSize": 80,
+          "lastAlloc": 4,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "2"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "ff017900",
+          "dstEncoding": "latin1+utf16",
+          "heapSize": 80,
+          "lastAlloc": 6,
+          "ptr": 2,
+          "reallocCalls": 2,
+          "taggedCodeUnits": "2147483650"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "c7bf79",
+          "dstEncoding": "utf8",
+          "heapSize": 80,
+          "lastAlloc": 8,
+          "ptr": 2,
+          "reallocCalls": 3,
+          "taggedCodeUnits": "3"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "ff017900",
+          "dstEncoding": "utf16",
+          "heapSize": 80,
+          "lastAlloc": 4,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "2"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "ff017900",
+          "dstEncoding": "latin1+utf16",
+          "heapSize": 80,
+          "lastAlloc": 6,
+          "ptr": 2,
+          "reallocCalls": 2,
+          "taggedCodeUnits": "9223372036854775810"
+        }
+      ],
+      "utf16Units": 2
+    },
+    {
+      "codePoints": [
+        120,
+        121,
+        511
+      ],
+      "lifts": [
+        {
+          "addrType": "i32",
+          "bytesHex": "7879c7bf",
+          "srcEncoding": "utf8",
+          "taggedCodeUnits": "4"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "78007900ff01",
+          "srcEncoding": "utf16",
+          "taggedCodeUnits": "3"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "78007900ff01",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "2147483651"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "7879c7bf",
+          "srcEncoding": "utf8",
+          "taggedCodeUnits": "4"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "78007900ff01",
+          "srcEncoding": "utf16",
+          "taggedCodeUnits": "3"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "78007900ff01",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "9223372036854775811"
+        }
+      ],
+      "lowers": [
+        {
+          "addrType": "i32",
+          "bytesHex": "7879c7bf",
+          "dstEncoding": "utf8",
+          "heapSize": 88,
+          "lastAlloc": 12,
+          "ptr": 3,
+          "reallocCalls": 3,
+          "taggedCodeUnits": "4"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "78007900ff01",
+          "dstEncoding": "utf16",
+          "heapSize": 88,
+          "lastAlloc": 6,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "3"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "78007900ff01",
+          "dstEncoding": "latin1+utf16",
+          "heapSize": 88,
+          "lastAlloc": 10,
+          "ptr": 4,
+          "reallocCalls": 2,
+          "taggedCodeUnits": "2147483651"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "7879c7bf",
+          "dstEncoding": "utf8",
+          "heapSize": 88,
+          "lastAlloc": 12,
+          "ptr": 3,
+          "reallocCalls": 3,
+          "taggedCodeUnits": "4"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "78007900ff01",
+          "dstEncoding": "utf16",
+          "heapSize": 88,
+          "lastAlloc": 6,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "3"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "78007900ff01",
+          "dstEncoding": "latin1+utf16",
+          "heapSize": 88,
+          "lastAlloc": 10,
+          "ptr": 4,
+          "reallocCalls": 2,
+          "taggedCodeUnits": "9223372036854775811"
+        }
+      ],
+      "utf16Units": 3
+    },
+    {
+      "codePoints": [
+        97,
+        55295,
+        98
+      ],
+      "lifts": [
+        {
+          "addrType": "i32",
+          "bytesHex": "61ed9fbf62",
+          "srcEncoding": "utf8",
+          "taggedCodeUnits": "5"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "6100ffd76200",
+          "srcEncoding": "utf16",
+          "taggedCodeUnits": "3"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "6100ffd76200",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "2147483651"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "61ed9fbf62",
+          "srcEncoding": "utf8",
+          "taggedCodeUnits": "5"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "6100ffd76200",
+          "srcEncoding": "utf16",
+          "taggedCodeUnits": "3"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "6100ffd76200",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "9223372036854775811"
+        }
+      ],
+      "lowers": [
+        {
+          "addrType": "i32",
+          "bytesHex": "61ed9fbf62",
+          "dstEncoding": "utf8",
+          "heapSize": 88,
+          "lastAlloc": 12,
+          "ptr": 3,
+          "reallocCalls": 3,
+          "taggedCodeUnits": "5"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "6100ffd76200",
+          "dstEncoding": "utf16",
+          "heapSize": 88,
+          "lastAlloc": 6,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "3"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "6100ffd76200",
+          "dstEncoding": "latin1+utf16",
+          "heapSize": 88,
+          "lastAlloc": 10,
+          "ptr": 4,
+          "reallocCalls": 2,
+          "taggedCodeUnits": "2147483651"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "61ed9fbf62",
+          "dstEncoding": "utf8",
+          "heapSize": 88,
+          "lastAlloc": 12,
+          "ptr": 3,
+          "reallocCalls": 3,
+          "taggedCodeUnits": "5"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "6100ffd76200",
+          "dstEncoding": "utf16",
+          "heapSize": 88,
+          "lastAlloc": 6,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "3"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "6100ffd76200",
+          "dstEncoding": "latin1+utf16",
+          "heapSize": 88,
+          "lastAlloc": 10,
+          "ptr": 4,
+          "reallocCalls": 2,
+          "taggedCodeUnits": "9223372036854775811"
+        }
+      ],
+      "utf16Units": 3
+    },
+    {
+      "codePoints": [
+        97,
+        767,
+        1023,
+        1279,
+        98,
+        99
+      ],
+      "lifts": [
+        {
+          "addrType": "i32",
+          "bytesHex": "61cbbfcfbfd3bf6263",
+          "srcEncoding": "utf8",
+          "taggedCodeUnits": "9"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "6100ff02ff03ff0462006300",
+          "srcEncoding": "utf16",
+          "taggedCodeUnits": "6"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "6100ff02ff03ff0462006300",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "2147483654"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "61cbbfcfbfd3bf6263",
+          "srcEncoding": "utf8",
+          "taggedCodeUnits": "9"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "6100ff02ff03ff0462006300",
+          "srcEncoding": "utf16",
+          "taggedCodeUnits": "6"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "6100ff02ff03ff0462006300",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "9223372036854775814"
+        }
+      ],
+      "lowers": [
+        {
+          "addrType": "i32",
+          "bytesHex": "61cbbfcfbfd3bf6263",
+          "dstEncoding": "utf8",
+          "heapSize": 112,
+          "lastAlloc": 24,
+          "ptr": 6,
+          "reallocCalls": 3,
+          "taggedCodeUnits": "9"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "6100ff02ff03ff0462006300",
+          "dstEncoding": "utf16",
+          "heapSize": 112,
+          "lastAlloc": 12,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "6"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "6100ff02ff03ff0462006300",
+          "dstEncoding": "latin1+utf16",
+          "heapSize": 112,
+          "lastAlloc": 18,
+          "ptr": 6,
+          "reallocCalls": 2,
+          "taggedCodeUnits": "2147483654"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "61cbbfcfbfd3bf6263",
+          "dstEncoding": "utf8",
+          "heapSize": 112,
+          "lastAlloc": 24,
+          "ptr": 6,
+          "reallocCalls": 3,
+          "taggedCodeUnits": "9"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "6100ff02ff03ff0462006300",
+          "dstEncoding": "utf16",
+          "heapSize": 112,
+          "lastAlloc": 12,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "6"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "6100ff02ff03ff0462006300",
+          "dstEncoding": "latin1+utf16",
+          "heapSize": 112,
+          "lastAlloc": 18,
+          "ptr": 6,
+          "reallocCalls": 2,
+          "taggedCodeUnits": "9223372036854775814"
+        }
+      ],
+      "utf16Units": 6
+    },
+    {
+      "codePoints": [
+        61731
+      ],
+      "lifts": [
+        {
+          "addrType": "i32",
+          "bytesHex": "ef84a3",
+          "srcEncoding": "utf8",
+          "taggedCodeUnits": "3"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "23f1",
+          "srcEncoding": "utf16",
+          "taggedCodeUnits": "1"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "23f1",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "2147483649"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "ef84a3",
+          "srcEncoding": "utf8",
+          "taggedCodeUnits": "3"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "23f1",
+          "srcEncoding": "utf16",
+          "taggedCodeUnits": "1"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "23f1",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "9223372036854775809"
+        }
+      ],
+      "lowers": [
+        {
+          "addrType": "i32",
+          "bytesHex": "ef84a3",
+          "dstEncoding": "utf8",
+          "heapSize": 72,
+          "lastAlloc": 4,
+          "ptr": 1,
+          "reallocCalls": 2,
+          "taggedCodeUnits": "3"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "23f1",
+          "dstEncoding": "utf16",
+          "heapSize": 72,
+          "lastAlloc": 2,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "1"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "23f1",
+          "dstEncoding": "latin1+utf16",
+          "heapSize": 72,
+          "lastAlloc": 4,
+          "ptr": 2,
+          "reallocCalls": 2,
+          "taggedCodeUnits": "2147483649"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "ef84a3",
+          "dstEncoding": "utf8",
+          "heapSize": 72,
+          "lastAlloc": 4,
+          "ptr": 1,
+          "reallocCalls": 2,
+          "taggedCodeUnits": "3"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "23f1",
+          "dstEncoding": "utf16",
+          "heapSize": 72,
+          "lastAlloc": 2,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "1"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "23f1",
+          "dstEncoding": "latin1+utf16",
+          "heapSize": 72,
+          "lastAlloc": 4,
+          "ptr": 2,
+          "reallocCalls": 2,
+          "taggedCodeUnits": "9223372036854775809"
+        }
+      ],
+      "utf16Units": 1
+    },
+    {
+      "codePoints": [
+        61731,
+        61731,
+        97,
+        98,
+        99
+      ],
+      "lifts": [
+        {
+          "addrType": "i32",
+          "bytesHex": "ef84a3ef84a3616263",
+          "srcEncoding": "utf8",
+          "taggedCodeUnits": "9"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "23f123f1610062006300",
+          "srcEncoding": "utf16",
+          "taggedCodeUnits": "5"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "23f123f1610062006300",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "2147483653"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "ef84a3ef84a3616263",
+          "srcEncoding": "utf8",
+          "taggedCodeUnits": "9"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "23f123f1610062006300",
+          "srcEncoding": "utf16",
+          "taggedCodeUnits": "5"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "23f123f1610062006300",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "9223372036854775813"
+        }
+      ],
+      "lowers": [
+        {
+          "addrType": "i32",
+          "bytesHex": "ef84a3ef84a3616263",
+          "dstEncoding": "utf8",
+          "heapSize": 104,
+          "lastAlloc": 20,
+          "ptr": 5,
+          "reallocCalls": 3,
+          "taggedCodeUnits": "9"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "23f123f1610062006300",
+          "dstEncoding": "utf16",
+          "heapSize": 104,
+          "lastAlloc": 10,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "5"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "23f123f1610062006300",
+          "dstEncoding": "latin1+utf16",
+          "heapSize": 104,
+          "lastAlloc": 16,
+          "ptr": 6,
+          "reallocCalls": 2,
+          "taggedCodeUnits": "2147483653"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "ef84a3ef84a3616263",
+          "dstEncoding": "utf8",
+          "heapSize": 104,
+          "lastAlloc": 20,
+          "ptr": 5,
+          "reallocCalls": 3,
+          "taggedCodeUnits": "9"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "23f123f1610062006300",
+          "dstEncoding": "utf16",
+          "heapSize": 104,
+          "lastAlloc": 10,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "5"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "23f123f1610062006300",
+          "dstEncoding": "latin1+utf16",
+          "heapSize": 104,
+          "lastAlloc": 16,
+          "ptr": 6,
+          "reallocCalls": 2,
+          "taggedCodeUnits": "9223372036854775813"
+        }
+      ],
+      "utf16Units": 5
+    },
+    {
+      "codePoints": [
+        97,
+        98,
+        99,
+        100,
+        101,
+        102,
+        61731
+      ],
+      "lifts": [
+        {
+          "addrType": "i32",
+          "bytesHex": "616263646566ef84a3",
+          "srcEncoding": "utf8",
+          "taggedCodeUnits": "9"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "61006200630064006500660023f1",
+          "srcEncoding": "utf16",
+          "taggedCodeUnits": "7"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "61006200630064006500660023f1",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "2147483655"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "616263646566ef84a3",
+          "srcEncoding": "utf8",
+          "taggedCodeUnits": "9"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "61006200630064006500660023f1",
+          "srcEncoding": "utf16",
+          "taggedCodeUnits": "7"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "61006200630064006500660023f1",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "9223372036854775815"
+        }
+      ],
+      "lowers": [
+        {
+          "addrType": "i32",
+          "bytesHex": "616263646566ef84a3",
+          "dstEncoding": "utf8",
+          "heapSize": 120,
+          "lastAlloc": 28,
+          "ptr": 7,
+          "reallocCalls": 3,
+          "taggedCodeUnits": "9"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "61006200630064006500660023f1",
+          "dstEncoding": "utf16",
+          "heapSize": 120,
+          "lastAlloc": 14,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "7"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "61006200630064006500660023f1",
+          "dstEncoding": "latin1+utf16",
+          "heapSize": 120,
+          "lastAlloc": 22,
+          "ptr": 8,
+          "reallocCalls": 2,
+          "taggedCodeUnits": "2147483655"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "616263646566ef84a3",
+          "dstEncoding": "utf8",
+          "heapSize": 120,
+          "lastAlloc": 28,
+          "ptr": 7,
+          "reallocCalls": 3,
+          "taggedCodeUnits": "9"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "61006200630064006500660023f1",
+          "dstEncoding": "utf16",
+          "heapSize": 120,
+          "lastAlloc": 14,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "7"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "61006200630064006500660023f1",
+          "dstEncoding": "latin1+utf16",
+          "heapSize": 120,
+          "lastAlloc": 22,
+          "ptr": 8,
+          "reallocCalls": 2,
+          "taggedCodeUnits": "9223372036854775815"
+        }
+      ],
+      "utf16Units": 7
+    },
+    {
+      "codePoints": [
+        255
+      ],
+      "lifts": [
+        {
+          "addrType": "i32",
+          "bytesHex": "c3bf",
+          "srcEncoding": "utf8",
+          "taggedCodeUnits": "2"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "ff00",
+          "srcEncoding": "utf16",
+          "taggedCodeUnits": "1"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "ff",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "1"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "ff00",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "2147483649"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "c3bf",
+          "srcEncoding": "utf8",
+          "taggedCodeUnits": "2"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "ff00",
+          "srcEncoding": "utf16",
+          "taggedCodeUnits": "1"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "ff",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "1"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "ff00",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "9223372036854775809"
+        }
+      ],
+      "lowers": [
+        {
+          "addrType": "i32",
+          "bytesHex": "c3bf",
+          "dstEncoding": "utf8",
+          "heapSize": 72,
+          "lastAlloc": 4,
+          "ptr": 1,
+          "reallocCalls": 3,
+          "taggedCodeUnits": "2"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "ff00",
+          "dstEncoding": "utf16",
+          "heapSize": 72,
+          "lastAlloc": 2,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "1"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "ff",
+          "dstEncoding": "latin1+utf16",
+          "heapSize": 72,
+          "lastAlloc": 1,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "1"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "c3bf",
+          "dstEncoding": "utf8",
+          "heapSize": 72,
+          "lastAlloc": 4,
+          "ptr": 1,
+          "reallocCalls": 3,
+          "taggedCodeUnits": "2"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "ff00",
+          "dstEncoding": "utf16",
+          "heapSize": 72,
+          "lastAlloc": 2,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "1"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "ff",
+          "dstEncoding": "latin1+utf16",
+          "heapSize": 72,
+          "lastAlloc": 1,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "1"
+        }
+      ],
+      "utf16Units": 1
+    },
+    {
+      "codePoints": [
+        256
+      ],
+      "lifts": [
+        {
+          "addrType": "i32",
+          "bytesHex": "c480",
+          "srcEncoding": "utf8",
+          "taggedCodeUnits": "2"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "0001",
+          "srcEncoding": "utf16",
+          "taggedCodeUnits": "1"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "0001",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "2147483649"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "c480",
+          "srcEncoding": "utf8",
+          "taggedCodeUnits": "2"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "0001",
+          "srcEncoding": "utf16",
+          "taggedCodeUnits": "1"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "0001",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "9223372036854775809"
+        }
+      ],
+      "lowers": [
+        {
+          "addrType": "i32",
+          "bytesHex": "c480",
+          "dstEncoding": "utf8",
+          "heapSize": 72,
+          "lastAlloc": 4,
+          "ptr": 1,
+          "reallocCalls": 3,
+          "taggedCodeUnits": "2"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "0001",
+          "dstEncoding": "utf16",
+          "heapSize": 72,
+          "lastAlloc": 2,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "1"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "0001",
+          "dstEncoding": "latin1+utf16",
+          "heapSize": 72,
+          "lastAlloc": 4,
+          "ptr": 2,
+          "reallocCalls": 2,
+          "taggedCodeUnits": "2147483649"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "c480",
+          "dstEncoding": "utf8",
+          "heapSize": 72,
+          "lastAlloc": 4,
+          "ptr": 1,
+          "reallocCalls": 3,
+          "taggedCodeUnits": "2"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "0001",
+          "dstEncoding": "utf16",
+          "heapSize": 72,
+          "lastAlloc": 2,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "1"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "0001",
+          "dstEncoding": "latin1+utf16",
+          "heapSize": 72,
+          "lastAlloc": 4,
+          "ptr": 2,
+          "reallocCalls": 2,
+          "taggedCodeUnits": "9223372036854775809"
+        }
+      ],
+      "utf16Units": 1
+    },
+    {
+      "codePoints": [
+        57344
+      ],
+      "lifts": [
+        {
+          "addrType": "i32",
+          "bytesHex": "ee8080",
+          "srcEncoding": "utf8",
+          "taggedCodeUnits": "3"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "00e0",
+          "srcEncoding": "utf16",
+          "taggedCodeUnits": "1"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "00e0",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "2147483649"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "ee8080",
+          "srcEncoding": "utf8",
+          "taggedCodeUnits": "3"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "00e0",
+          "srcEncoding": "utf16",
+          "taggedCodeUnits": "1"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "00e0",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "9223372036854775809"
+        }
+      ],
+      "lowers": [
+        {
+          "addrType": "i32",
+          "bytesHex": "ee8080",
+          "dstEncoding": "utf8",
+          "heapSize": 72,
+          "lastAlloc": 4,
+          "ptr": 1,
+          "reallocCalls": 2,
+          "taggedCodeUnits": "3"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "00e0",
+          "dstEncoding": "utf16",
+          "heapSize": 72,
+          "lastAlloc": 2,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "1"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "00e0",
+          "dstEncoding": "latin1+utf16",
+          "heapSize": 72,
+          "lastAlloc": 4,
+          "ptr": 2,
+          "reallocCalls": 2,
+          "taggedCodeUnits": "2147483649"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "ee8080",
+          "dstEncoding": "utf8",
+          "heapSize": 72,
+          "lastAlloc": 4,
+          "ptr": 1,
+          "reallocCalls": 2,
+          "taggedCodeUnits": "3"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "00e0",
+          "dstEncoding": "utf16",
+          "heapSize": 72,
+          "lastAlloc": 2,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "1"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "00e0",
+          "dstEncoding": "latin1+utf16",
+          "heapSize": 72,
+          "lastAlloc": 4,
+          "ptr": 2,
+          "reallocCalls": 2,
+          "taggedCodeUnits": "9223372036854775809"
+        }
+      ],
+      "utf16Units": 1
+    },
+    {
+      "codePoints": [
+        65533
+      ],
+      "lifts": [
+        {
+          "addrType": "i32",
+          "bytesHex": "efbfbd",
+          "srcEncoding": "utf8",
+          "taggedCodeUnits": "3"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "fdff",
+          "srcEncoding": "utf16",
+          "taggedCodeUnits": "1"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "fdff",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "2147483649"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "efbfbd",
+          "srcEncoding": "utf8",
+          "taggedCodeUnits": "3"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "fdff",
+          "srcEncoding": "utf16",
+          "taggedCodeUnits": "1"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "fdff",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "9223372036854775809"
+        }
+      ],
+      "lowers": [
+        {
+          "addrType": "i32",
+          "bytesHex": "efbfbd",
+          "dstEncoding": "utf8",
+          "heapSize": 72,
+          "lastAlloc": 4,
+          "ptr": 1,
+          "reallocCalls": 2,
+          "taggedCodeUnits": "3"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "fdff",
+          "dstEncoding": "utf16",
+          "heapSize": 72,
+          "lastAlloc": 2,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "1"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "fdff",
+          "dstEncoding": "latin1+utf16",
+          "heapSize": 72,
+          "lastAlloc": 4,
+          "ptr": 2,
+          "reallocCalls": 2,
+          "taggedCodeUnits": "2147483649"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "efbfbd",
+          "dstEncoding": "utf8",
+          "heapSize": 72,
+          "lastAlloc": 4,
+          "ptr": 1,
+          "reallocCalls": 2,
+          "taggedCodeUnits": "3"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "fdff",
+          "dstEncoding": "utf16",
+          "heapSize": 72,
+          "lastAlloc": 2,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "1"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "fdff",
+          "dstEncoding": "latin1+utf16",
+          "heapSize": 72,
+          "lastAlloc": 4,
+          "ptr": 2,
+          "reallocCalls": 2,
+          "taggedCodeUnits": "9223372036854775809"
+        }
+      ],
+      "utf16Units": 1
+    },
+    {
+      "codePoints": [
+        1114111
+      ],
+      "lifts": [
+        {
+          "addrType": "i32",
+          "bytesHex": "f48fbfbf",
+          "srcEncoding": "utf8",
+          "taggedCodeUnits": "4"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "ffdbffdf",
+          "srcEncoding": "utf16",
+          "taggedCodeUnits": "2"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "ffdbffdf",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "2147483650"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "f48fbfbf",
+          "srcEncoding": "utf8",
+          "taggedCodeUnits": "4"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "ffdbffdf",
+          "srcEncoding": "utf16",
+          "taggedCodeUnits": "2"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "ffdbffdf",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "9223372036854775810"
+        }
+      ],
+      "lowers": [
+        {
+          "addrType": "i32",
+          "bytesHex": "f48fbfbf",
+          "dstEncoding": "utf8",
+          "heapSize": 80,
+          "lastAlloc": 8,
+          "ptr": 2,
+          "reallocCalls": 3,
+          "taggedCodeUnits": "4"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "ffdbffdf",
+          "dstEncoding": "utf16",
+          "heapSize": 80,
+          "lastAlloc": 4,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "2"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "ffdbffdf",
+          "dstEncoding": "latin1+utf16",
+          "heapSize": 80,
+          "lastAlloc": 6,
+          "ptr": 2,
+          "reallocCalls": 2,
+          "taggedCodeUnits": "2147483650"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "f48fbfbf",
+          "dstEncoding": "utf8",
+          "heapSize": 80,
+          "lastAlloc": 8,
+          "ptr": 2,
+          "reallocCalls": 3,
+          "taggedCodeUnits": "4"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "ffdbffdf",
+          "dstEncoding": "utf16",
+          "heapSize": 80,
+          "lastAlloc": 4,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "2"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "ffdbffdf",
+          "dstEncoding": "latin1+utf16",
+          "heapSize": 80,
+          "lastAlloc": 6,
+          "ptr": 2,
+          "reallocCalls": 2,
+          "taggedCodeUnits": "9223372036854775810"
+        }
+      ],
+      "utf16Units": 2
+    },
+    {
+      "codePoints": [
+        119070
+      ],
+      "lifts": [
+        {
+          "addrType": "i32",
+          "bytesHex": "f09d849e",
+          "srcEncoding": "utf8",
+          "taggedCodeUnits": "4"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "34d81edd",
+          "srcEncoding": "utf16",
+          "taggedCodeUnits": "2"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "34d81edd",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "2147483650"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "f09d849e",
+          "srcEncoding": "utf8",
+          "taggedCodeUnits": "4"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "34d81edd",
+          "srcEncoding": "utf16",
+          "taggedCodeUnits": "2"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "34d81edd",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "9223372036854775810"
+        }
+      ],
+      "lowers": [
+        {
+          "addrType": "i32",
+          "bytesHex": "f09d849e",
+          "dstEncoding": "utf8",
+          "heapSize": 80,
+          "lastAlloc": 8,
+          "ptr": 2,
+          "reallocCalls": 3,
+          "taggedCodeUnits": "4"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "34d81edd",
+          "dstEncoding": "utf16",
+          "heapSize": 80,
+          "lastAlloc": 4,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "2"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "34d81edd",
+          "dstEncoding": "latin1+utf16",
+          "heapSize": 80,
+          "lastAlloc": 6,
+          "ptr": 2,
+          "reallocCalls": 2,
+          "taggedCodeUnits": "2147483650"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "f09d849e",
+          "dstEncoding": "utf8",
+          "heapSize": 80,
+          "lastAlloc": 8,
+          "ptr": 2,
+          "reallocCalls": 3,
+          "taggedCodeUnits": "4"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "34d81edd",
+          "dstEncoding": "utf16",
+          "heapSize": 80,
+          "lastAlloc": 4,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "2"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "34d81edd",
+          "dstEncoding": "latin1+utf16",
+          "heapSize": 80,
+          "lastAlloc": 6,
+          "ptr": 2,
+          "reallocCalls": 2,
+          "taggedCodeUnits": "9223372036854775810"
+        }
+      ],
+      "utf16Units": 2
+    },
+    {
+      "codePoints": [
+        120,
+        128512,
+        121
+      ],
+      "lifts": [
+        {
+          "addrType": "i32",
+          "bytesHex": "78f09f988079",
+          "srcEncoding": "utf8",
+          "taggedCodeUnits": "6"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "78003dd800de7900",
+          "srcEncoding": "utf16",
+          "taggedCodeUnits": "4"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "78003dd800de7900",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "2147483652"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "78f09f988079",
+          "srcEncoding": "utf8",
+          "taggedCodeUnits": "6"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "78003dd800de7900",
+          "srcEncoding": "utf16",
+          "taggedCodeUnits": "4"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "78003dd800de7900",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "9223372036854775812"
+        }
+      ],
+      "lowers": [
+        {
+          "addrType": "i32",
+          "bytesHex": "78f09f988079",
+          "dstEncoding": "utf8",
+          "heapSize": 96,
+          "lastAlloc": 16,
+          "ptr": 4,
+          "reallocCalls": 3,
+          "taggedCodeUnits": "6"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "78003dd800de7900",
+          "dstEncoding": "utf16",
+          "heapSize": 96,
+          "lastAlloc": 8,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "4"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "78003dd800de7900",
+          "dstEncoding": "latin1+utf16",
+          "heapSize": 96,
+          "lastAlloc": 12,
+          "ptr": 4,
+          "reallocCalls": 2,
+          "taggedCodeUnits": "2147483652"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "78f09f988079",
+          "dstEncoding": "utf8",
+          "heapSize": 96,
+          "lastAlloc": 16,
+          "ptr": 4,
+          "reallocCalls": 3,
+          "taggedCodeUnits": "6"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "78003dd800de7900",
+          "dstEncoding": "utf16",
+          "heapSize": 96,
+          "lastAlloc": 8,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "4"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "78003dd800de7900",
+          "dstEncoding": "latin1+utf16",
+          "heapSize": 96,
+          "lastAlloc": 12,
+          "ptr": 4,
+          "reallocCalls": 2,
+          "taggedCodeUnits": "9223372036854775812"
+        }
+      ],
+      "utf16Units": 4
+    },
+    {
+      "codePoints": [
+        128512,
+        128512,
+        128512
+      ],
+      "lifts": [
+        {
+          "addrType": "i32",
+          "bytesHex": "f09f9880f09f9880f09f9880",
+          "srcEncoding": "utf8",
+          "taggedCodeUnits": "12"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "3dd800de3dd800de3dd800de",
+          "srcEncoding": "utf16",
+          "taggedCodeUnits": "6"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "3dd800de3dd800de3dd800de",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "2147483654"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "f09f9880f09f9880f09f9880",
+          "srcEncoding": "utf8",
+          "taggedCodeUnits": "12"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "3dd800de3dd800de3dd800de",
+          "srcEncoding": "utf16",
+          "taggedCodeUnits": "6"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "3dd800de3dd800de3dd800de",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "9223372036854775814"
+        }
+      ],
+      "lowers": [
+        {
+          "addrType": "i32",
+          "bytesHex": "f09f9880f09f9880f09f9880",
+          "dstEncoding": "utf8",
+          "heapSize": 112,
+          "lastAlloc": 24,
+          "ptr": 6,
+          "reallocCalls": 3,
+          "taggedCodeUnits": "12"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "3dd800de3dd800de3dd800de",
+          "dstEncoding": "utf16",
+          "heapSize": 112,
+          "lastAlloc": 12,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "6"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "3dd800de3dd800de3dd800de",
+          "dstEncoding": "latin1+utf16",
+          "heapSize": 112,
+          "lastAlloc": 18,
+          "ptr": 6,
+          "reallocCalls": 2,
+          "taggedCodeUnits": "2147483654"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "f09f9880f09f9880f09f9880",
+          "dstEncoding": "utf8",
+          "heapSize": 112,
+          "lastAlloc": 24,
+          "ptr": 6,
+          "reallocCalls": 3,
+          "taggedCodeUnits": "12"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "3dd800de3dd800de3dd800de",
+          "dstEncoding": "utf16",
+          "heapSize": 112,
+          "lastAlloc": 12,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "6"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "3dd800de3dd800de3dd800de",
+          "dstEncoding": "latin1+utf16",
+          "heapSize": 112,
+          "lastAlloc": 18,
+          "ptr": 6,
+          "reallocCalls": 2,
+          "taggedCodeUnits": "9223372036854775814"
+        }
+      ],
+      "utf16Units": 6
+    },
+    {
+      "codePoints": [
+        99,
+        97,
+        102,
+        233,
+        32,
+        99,
+        111,
+        115,
+        116,
+        115,
+        32,
+        8364,
+        53
+      ],
+      "lifts": [
+        {
+          "addrType": "i32",
+          "bytesHex": "636166c3a920636f73747320e282ac35",
+          "srcEncoding": "utf8",
+          "taggedCodeUnits": "16"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "630061006600e900200063006f007300740073002000ac203500",
+          "srcEncoding": "utf16",
+          "taggedCodeUnits": "13"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "630061006600e900200063006f007300740073002000ac203500",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "2147483661"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "636166c3a920636f73747320e282ac35",
+          "srcEncoding": "utf8",
+          "taggedCodeUnits": "16"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "630061006600e900200063006f007300740073002000ac203500",
+          "srcEncoding": "utf16",
+          "taggedCodeUnits": "13"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "630061006600e900200063006f007300740073002000ac203500",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "9223372036854775821"
+        }
+      ],
+      "lowers": [
+        {
+          "addrType": "i32",
+          "bytesHex": "636166c3a920636f73747320e282ac35",
+          "dstEncoding": "utf8",
+          "heapSize": 168,
+          "lastAlloc": 52,
+          "ptr": 13,
+          "reallocCalls": 3,
+          "taggedCodeUnits": "16"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "630061006600e900200063006f007300740073002000ac203500",
+          "dstEncoding": "utf16",
+          "heapSize": 168,
+          "lastAlloc": 26,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "13"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "630061006600e900200063006f007300740073002000ac203500",
+          "dstEncoding": "latin1+utf16",
+          "heapSize": 168,
+          "lastAlloc": 40,
+          "ptr": 14,
+          "reallocCalls": 2,
+          "taggedCodeUnits": "2147483661"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "636166c3a920636f73747320e282ac35",
+          "dstEncoding": "utf8",
+          "heapSize": 168,
+          "lastAlloc": 52,
+          "ptr": 13,
+          "reallocCalls": 3,
+          "taggedCodeUnits": "16"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "630061006600e900200063006f007300740073002000ac203500",
+          "dstEncoding": "utf16",
+          "heapSize": 168,
+          "lastAlloc": 26,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "13"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "630061006600e900200063006f007300740073002000ac203500",
+          "dstEncoding": "latin1+utf16",
+          "heapSize": 168,
+          "lastAlloc": 40,
+          "ptr": 14,
+          "reallocCalls": 2,
+          "taggedCodeUnits": "9223372036854775821"
+        }
+      ],
+      "utf16Units": 13
+    },
+    {
+      "codePoints": [
+        109,
+        105,
+        120,
+        101,
+        100,
+        32,
+        511,
+        32,
+        128512,
+        32,
+        97,
+        115,
+        99,
+        105,
+        105
+      ],
+      "lifts": [
+        {
+          "addrType": "i32",
+          "bytesHex": "6d6978656420c7bf20f09f9880206173636969",
+          "srcEncoding": "utf8",
+          "taggedCodeUnits": "19"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "6d0069007800650064002000ff0120003dd800de200061007300630069006900",
+          "srcEncoding": "utf16",
+          "taggedCodeUnits": "16"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "6d0069007800650064002000ff0120003dd800de200061007300630069006900",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "2147483664"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "6d6978656420c7bf20f09f9880206173636969",
+          "srcEncoding": "utf8",
+          "taggedCodeUnits": "19"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "6d0069007800650064002000ff0120003dd800de200061007300630069006900",
+          "srcEncoding": "utf16",
+          "taggedCodeUnits": "16"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "6d0069007800650064002000ff0120003dd800de200061007300630069006900",
+          "srcEncoding": "latin1+utf16",
+          "taggedCodeUnits": "9223372036854775824"
+        }
+      ],
+      "lowers": [
+        {
+          "addrType": "i32",
+          "bytesHex": "6d6978656420c7bf20f09f9880206173636969",
+          "dstEncoding": "utf8",
+          "heapSize": 192,
+          "lastAlloc": 64,
+          "ptr": 16,
+          "reallocCalls": 3,
+          "taggedCodeUnits": "19"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "6d0069007800650064002000ff0120003dd800de200061007300630069006900",
+          "dstEncoding": "utf16",
+          "heapSize": 192,
+          "lastAlloc": 32,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "16"
+        },
+        {
+          "addrType": "i32",
+          "bytesHex": "6d0069007800650064002000ff0120003dd800de200061007300630069006900",
+          "dstEncoding": "latin1+utf16",
+          "heapSize": 192,
+          "lastAlloc": 48,
+          "ptr": 16,
+          "reallocCalls": 2,
+          "taggedCodeUnits": "2147483664"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "6d6978656420c7bf20f09f9880206173636969",
+          "dstEncoding": "utf8",
+          "heapSize": 192,
+          "lastAlloc": 64,
+          "ptr": 16,
+          "reallocCalls": 3,
+          "taggedCodeUnits": "19"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "6d0069007800650064002000ff0120003dd800de200061007300630069006900",
+          "dstEncoding": "utf16",
+          "heapSize": 192,
+          "lastAlloc": 32,
+          "ptr": 0,
+          "reallocCalls": 1,
+          "taggedCodeUnits": "16"
+        },
+        {
+          "addrType": "i64",
+          "bytesHex": "6d0069007800650064002000ff0120003dd800de200061007300630069006900",
+          "dstEncoding": "latin1+utf16",
+          "heapSize": 192,
+          "lastAlloc": 48,
+          "ptr": 16,
+          "reallocCalls": 2,
+          "taggedCodeUnits": "9223372036854775824"
+        }
+      ],
+      "utf16Units": 16
+    }
+  ]
+}

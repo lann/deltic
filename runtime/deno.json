@@ -1,4 +1,10 @@
 {
   "name": "@component-engine/runtime",
-  "exports": {}
+  "exports": {
+    "./cabi": "./src/cabi/mod.ts"
+  },
+  "tasks": {
+    "test": "deno test",
+    "gen-fixtures": "python3 tests/fixtures/generate.py"
+  }
 }

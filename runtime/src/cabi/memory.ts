@@ -1,0 +1,175 @@
+// Linear-memory access (definitions.py `MemInst`, `load_int`, `store_int`,
+// `ptr_size`).
+//
+// A `MemInst` wraps a byte buffer with an address type (wasm32/wasm64). All
+// multi-byte accesses are little-endian via DataView. Following PLAN.md §7,
+// integer lanes/values of width <= 32 are JS numbers and 64-bit values are
+// BigInt.
+//
+// Addresses and sizes are JS numbers throughout: real guest memories are far
+// below Number.MAX_SAFE_INTEGER. Values arriving from i64 lanes (memory64)
+// are bounds-checked as BigInt before conversion — see `asIndex`.
+
+import { assert_, trapIf } from "./trap.ts";
+import type { PtrType } from "./types.ts";
+
+export function ptrSize(ptrType: PtrType): 4 | 8 {
+  return ptrType === "i32" ? 4 : 8;
+}
+
+export class MemInst {
+  readonly bytes: Uint8Array;
+  readonly view: DataView;
+  readonly addrType: PtrType;
+
+  constructor(bytes: Uint8Array, addrType: PtrType) {
+    this.bytes = bytes;
+    this.view = new DataView(
+      bytes.buffer,
+      bytes.byteOffset,
+      bytes.byteLength,
+    );
+    this.addrType = addrType;
+  }
+
+  get length(): number {
+    return this.bytes.length;
+  }
+
+  ptrType(): PtrType {
+    return this.addrType;
+  }
+
+  ptrSize(): 4 | 8 {
+    return ptrSize(this.addrType);
+  }
+}
+
+/**
+ * Convert a (possibly BigInt) address/length to a JS number index, after the
+ * caller has already trapped on any out-of-bounds condition using exact
+ * (BigInt) arithmetic. Asserts rather than traps: by this point the value is
+ * known small.
+ */
+export function asIndex(v: number | bigint): number {
+  if (typeof v === "bigint") {
+    assert_(v >= 0n && v <= BigInt(Number.MAX_SAFE_INTEGER), "index overflow");
+    return Number(v);
+  }
+  assert_(Number.isSafeInteger(v) && v >= 0, "index not a safe integer");
+  return v;
+}
+
+// definitions.py load_int(cx, ptr, nbytes, signed): widths 1/2/4 -> number,
+// width 8 -> bigint (PLAN.md §7 number/BigInt split).
+
+export function loadIntU(mem: MemInst, ptr: number, nbytes: 1 | 2 | 4): number;
+export function loadIntU(mem: MemInst, ptr: number, nbytes: 8): bigint;
+export function loadIntU(
+  mem: MemInst,
+  ptr: number,
+  nbytes: 1 | 2 | 4 | 8,
+): number | bigint {
+  assert_(ptr + nbytes <= mem.length, "load out of bounds");
+  switch (nbytes) {
+    case 1:
+      return mem.view.getUint8(ptr);
+    case 2:
+      return mem.view.getUint16(ptr, true);
+    case 4:
+      return mem.view.getUint32(ptr, true);
+    case 8:
+      return mem.view.getBigUint64(ptr, true);
+  }
+}
+
+export function loadIntS(mem: MemInst, ptr: number, nbytes: 1 | 2 | 4): number;
+export function loadIntS(mem: MemInst, ptr: number, nbytes: 8): bigint;
+export function loadIntS(
+  mem: MemInst,
+  ptr: number,
+  nbytes: 1 | 2 | 4 | 8,
+): number | bigint {
+  assert_(ptr + nbytes <= mem.length, "load out of bounds");
+  switch (nbytes) {
+    case 1:
+      return mem.view.getInt8(ptr);
+    case 2:
+      return mem.view.getInt16(ptr, true);
+    case 4:
+      return mem.view.getInt32(ptr, true);
+    case 8:
+      return mem.view.getBigInt64(ptr, true);
+  }
+}
+
+/** Load a pointer-sized unsigned integer (returns bigint for i64 memories). */
+export function loadPtr(mem: MemInst, ptr: number): number | bigint {
+  return mem.ptrSize() === 4 ? loadIntU(mem, ptr, 4) : loadIntU(mem, ptr, 8);
+}
+
+// definitions.py store_int(cx, v, ptr, nbytes, signed).
+
+export function storeInt(
+  mem: MemInst,
+  v: number | bigint,
+  ptr: number,
+  nbytes: 1 | 2 | 4 | 8,
+  signed = false,
+): void {
+  assert_(ptr + nbytes <= mem.length, "store out of bounds");
+  if (nbytes === 8) {
+    assert_(typeof v === "bigint", "64-bit store requires bigint");
+    if (signed) mem.view.setBigInt64(ptr, v, true);
+    else mem.view.setBigUint64(ptr, v, true);
+    return;
+  }
+  assert_(typeof v === "number" && Number.isInteger(v), "int store");
+  switch (nbytes) {
+    case 1:
+      if (signed) mem.view.setInt8(ptr, v);
+      else mem.view.setUint8(ptr, v);
+      break;
+    case 2:
+      if (signed) mem.view.setInt16(ptr, v, true);
+      else mem.view.setUint16(ptr, v, true);
+      break;
+    case 4:
+      if (signed) mem.view.setInt32(ptr, v, true);
+      else mem.view.setUint32(ptr, v, true);
+      break;
+  }
+}
+
+/** Store a pointer-sized unsigned integer, taking a JS number. */
+export function storePtr(mem: MemInst, v: number, ptr: number): void {
+  if (mem.ptrSize() === 4) storeInt(mem, v, ptr, 4);
+  else storeInt(mem, BigInt(v), ptr, 8);
+}
+
+/** Bounds-checked byte-range read (callers trap on OOB before calling). */
+export function bytesOf(mem: MemInst, ptr: number, len: number): Uint8Array {
+  assert_(ptr >= 0 && len >= 0 && ptr + len <= mem.length, "range OOB");
+  return mem.bytes.subarray(ptr, ptr + len);
+}
+
+/** Copy bytes into memory; used by string/list stores after trap checks. */
+export function writeBytes(mem: MemInst, ptr: number, src: Uint8Array): void {
+  assert_(ptr >= 0 && ptr + src.length <= mem.length, "write OOB");
+  mem.bytes.set(src, ptr);
+}
+
+/**
+ * Exact bounds check usable with i64-lane values: traps when
+ * `ptr + byteLength > len(memory)`, computed without precision loss.
+ */
+export function trapIfRangeExceedsMemory(
+  mem: MemInst,
+  ptr: number | bigint,
+  byteLength: number | bigint,
+): void {
+  trapIf(
+    BigInt(ptr) + BigInt(byteLength) > BigInt(mem.length),
+    "out of bounds of linear memory",
+  );
+}

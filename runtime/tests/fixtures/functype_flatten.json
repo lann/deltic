@@ -1,0 +1,754 @@
+{
+  "_meta": {
+    "deterministicProfile": true,
+    "generator": "runtime/tests/fixtures/generate.py",
+    "source": "third_party/component-model/design/mvp/canonical-abi/definitions.py"
+  },
+  "entries": [
+    {
+      "addrType": "i32",
+      "async": false,
+      "callback": false,
+      "lift": {
+        "params": [
+          "i32",
+          "f32",
+          "f64"
+        ],
+        "results": []
+      },
+      "lower": {
+        "params": [
+          "i32",
+          "f32",
+          "f64"
+        ],
+        "results": []
+      },
+      "name": "prims",
+      "params": [
+        "u8",
+        "f32",
+        "f64"
+      ],
+      "results": []
+    },
+    {
+      "addrType": "i32",
+      "async": false,
+      "callback": false,
+      "lift": {
+        "params": [
+          "i32",
+          "f32",
+          "f64"
+        ],
+        "results": [
+          "f32"
+        ]
+      },
+      "lower": {
+        "params": [
+          "i32",
+          "f32",
+          "f64"
+        ],
+        "results": [
+          "f32"
+        ]
+      },
+      "name": "prims->f32",
+      "params": [
+        "u8",
+        "f32",
+        "f64"
+      ],
+      "results": [
+        "f32"
+      ]
+    },
+    {
+      "addrType": "i32",
+      "async": false,
+      "callback": false,
+      "lift": {
+        "params": [
+          "i32",
+          "f32",
+          "f64"
+        ],
+        "results": [
+          "i32"
+        ]
+      },
+      "lower": {
+        "params": [
+          "i32",
+          "f32",
+          "f64"
+        ],
+        "results": [
+          "i32"
+        ]
+      },
+      "name": "prims->u8",
+      "params": [
+        "u8",
+        "f32",
+        "f64"
+      ],
+      "results": [
+        "u8"
+      ]
+    },
+    {
+      "addrType": "i32",
+      "async": false,
+      "callback": false,
+      "lift": {
+        "params": [
+          "i32",
+          "f32",
+          "f64"
+        ],
+        "results": [
+          "f32"
+        ]
+      },
+      "lower": {
+        "params": [
+          "i32",
+          "f32",
+          "f64"
+        ],
+        "results": [
+          "f32"
+        ]
+      },
+      "name": "prims->tuple1",
+      "params": [
+        "u8",
+        "f32",
+        "f64"
+      ],
+      "results": [
+        {
+          "tuple": [
+            "f32"
+          ]
+        }
+      ]
+    },
+    {
+      "addrType": "i32",
+      "async": false,
+      "callback": false,
+      "lift": {
+        "params": [
+          "i32",
+          "f32",
+          "f64"
+        ],
+        "results": [
+          "i32"
+        ]
+      },
+      "lower": {
+        "params": [
+          "i32",
+          "f32",
+          "f64",
+          "i32"
+        ],
+        "results": []
+      },
+      "name": "prims->tuple2",
+      "params": [
+        "u8",
+        "f32",
+        "f64"
+      ],
+      "results": [
+        {
+          "tuple": [
+            "f32",
+            "f32"
+          ]
+        }
+      ]
+    },
+    {
+      "addrType": "i32",
+      "async": false,
+      "callback": false,
+      "lift": {
+        "params": [
+          "i32",
+          "i32",
+          "i32",
+          "i32",
+          "i32",
+          "i32",
+          "i32",
+          "i32",
+          "i32",
+          "i32",
+          "i32",
+          "i32",
+          "i32",
+          "i32",
+          "i32",
+          "i32"
+        ],
+        "results": []
+      },
+      "lower": {
+        "params": [
+          "i32",
+          "i32",
+          "i32",
+          "i32",
+          "i32",
+          "i32",
+          "i32",
+          "i32",
+          "i32",
+          "i32",
+          "i32",
+          "i32",
+          "i32",
+          "i32",
+          "i32",
+          "i32"
+        ],
+        "results": []
+      },
+      "name": "16 params",
+      "params": [
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8"
+      ],
+      "results": []
+    },
+    {
+      "addrType": "i32",
+      "async": false,
+      "callback": false,
+      "lift": {
+        "params": [
+          "i32"
+        ],
+        "results": []
+      },
+      "lower": {
+        "params": [
+          "i32"
+        ],
+        "results": []
+      },
+      "name": "17 params",
+      "params": [
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8"
+      ],
+      "results": []
+    },
+    {
+      "addrType": "i64",
+      "async": false,
+      "callback": false,
+      "lift": {
+        "params": [
+          "i64"
+        ],
+        "results": []
+      },
+      "lower": {
+        "params": [
+          "i64"
+        ],
+        "results": []
+      },
+      "name": "17 params (i64)",
+      "params": [
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8"
+      ],
+      "results": []
+    },
+    {
+      "addrType": "i32",
+      "async": false,
+      "callback": false,
+      "lift": {
+        "params": [
+          "i32"
+        ],
+        "results": [
+          "i32"
+        ]
+      },
+      "lower": {
+        "params": [
+          "i32",
+          "i32"
+        ],
+        "results": []
+      },
+      "name": "17 params -> tuple2",
+      "params": [
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8"
+      ],
+      "results": [
+        {
+          "tuple": [
+            "u8",
+            "u8"
+          ]
+        }
+      ]
+    },
+    {
+      "addrType": "i64",
+      "async": false,
+      "callback": false,
+      "lift": {
+        "params": [
+          "i64"
+        ],
+        "results": [
+          "i64"
+        ]
+      },
+      "lower": {
+        "params": [
+          "i64",
+          "i64"
+        ],
+        "results": []
+      },
+      "name": "17 params -> tuple2 (i64)",
+      "params": [
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8"
+      ],
+      "results": [
+        {
+          "tuple": [
+            "u8",
+            "u8"
+          ]
+        }
+      ]
+    },
+    {
+      "addrType": "i32",
+      "async": false,
+      "callback": false,
+      "lift": {
+        "params": [
+          "i32",
+          "i32"
+        ],
+        "results": [
+          "i32"
+        ]
+      },
+      "lower": {
+        "params": [
+          "i32",
+          "i32",
+          "i32"
+        ],
+        "results": []
+      },
+      "name": "string->string",
+      "params": [
+        "string"
+      ],
+      "results": [
+        "string"
+      ]
+    },
+    {
+      "addrType": "i64",
+      "async": false,
+      "callback": false,
+      "lift": {
+        "params": [
+          "i64",
+          "i64"
+        ],
+        "results": [
+          "i64"
+        ]
+      },
+      "lower": {
+        "params": [
+          "i64",
+          "i64",
+          "i64"
+        ],
+        "results": []
+      },
+      "name": "string->string (i64)",
+      "params": [
+        "string"
+      ],
+      "results": [
+        "string"
+      ]
+    },
+    {
+      "addrType": "i32",
+      "async": false,
+      "callback": false,
+      "lift": {
+        "params": [
+          "i64",
+          "i64"
+        ],
+        "results": [
+          "i64"
+        ]
+      },
+      "lower": {
+        "params": [
+          "i64",
+          "i64"
+        ],
+        "results": [
+          "i64"
+        ]
+      },
+      "name": "u64s",
+      "params": [
+        "u64",
+        "s64"
+      ],
+      "results": [
+        "u64"
+      ]
+    },
+    {
+      "addrType": "i32",
+      "async": true,
+      "callback": false,
+      "lift": {
+        "params": [
+          "i32"
+        ],
+        "results": []
+      },
+      "lower": {
+        "params": [
+          "i32"
+        ],
+        "results": [
+          "i32"
+        ]
+      },
+      "name": "async none",
+      "params": [
+        "u8"
+      ],
+      "results": []
+    },
+    {
+      "addrType": "i32",
+      "async": true,
+      "callback": true,
+      "lift": {
+        "params": [
+          "i32"
+        ],
+        "results": [
+          "i32"
+        ]
+      },
+      "lower": {
+        "params": [
+          "i32"
+        ],
+        "results": [
+          "i32"
+        ]
+      },
+      "name": "async cb none",
+      "params": [
+        "u8"
+      ],
+      "results": []
+    },
+    {
+      "addrType": "i32",
+      "async": true,
+      "callback": false,
+      "lift": {
+        "params": [
+          "i32"
+        ],
+        "results": []
+      },
+      "lower": {
+        "params": [
+          "i32",
+          "i32"
+        ],
+        "results": [
+          "i32"
+        ]
+      },
+      "name": "async result",
+      "params": [
+        "u8"
+      ],
+      "results": [
+        "u8"
+      ]
+    },
+    {
+      "addrType": "i32",
+      "async": true,
+      "callback": true,
+      "lift": {
+        "params": [
+          "i32"
+        ],
+        "results": [
+          "i32"
+        ]
+      },
+      "lower": {
+        "params": [
+          "i32",
+          "i32"
+        ],
+        "results": [
+          "i32"
+        ]
+      },
+      "name": "async cb result",
+      "params": [
+        "u8"
+      ],
+      "results": [
+        "u8"
+      ]
+    },
+    {
+      "addrType": "i32",
+      "async": true,
+      "callback": false,
+      "lift": {
+        "params": [
+          "i32",
+          "i32",
+          "i32",
+          "i32"
+        ],
+        "results": []
+      },
+      "lower": {
+        "params": [
+          "i32",
+          "i32",
+          "i32",
+          "i32",
+          "i32"
+        ],
+        "results": [
+          "i32"
+        ]
+      },
+      "name": "async 4 params",
+      "params": [
+        "u8",
+        "u8",
+        "u8",
+        "u8"
+      ],
+      "results": [
+        "u8"
+      ]
+    },
+    {
+      "addrType": "i32",
+      "async": true,
+      "callback": false,
+      "lift": {
+        "params": [
+          "i32",
+          "i32",
+          "i32",
+          "i32",
+          "i32"
+        ],
+        "results": []
+      },
+      "lower": {
+        "params": [
+          "i32",
+          "i32"
+        ],
+        "results": [
+          "i32"
+        ]
+      },
+      "name": "async 5 params",
+      "params": [
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8"
+      ],
+      "results": [
+        "u8"
+      ]
+    },
+    {
+      "addrType": "i64",
+      "async": true,
+      "callback": true,
+      "lift": {
+        "params": [
+          "i32",
+          "i32",
+          "i32",
+          "i32",
+          "i32"
+        ],
+        "results": [
+          "i32"
+        ]
+      },
+      "lower": {
+        "params": [
+          "i64",
+          "i64"
+        ],
+        "results": [
+          "i32"
+        ]
+      },
+      "name": "async 5 params (i64)",
+      "params": [
+        "u8",
+        "u8",
+        "u8",
+        "u8",
+        "u8"
+      ],
+      "results": [
+        "u8"
+      ]
+    },
+    {
+      "addrType": "i32",
+      "async": true,
+      "callback": true,
+      "lift": {
+        "params": [
+          "i32",
+          "i32"
+        ],
+        "results": [
+          "i32"
+        ]
+      },
+      "lower": {
+        "params": [
+          "i32",
+          "i32",
+          "i32"
+        ],
+        "results": [
+          "i32"
+        ]
+      },
+      "name": "async string->string",
+      "params": [
+        "string"
+      ],
+      "results": [
+        "string"
+      ]
+    }
+  ]
+}
