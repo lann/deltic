@@ -49,8 +49,10 @@
 import { assert_ } from "../cabi/trap.ts";
 import type { ComponentValue, ValType } from "../cabi/types.ts";
 import {
+  clearResumingThread,
   type ComponentInstanceState,
   CopyResult,
+  setResumingThread,
   sameElemType,
   SharedFutureImpl,
   SharedStreamImpl,
@@ -155,8 +157,43 @@ class HostActivity {
    * only place that can report them.
    */
   pump(): void {
-    if (this.#store === null) return;
-    while (this.#store.tick());
+    const store = this.#store;
+    if (store === null) return;
+    while (store.tick());
+    // In jspi mode a guest can be parked on a Promise rather than on a
+    // scheduler condition, and `tick` cannot move those — only awaiting them
+    // can. Kick off an asynchronous drain; the host operation the caller is
+    // awaiting resolves when the rendezvous completes, so this only has to
+    // keep the guest running, not report anything.
+    if (store.awaiting.size > 0) void this.#drainAsync(store);
+  }
+
+  async #drainAsync(store: Store): Promise<void> {
+    try {
+      while (store.awaiting.size > 0) {
+        const t = [...store.awaiting][0] as {
+          awaiting: Promise<unknown> | null;
+          resumeWith(v: unknown, f?: { error: unknown }): void;
+        };
+        store.awaiting.delete(t);
+        const p = t.awaiting!;
+        setResumingThread(t);
+        let value: unknown;
+        let failure: { error: unknown } | undefined;
+        try {
+          value = await p;
+        } catch (e) {
+          failure = { error: e };
+        }
+        clearResumingThread();
+        t.resumeWith(value, failure);
+        while (store.tick());
+      }
+    } catch (e) {
+      // Nothing is awaiting this drain, so park the failure where the next
+      // driving loop will surface it (same channel as a host-import rejection).
+      store.hostFailure ??= e;
+    }
   }
 
   /** No further host activity is possible on this stream. */

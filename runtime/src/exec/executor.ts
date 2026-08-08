@@ -280,16 +280,19 @@ class Executor {
     //
     // Until instantiation-time calls are separated from the suspendable
     // import set, jspi mode stays an explicit embedder opt-in.
-    // Auto-detection stays OFF for one more slice. The ambient problem that
-    // blocked 3c is SOLVED (see `setResumingThread` in task/scheduler.ts) and
-    // the entry-wrapping gap it exposed is fixed (the callback export is now
-    // wrapped too). What remains is a task-lifecycle delta: with detection on,
-    // an async-probe activation finishes without clearing
-    // `inst.exclusiveThread`, i.e. `Task.exitImplicitThread` is not reached on
-    // some path through the promising entry. That is a bounded, concrete bug
-    // — not an architectural one — and it is the last thing between here and
-    // the light-up. `planNeedsSuspension` computes the right answer and the
-    // embedder override (`input.jspi`) still works for experimentation.
+    // Auto-detection is OFF pending ONE design question, now precisely
+    // stated (see the completion-predicate comment in exec/boundary.ts):
+    // returning from a lifted export means "the task resolved", but the
+    // *activation* may legitimately still be running — a producer guest
+    // (wit-bindgen `wit_stream::new()` + spawn) calls `task.return` and then
+    // keeps forwarding in the background. The two need separating: the host
+    // call completes on resolution, while the activation must still be
+    // drivable afterwards without being abandoned (which leaks the exclusive
+    // thread) and without the driver waiting for it (which deadlocks the
+    // producer). Everything else in the jspi path works.
+    //
+    // `planNeedsSuspension` computes the right answer; `input.jspi` still
+    // forces the mode for experimentation.
     this.suspensionMode = chooseMode(input.jspi);
     void planNeedsSuspension;
   }

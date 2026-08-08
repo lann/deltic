@@ -35,6 +35,7 @@ import {
   type EventTuple,
   NeedsJspi,
   needsJspi,
+  setResumingThread,
   packSubtaskResult,
   PendingCapability,
   Store,
@@ -408,6 +409,12 @@ async function driveAsync(
       };
       store.awaiting.delete(t);
       const p = t.awaiting!;
+      // Claim the ambient for this activation across the await. By pin (i) the
+      // engine resumes the suspended wasm — and it calls its built-ins —
+      // strictly BEFORE our continuation runs, so the whole of that window is
+      // covered by the claim and the built-ins can identify their thread with
+      // an empty bracket stack. Released at the top of the next iteration.
+      setResumingThread(t);
       let value: unknown;
       let failure: { error: unknown } | undefined;
       try {
@@ -415,6 +422,7 @@ async function driveAsync(
       } catch (e) {
         failure = { error: e };
       }
+      clearResumingThread();
       t.resumeWith(value, failure);
       continue;
     }
@@ -732,6 +740,17 @@ export function createLiftedFunction(input: {
 
     let pending: void | Promise<void>;
     try {
+      // Completion is "the task resolved AND its threads have drained", not
+      // merely "resolved". `task.return` resolves the task, but the activation
+      // is not finished until its implicit thread reaches
+      // `exit_implicit_thread` — for a callback task that means running the
+      // loop out to EXIT, which releases `inst.exclusiveThread`.
+      //
+      // In plain mode the two almost always coincide, because the generator
+      // runs to completion inside one `resume()`. Under JSPI they do not: the
+      // guest calls `task.return` while the activation is still suspended, so
+      // the old predicate let the driver return early and the thread was
+      // abandoned mid-loop — leaking the exclusive thread and its table slot.
       pending = drive(store, () => resolvedSeen, `export '${name}'`);
     } catch (e) {
       unwind();
