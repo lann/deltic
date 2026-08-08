@@ -92,6 +92,14 @@ export class Waitable {
   }
 }
 
+const EV_TRACE = (() => {
+  try {
+    return Deno.env.get("CE_EVENT_TRACE") === "1";
+  } catch {
+    return false;
+  }
+})();
+
 /** definitions.py `class WaitableSet` (line 810). */
 export class WaitableSet {
   readonly elems: Waitable[] = [];
@@ -112,7 +120,15 @@ export class WaitableSet {
     assert_(ready.length > 0, "getPendingEvent on a set with no pending event");
     const w = chooseCandidate(ready);
     assert_(w.wset === this, "waitable/waitable-set back-reference mismatch");
-    return w.getPendingEvent();
+    const ev = w.getPendingEvent();
+    if (EV_TRACE) {
+      console.error(
+        `[event] deliver code=${ev[0]} idx=${ev[1]} payload=${ev[2]} ` +
+          `readyCount=${ready.length} setSize=${this.elems.length} ` +
+          `chosenPos=${this.elems.indexOf(w)}`,
+      );
+    }
+    return ev;
   }
 
   /** definitions.py `WaitableSet.wait_for_event_and` (line 829). */

@@ -284,6 +284,11 @@ const AMBIENT_TRACE = (() => {
   }
 })();
 
+/** Diagnostic: module-scope state that must NOT survive a completed call. */
+export function ambientResidue(): { stack: number; claim: boolean } {
+  return { stack: threadStack.length, claim: resumingThread !== null };
+}
+
 export function currentThread<T = CurrentThreadLike>(): T {
   const stackTop = threadStack[threadStack.length - 1];
   const als = activationAls.getStore();
