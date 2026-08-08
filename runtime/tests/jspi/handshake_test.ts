@@ -35,7 +35,35 @@ const shimWasm = await readIfPresent(
 const componentWasm = await readIfPresent(
   "harness/generated/async/async-calls-sync.0.wasm",
 );
-const ready = shimWasm !== null && componentWasm !== null;
+// This component's guest asserts that each subtask's RETURNED value equals its
+// subtask index (async-calls-sync.wast line 183). That value is `$AsyncInner`'s
+// `$counter`, handed out in the order the `blocking-call` bodies first run --
+// i.e. the order in which BACKPRESSURED tasks are released. That order is only
+// pinned under the reference's DETERMINISTIC_PROFILE (definitions.py:1373),
+// which is exactly our default FIFO policy; `Store.tick` (line 603) otherwise
+// picks with `random.choice`.
+//
+// `CE_SCHED_SEED` deliberately explores schedules BEYOND that profile, so under
+// a seed this guest can legitimately observe subtask 5 taking counter 4 and
+// execute its own `unreachable`. That is the component's profile-dependent
+// assumption failing, not an engine fault -- so these pins are scoped to the
+// deterministic profile, where the handshake they exist to protect is fully
+// exercised. (The deadlock pins next door carry no such assumption and DO run
+// under seeds.)
+const seeded = (() => {
+  try {
+    return (Deno.env.get("CE_SCHED_SEED") ?? "") !== "";
+  } catch {
+    return false;
+  }
+})();
+if (seeded) {
+  console.warn(
+    "SKIP jspi handshake: CE_SCHED_SEED explores schedules beyond the " +
+      "deterministic profile this component's guest assumes",
+  );
+}
+const ready = shimWasm !== null && componentWasm !== null && !seeded;
 if (!ready) {
   console.warn(
     "SKIP jspi handshake: missing " +
