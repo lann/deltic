@@ -280,19 +280,18 @@ class Executor {
     //
     // Until instantiation-time calls are separated from the suspendable
     // import set, jspi mode stays an explicit embedder opt-in.
-    // Auto-detection OFF (still), now 29 failures of which ONE file
-    // (`async/big-interleaving-test.wast`) owns 27. Both remaining causes are
-    // root-caused, neither is a one-liner:
+    // Auto-detection OFF (still), now 28 failures (was 35). What moved:
+    // attaching the FACT sync-call bracket to the ACTIVATION
+    // (`Thread.syncCallStack`) and, decisively, aligning
+    // `maybeCurrentThread`'s precedence with `currentThread`'s -- the ambient
+    // round made the latter ALS-primary but left the former slot-primary, and
+    // the bracket sites go through the former. `exit-sync-call with an empty
+    // sync-call stack` went 16 -> 6 on that pair.
     //
-    //  * the callee `promising` wrap (see fact_calls.ts) -- needs
-    //    `async-start-call` to drive one turn before reporting subtask status;
-    //  * the sync-call bracket -- `CE_SCOPE_TRACE` over big-interleaving shows
-    //    many tasks with enter exceeding exit by exactly one AND other tasks
-    //    taking an `exit` at depth 0. The `ctx` fallback never fires (every
-    //    trace says task=T<n>), so this is not `maybeCurrentTask` degrading:
-    //    the bracket is opened on one task's `syncCallStack` and closed under
-    //    another. It should be attached to the ACTIVATION that opened it (the
-    //    3i bracket-spans-suspension ruling), not to `maybeCurrentTask()`.
+    // What remains: cross-abi-calls' 6 (Fix 1 -- `async-start-call` must drive
+    // the callee one turn before reporting subtask status; root-caused and
+    // specified, not yet landed), big-interleaving's residue, and the known
+    // singletons.
     this.suspensionMode = chooseMode(input.jspi);
     void planNeedsSuspension;
   }

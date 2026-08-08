@@ -763,10 +763,13 @@ export function createLiftedFunction(input: {
       // would attach the next `transfer-borrow` to a dead scope and leave
       // lent handles permanently un-droppable ("while borrowed" forever).
       if (completed) return;
-      // Per-task now (see `Task.syncCallStack`): unwind this task's own
-      // brackets, which a trap inside a FACT adapter skipped.
-      while (task.syncCallStack.length > 0) {
-        (task.syncCallStack.pop() as LenderScope).releaseLenders();
+      // Per-ACTIVATION now (see `Thread.syncCallStack`): unwind the brackets
+      // of every activation this task owns, which a trap inside a FACT adapter
+      // skipped. A task can have several threads, so the loop is over threads.
+      for (const t of task.threads as { syncCallStack: unknown[] }[]) {
+        while (t.syncCallStack.length > 0) {
+          (t.syncCallStack.pop() as LenderScope).releaseLenders();
+        }
       }
       void syncCallStack;
       void syncCallDepth;

@@ -225,14 +225,19 @@ export class Task {
    * In-flight FACT sync-call brackets for THIS task
    * (`enter-sync-call`/`exit-sync-call`).
    *
-   * Per task, not per executor. The bracket is strictly nested *within one
-   * activation*, but activations interleave: since M2 phase 3f a lifted call
-   * can return while its activation keeps running in the background, so a
-   * single executor-wide stack stopped being a stack — one activation's
-   * `exit-sync-call` could pop another's scope, or find the stack empty.
+   * MOVED to `Thread` (see `Thread.syncCallStack`). Per-task was already an
+   * improvement on per-executor, but it is still not the right unit: a task
+   * can own several threads, so one activation's `exit-sync-call` could pop a
+   * sibling activation's scope. Tracing big-interleaving showed exactly that
+   * -- tasks whose `enter` count exceeded their `exit` count by one, and other
+   * tasks taking an `exit` at depth 0, with the `ctx` fallback never firing.
+   *
+   * The bracket belongs to the ACTIVATION that opened it: FACT emits the
+   * matching `enter-sync-call` and `exit-sync-call` from the same wasm
+   * activation by construction, so riding the activation identity makes the
+   * exit find the same stack the enter used no matter which task the scheduler
+   * considers current in between (the 3i bracket-spans-suspension ruling).
    */
-  // deno-lint-ignore no-explicit-any
-  readonly syncCallStack: any[] = [];
 
   constructor(
     public ft: FuncType,

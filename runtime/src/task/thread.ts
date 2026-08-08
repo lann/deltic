@@ -41,6 +41,17 @@ export class Thread implements SchedulableThread {
    */
   readonly storage: number[] = [0, 0];
 
+  /**
+   * The FACT sync-call bracket stack for THIS activation.
+   *
+   * `enter-sync-call` pushes and `exit-sync-call` pops; FACT emits both from
+   * the same activation, so the activation is the continuity that makes this a
+   * stack. See the note on `Task.syncCallStack` for why per-task was not
+   * enough.
+   */
+  // deno-lint-ignore no-explicit-any
+  readonly syncCallStack: any[] = [];
+
   /** Slot in `inst.threads`, assigned by `Task.registerThread`. */
   index: number | null = null;
 

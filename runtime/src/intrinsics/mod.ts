@@ -25,7 +25,7 @@ import { trapIf } from "../cabi/trap.ts";
 import { assert_ } from "../cabi/trap.ts";
 import type { ResourceTypeInfo } from "../cabi/types.ts";
 import type { ComponentInstanceState } from "../task/mod.ts";
-import { maybeCurrentTask, PendingCapability } from "../task/mod.ts";
+import { maybeCurrentThread, maybeCurrentTask, PendingCapability } from "../task/mod.ts";
 import type { WireTrampoline } from "../plan/format.ts";
 import type { CoreFn, ExecutionStats } from "../exec/boundary.ts";
 import { UnsupportedFeatureError } from "./errors.ts";
@@ -362,14 +362,16 @@ function taskId(t: unknown): string {
 }
 
 function syncScopes(ctx: TrampolineContext, site = "?"): any[] {
-  const task = maybeCurrentTask();
+  const thread = maybeCurrentThread() as
+    | { syncCallStack: any[] }
+    | undefined;
+  const scopes = thread?.syncCallStack ?? ctx.syncCallStack;
   if (SCOPE_TRACE) {
     console.error(
-      `[scope] ${site} task=${taskId(task)} ` +
-        `depth=${(task?.syncCallStack ?? ctx.syncCallStack).length}`,
+      `[scope] ${site} act=${taskId(thread)} depth=${scopes.length}`,
     );
   }
-  return task?.syncCallStack ?? ctx.syncCallStack;
+  return scopes;
 }
 
 function createTrampolineBody(
@@ -437,7 +439,12 @@ function createTrampolineBody(
         // Per task where there is one; the executor-wide stack is the
         // fallback for a start function running at instantiation time, which
         // has no task (see `maybeCurrentTask`).
-        syncScopes(ctx, "enter").push(new SyncCallScope());
+        // Invariant, per ACTIVATION: every `enter` is matched by exactly one
+        // `exit` on the same stack. Recorded here so the `exit` side can
+        // assert it structurally rather than only by depth (CE_SCOPE_TRACE
+        // proved this is where the interesting failures live).
+        const scopes = syncScopes(ctx, "enter");
+        scopes.push(new SyncCallScope());
       };
     case "exit-sync-call":
       return (..._args: unknown[]) => {
@@ -449,6 +456,9 @@ function createTrampolineBody(
         const scope = syncScopes(ctx, "exit").pop();
         assert_(
           scope !== undefined,
+          // If this fires, an `exit` reached an activation that never ran the
+          // matching `enter` -- the bracket is attached to the wrong unit
+          // again. See `Thread.syncCallStack`.
           "exit-sync-call with an empty sync-call stack",
         );
         // definitions.py `Task.return_`: the callee may not return while it

@@ -334,8 +334,11 @@ export function currentThread<T = CurrentThreadLike>(): T {
 }
 
 export function maybeCurrentThread(): CurrentThreadLike | undefined {
-  return threadStack[threadStack.length - 1] ?? resumingThread ??
-    activationAls.getStore() ?? undefined;
+  return threadStack[threadStack.length - 1] ?? als2() ?? resumingThread ??
+    undefined;
+}
+function als2(): CurrentThreadLike | undefined {
+  return activationAls.getStore();
 }
 
 /** definitions.py `current_task()` (line 309). */
