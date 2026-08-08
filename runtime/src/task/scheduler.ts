@@ -281,6 +281,15 @@ export function currentTask(): any {
   return currentThread().task;
 }
 
+/**
+ * The running task, or `null` outside any task — e.g. a core module's start
+ * function during instantiation, which the reference has no model for.
+ */
+// deno-lint-ignore no-explicit-any
+export function maybeCurrentTask(): any | null {
+  return maybeCurrentThread()?.task ?? null;
+}
+
 /** definitions.py `current_instance()` (line 312). */
 // deno-lint-ignore no-explicit-any
 export function currentInstance(): any {

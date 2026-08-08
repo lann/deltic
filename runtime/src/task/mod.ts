@@ -221,6 +221,18 @@ export class Task {
    * arguments (host-boundary task) or pass them straight through (FACT task).
    */
   factPassthrough = false;
+  /**
+   * In-flight FACT sync-call brackets for THIS task
+   * (`enter-sync-call`/`exit-sync-call`).
+   *
+   * Per task, not per executor. The bracket is strictly nested *within one
+   * activation*, but activations interleave: since M2 phase 3f a lifted call
+   * can return while its activation keeps running in the background, so a
+   * single executor-wide stack stopped being a stack — one activation's
+   * `exit-sync-call` could pop another's scope, or find the stack empty.
+   */
+  // deno-lint-ignore no-explicit-any
+  readonly syncCallStack: any[] = [];
 
   constructor(
     public ft: FuncType,

@@ -554,7 +554,8 @@ Deno.test({
         ["async-calls-async-17-param", 88],
       ] as const
     ) {
-      assertEq(fn(c, name)(), want, `${name}`);
+      // jspi-mode components return Promises; awaiting a plain value is a no-op.
+      assertEq(await fn(c, name)(), want, `${name}`);
     }
     // The async->async cases route the callee through the callback-ABI
     // machinery (`runCallbackLoop`, shared with host-boundary lifts). These

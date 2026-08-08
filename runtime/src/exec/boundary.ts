@@ -622,11 +622,13 @@ export function createLiftedFunction(input: {
       // would attach the next `transfer-borrow` to a dead scope and leave
       // lent handles permanently un-droppable ("while borrowed" forever).
       if (completed) return;
-      if (syncCallStack !== undefined) {
-        while (syncCallStack.length > syncCallDepth) {
-          syncCallStack.pop()!.releaseLenders();
-        }
+      // Per-task now (see `Task.syncCallStack`): unwind this task's own
+      // brackets, which a trap inside a FACT adapter skipped.
+      while (task.syncCallStack.length > 0) {
+        (task.syncCallStack.pop() as LenderScope).releaseLenders();
       }
+      void syncCallStack;
+      void syncCallDepth;
       // FACT clears the callee's / caller's `may_leave` flag around each
       // lift and lower (`fact/trampoline.rs`, `set_may_leave_false`) and
       // restores it afterwards. A trap in between skips the restore, so an
@@ -751,7 +753,31 @@ export function createLiftedFunction(input: {
       // guest calls `task.return` while the activation is still suspended, so
       // the old predicate let the driver return early and the thread was
       // abandoned mid-loop — leaking the exclusive thread and its table slot.
-      pending = drive(store, () => resolvedSeen, `export '${name}'`);
+      // The lifted call is over when the task has resolved AND this task's
+      // activation is no longer mid-wasm-call. Those are two different events
+      // and both matter (M2 phase 3e):
+      //
+      //   * "task resolved" alone abandons a still-running activation. Under
+      //     JSPI the guest calls `task.return` while suspended, so returning
+      //     there left the callback loop parked forever — leaking the
+      //     exclusive thread and its table slot.
+      //   * "activation finished" alone deadlocks a *producer* guest, which
+      //     legitimately keeps forwarding after `task.return`
+      //     (wit-bindgen `wit_stream::new()` + a spawned loop).
+      //
+      // The distinguishing question is *what* the thread is parked on. An
+      // `awaitValue` park means a wasm call is in flight and will settle on
+      // its own, so we must keep draining. A park in `store.waiting` means the
+      // activation is waiting on a scheduler condition only the embedder can
+      // satisfy — that is a **background activation**: we return to the host
+      // and leave the thread live, and later `drive`/`pump` calls (host stream
+      // writes, the next export call) go on servicing it.
+      const midWasmCall = () => task.threads.some((t) => store.awaiting.has(t));
+      pending = drive(
+        store,
+        () => resolvedSeen && !midWasmCall(),
+        `export '${name}'`,
+      );
     } catch (e) {
       unwind();
       throw e;

@@ -25,7 +25,7 @@ import { trapIf } from "../cabi/trap.ts";
 import { assert_ } from "../cabi/trap.ts";
 import type { ResourceTypeInfo } from "../cabi/types.ts";
 import type { ComponentInstanceState } from "../task/mod.ts";
-import { PendingCapability } from "../task/mod.ts";
+import { maybeCurrentTask, PendingCapability } from "../task/mod.ts";
 import type { WireTrampoline } from "../plan/format.ts";
 import type { CoreFn, ExecutionStats } from "../exec/boundary.ts";
 import { UnsupportedFeatureError } from "./errors.ts";
@@ -334,6 +334,17 @@ function declaredInstance(
   return ctx.componentInstance(instance);
 }
 
+/**
+ * The FACT sync-call bracket stack in force right now: the running task's
+ * (activations interleave since background activations exist, so a single
+ * executor-wide stack is not a stack), or the executor's when no task is
+ * running — instantiation-time start functions.
+ */
+// deno-lint-ignore no-explicit-any
+function syncScopes(ctx: TrampolineContext): any[] {
+  return maybeCurrentTask()?.syncCallStack ?? ctx.syncCallStack;
+}
+
 function createTrampolineBody(
   decl: WireTrampoline,
   ctx: TrampolineContext,
@@ -396,7 +407,10 @@ function createTrampolineBody(
         // borrow bookkeeping (`SyncCallScope`), which applies either way.
         void async_;
         ctx.stats.enterSyncCalls++;
-        ctx.syncCallStack.push(new SyncCallScope());
+        // Per task where there is one; the executor-wide stack is the
+        // fallback for a start function running at instantiation time, which
+        // has no task (see `maybeCurrentTask`).
+        syncScopes(ctx).push(new SyncCallScope());
       };
     case "exit-sync-call":
       return (..._args: unknown[]) => {
@@ -405,7 +419,7 @@ function createTrampolineBody(
           ctx.stats.exitSyncCalls <= ctx.stats.enterSyncCalls,
           "exit-sync-call without matching enter-sync-call",
         );
-        const scope = ctx.syncCallStack.pop();
+        const scope = syncScopes(ctx).pop();
         assert_(
           scope !== undefined,
           "exit-sync-call with an empty sync-call stack",
@@ -686,7 +700,8 @@ function transferBorrow(
   const srcRt = ctx.resourceToken(srcTable);
   const dstRt = ctx.resourceToken(dstTable);
 
-  const scope = ctx.syncCallStack[ctx.syncCallStack.length - 1];
+  const stack = syncScopes(ctx);
+  const scope = stack[stack.length - 1];
   assert_(
     scope !== undefined,
     "transfer-borrow outside an enter-sync-call/exit-sync-call bracket",

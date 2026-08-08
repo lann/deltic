@@ -280,19 +280,19 @@ class Executor {
     //
     // Until instantiation-time calls are separated from the suspendable
     // import set, jspi mode stays an explicit embedder opt-in.
-    // Auto-detection is OFF pending ONE design question, now precisely
-    // stated (see the completion-predicate comment in exec/boundary.ts):
-    // returning from a lifted export means "the task resolved", but the
-    // *activation* may legitimately still be running — a producer guest
-    // (wit-bindgen `wit_stream::new()` + spawn) calls `task.return` and then
-    // keeps forwarding in the background. The two need separating: the host
-    // call completes on resolution, while the activation must still be
-    // drivable afterwards without being abandoned (which leaks the exclusive
-    // thread) and without the driver waiting for it (which deadlocks the
-    // producer). Everything else in the jspi path works.
+    // Auto-detection is OFF pending ONE remaining issue, precisely located.
     //
-    // `planNeedsSuspension` computes the right answer; `input.jspi` still
-    // forces the mode for experimentation.
+    // Background activations (M2 phase 3f) mean an `exit-sync-call` can run
+    // after its export call returned. The bracket stack was made per-task for
+    // exactly that reason (`Task.syncCallStack`), and the runtime suite is
+    // green with detection on (215/215) — but under the conformance harness a
+    // background resume still reaches `exit-sync-call` with the wrong stack in
+    // scope, i.e. one resumption path does not establish the right ambient
+    // task. `HostActivity.#drainAsync` and `driveAsync` both claim it; the
+    // gap is in a third path.
+    //
+    // `planNeedsSuspension` computes the right answer; `input.jspi` forces the
+    // mode for experimentation.
     this.suspensionMode = chooseMode(input.jspi);
     void planNeedsSuspension;
   }

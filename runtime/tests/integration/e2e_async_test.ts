@@ -134,3 +134,30 @@ Deno.test("async-probe: sum-stream lifts a real stream handle", async () => {
     `message should name the expected host shape, got: ${raised}`,
   );
 });
+
+Deno.test("async-probe: a terminating activation leaves nothing behind", async () => {
+  // The regression pin for M2 phase 3f's background-activation design.
+  //
+  // Two shapes must both be right. A *terminating* activation (this one) has
+  // to run all the way out — past `task.return`, through the callback loop's
+  // EXIT, to `exit_implicit_thread` — before the lifted call reports done;
+  // returning at `task.return` abandoned it mid-loop and leaked the exclusive
+  // thread. A *producer* activation (stream-echo / future-user, pinned in
+  // e2e_streams_test.ts) must NOT be waited for, or it deadlocks.
+  const component = await instantiate();
+  const f = component.exports["wait-then-double"] as (x: number) => unknown;
+  assertEq(await f(21), 42);
+
+  const inst = component.componentInstances.find((i) => i)!;
+  // definitions.py `Task.exit_implicit_thread`: the exclusive thread is
+  // released and the instance's thread table is empty again.
+  assertEq(inst.exclusiveThread, null);
+  assertEq([...inst.threads].length, 0);
+  assertEq(inst.mayEnter, true);
+  // Nothing parked: neither on a scheduler condition nor mid-wasm-call.
+  const store = (inst as unknown as {
+    store: { waiting: unknown[]; awaiting: Set<unknown> };
+  }).store;
+  assertEq(store.waiting.length, 0);
+  assertEq(store.awaiting.size, 0);
+});
