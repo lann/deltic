@@ -74,6 +74,7 @@ import {
   type Cancelled,
   ComponentInstanceState,
   NeedsJspi,
+  currentTask,
   needsJspi,
   packSubtaskResult,
   PendingCapability,
@@ -83,8 +84,9 @@ import {
   type TaskOptions,
   Thread,
 } from "../task/mod.ts";
-import { withActivation } from "../task/mod.ts";
+import { blockCurrentActivation, enterWasm } from "../jspi/mod.ts";
 import {
+  awaitCore,
   callCore,
   type CoreFn,
   type ExecutionStats,
@@ -163,6 +165,8 @@ export interface FactCallContext {
   /** `RuntimeMemoryIndex` -> the memory `task.return` must match, if any. */
   memoryToken(index: number): unknown;
   stats: ExecutionStats;
+  /** Suspension discipline (jspi/bridge.ts). */
+  suspensionMode: import("../jspi/mod.ts").SuspensionMode;
   /**
    * The single in-flight prepared call. wasmtime keeps this per *task*; a
    * single slot is equivalent here because `prepare-call` and its
@@ -311,6 +315,8 @@ function mkCalleeTask(input: {
    * is the function *type*'s asyncness — see `taskOptionsFor`.
    */
   calleeUsesAsyncAbi: boolean;
+  /** Suspension discipline for this instantiation (jspi/bridge.ts). */
+  mode?: import("../jspi/mod.ts").SuspensionMode;
   /**
    * Called when `[async-start]` has actually run, i.e. when the callee really
    * started. wasmtime sets its `Status::Started` event at exactly this point,
@@ -328,6 +334,10 @@ function mkCalleeTask(input: {
 }): { task: Task; body: (t: Thread) => Generator<BlockRequest, void, Cancelled> } {
   const { prepared, callee, callback, postReturn, ctx, calleeUsesAsyncAbi } =
     input;
+  // CONTRACT: default to `plain` when the context predates this field. Only
+  // `jspi` may wrap, and wrapping a non-wasm callee throws outright, so the
+  // conservative reading of an absent mode is "no suspension discipline".
+  const mode = input.mode ?? "plain";
   const memory = prepared.memory;
   const inst = prepared.calleeInst;
 
@@ -421,8 +431,19 @@ function mkCalleeTask(input: {
     // None of them may block — they cannot reach a canonical built-in that
     // suspends — so the engine can never resume them, and wrapping would only
     // cost an ALS frame on the hot copy path.
-    const raw = withActivation(thread, () =>
-      callCore(callee, calleeArgs as CoreValue[]));
+    // The callee is its own activation and must get its own `promising`
+    // entry, not merely an ambient scope: otherwise it runs *inside* whatever
+    // `Suspending` trampoline invoked us, putting our JS frame between the
+    // caller's promising entry and any suspension the callee reaches --
+    // `SuspendError: trying to suspend JS frames` (jspi pin (b), mechanics.ts
+    // line 12). This is only coherent together with site 1 below blocking
+    // rather than raising `NeedsJspi`, since a promising callee resolves on a
+    // later turn by construction.
+    const raw = yield* awaitCore(
+      enterWasm(callee, mode),
+      calleeArgs as CoreValue[],
+      thread,
+    );
 
     if (!calleeUsesAsyncAbi) {
       // Sync canonical options (definitions.py `canon_lift` line 2168, `if not
@@ -504,6 +525,7 @@ export function createSyncStartCall(
       // `sync-start-call` exists only for "sync-lowered import to async-lifted
       // export" (fact.rs:608), so the callee always uses the async ABI.
       calleeUsesAsyncAbi: true,
+      mode: ctx.suspensionMode,
       onCallerResults: (r) => {
         callerResults = r ?? [];
       },
@@ -552,16 +574,38 @@ export function createSyncStartCall(
       // failing anyway, and the instance is not poisoned because no trap
       // escaped a task), and it disappears once JSPI lets this path actually
       // block instead of bailing.
+      if (ctx.suspensionMode === "jspi") {
+        // JSPI role 2 (PLAN.md §6): park the *caller's* wasm activation until
+        // the callee resolves, exactly as definitions.py `canon_lower`'s sync
+        // path does with `thread.wait_until(subtask.resolved)` (line 2286).
+        // The scheduler keeps ticking the callee meanwhile; when it produces
+        // results our `readyFunc` goes true and the engine resumes the caller.
+        //
+        // Not cancellable: a sync-lowered caller has no way to observe or
+        // request cancellation mid-call -- the reference's wait here carries
+        // no cancellation branch.
+        return blockCurrentActivation({
+          store: prepared.callerInst.store,
+          task: currentTask(),
+          readyFunc: () => callerResults !== null,
+          cancellable: false,
+          produce: () => shapeResults(callerResults as CoreValue[] | null),
+        });
+      }
       needsJspi(
         "sync-start-call whose async-lifted callee did not resolve in its " +
           "first activation (the caller's wasm frame must block)",
       );
     }
-    const out = callerResults as CoreValue[];
-    if (out.length === 0) return undefined;
-    if (out.length === 1) return out[0];
-    return out;
+    return shapeResults(callerResults as CoreValue[] | null);
   };
+}
+
+/** The core-ABI shape of a returned results vector (0 / 1 / many). */
+function shapeResults(out: CoreValue[] | null): CoreValue | undefined {
+  if (out === null || out.length === 0) return undefined;
+  if (out.length === 1) return out[0];
+  return out as unknown as CoreValue;
 }
 
 // ---------------------------------------------------------------------------
@@ -613,6 +657,7 @@ export function createAsyncStartCall(
       // `compile_async_to_async_adapter` sets START_FLAG_ASYNC_CALLEE;
       // `compile_async_to_sync_adapter` passes 0 (trampoline.rs:508 and :764).
       calleeUsesAsyncAbi: ((flags ?? 0) & START_FLAG_ASYNC_CALLEE) !== 0,
+      mode: ctx.suspensionMode,
       onStarted: () => {
         if (subtask.state === SubtaskState.STARTING) {
           subtask.state = SubtaskState.STARTED;

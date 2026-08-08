@@ -739,7 +739,21 @@ export function createLiftedFunction(input: {
       thread.resume();
       // definitions.py `canon_lift` (line 2213): the sync driving loop runs
       // *inside* the enter/leave bracket, over the callee instance's threads.
-      if (!ft.async) driveSyncLift(task);
+      //
+      // It is skipped in jspi mode, and must be. That loop resumes *ready*
+      // threads and traps when there are none — the reference's deadlock
+      // trap. A thread parked on a Promise is neither ready nor waiting: only
+      // a microtask turn can advance it, which a synchronous loop cannot give.
+      // Running it anyway declared a bogus deadlock the moment a sync-lifted
+      // export's activation suspended, which then trap-poisoned the instance
+      // and abandoned the activation mid-bracket — the orphaned
+      // `exit-sync-call` traced across phases 3h-3j.
+      //
+      // `drive` below is the correct driver in that mode: it knows about
+      // `store.awaiting`, still enforces the deadlock trap (no ready thread,
+      // no pending host call, nothing awaiting), and returns a Promise, which
+      // a jspi-mode lifted export returns anyway.
+      if (!ft.async && mode !== "jspi") driveSyncLift(task);
     } catch (e) {
       unwind();
       if (isCapabilitySignal(e)) leave();
@@ -821,7 +835,7 @@ export function createLiftedFunction(input: {
  * `awaitValue` block request; the driving loop resumes us with the values, or
  * throws the rejection in (a post-resume trap).
  */
-function* awaitCore(
+export function* awaitCore(
   fn: CoreFn,
   args: CoreValue[],
   // deno-lint-ignore no-explicit-any

@@ -280,20 +280,17 @@ class Executor {
     //
     // Until instantiation-time calls are separated from the suspendable
     // import set, jspi mode stays an explicit embedder opt-in.
-    // Auto-detection OFF for the last remaining reason (M2 phase 3i).
-    //
-    // The attribution bug traced in 3h is FIXED: the FACT adapter callee was
-    // the one wasm entry that could suspend without an activation-attached
-    // ambient, and it is now wrapped (intrinsics/fact_calls.ts). Tracing
-    // confirms every `enter-sync-call`/`exit-sync-call` now sees an ALS
-    // context, balanced and matching.
-    //
-    // A residual `exit-sync-call` imbalance remains on some path the trace did
-    // not capture before the run aborted. The runtime suite is green with
-    // detection on (215/215); only the conformance harness reproduces it.
-    //
-    // `planNeedsSuspension` computes the right answer; `input.jspi` forces the
-    // mode.
+    // Auto-detection OFF (M2 phase 3k). The blocker is no longer the
+    // orphaned-bracket rejection -- that is fixed, and the suite runs to
+    // completion. Both halves of the site-1 coupled change are now written
+    // (`createSyncStartCall` parks instead of raising `NeedsJspi`;
+    // `mkCalleeTask` gives the callee its own promising entry) and they
+    // type-check, but with detection on the caller parks and is never
+    // resumed: the run ends in event-loop exhaustion rather than a deadlock
+    // trap, i.e. `drive` returns or stalls while a `SuspensionPoint` is still
+    // pending. Site 1 is the FIRST lit site, so the `SuspensionPoint` <->
+    // `Store.tick` <-> `driveAsync` handshake has never executed before; that
+    // handshake, not the call intrinsics, is what the next slice must debug.
     this.suspensionMode = chooseMode(input.jspi);
     void planNeedsSuspension;
   }
