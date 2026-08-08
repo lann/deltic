@@ -246,6 +246,8 @@ export interface TrampolineContext {
   memoryToken(index: number): unknown;
   /** The single in-flight FACT preparation (see `PreparedCall`). */
   prepared: { current: PreparedCall | null };
+  /** Suspension discipline (jspi/bridge.ts). */
+  suspensionMode: import("../jspi/mod.ts").SuspensionMode;
   /** Element types of the plan v2 stream/future tables. */
   streamElem(index: number): import("../cabi/types.ts").ValType | null;
   futureElem(index: number): import("../cabi/types.ts").ValType | null;

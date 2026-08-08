@@ -2,3 +2,4 @@
 // runtime/src/{task,exec,intrinsics,plan}.
 
 export * from "./mechanics.ts";
+export * from "./bridge.ts";

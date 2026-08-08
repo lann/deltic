@@ -244,7 +244,7 @@ export class RuntimeExecutor implements CommandExecutor {
     return Promise.resolve();
   }
 
-  invoke(
+  async invoke(
     target: InstanceRef | undefined,
     field: string,
     args: Value[],
@@ -259,9 +259,15 @@ export class RuntimeExecutor implements CommandExecutor {
     let raw: unknown;
     try {
       raw = (fn as (...a: unknown[]) => unknown)(...hostArgs);
+      // JSPI-mode instantiations promising-wrap suspension-capable entries,
+      // so exports return Promises (WebAssembly.promising always does —
+      // runtime/tests/jspi pin (e)). Await inside the try: post-resume traps
+      // arrive as REJECTIONS carrying the same Trap/error classes the sync
+      // path throws, and must map to the same outcomes.
+      if (raw instanceof Promise) raw = await raw;
     } catch (e) {
       if (e instanceof Trap) {
-        return Promise.resolve({ kind: "trapped", message: e.message });
+        return { kind: "trapped", message: e.message };
       }
       if (e instanceof AssertionError || e instanceof NotImplemented) {
         asCapabilityOrRethrow(e, `invoke '${field}'`);
@@ -270,7 +276,7 @@ export class RuntimeExecutor implements CommandExecutor {
     }
     const arity = ref.arities.get(field) ?? (raw === undefined ? 0 : 1);
     const values = arity === 0 ? [] : arity === 1 ? [raw] : (raw as unknown[]);
-    return Promise.resolve({ kind: "returned", values });
+    return { kind: "returned", values };
   }
 
   get(target: InstanceRef | undefined, field: string): Promise<InvokeOutcome> {

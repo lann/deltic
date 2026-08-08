@@ -12,10 +12,16 @@
 import type { ComponentValue, FuncType, ValType } from "../cabi/types.ts";
 import { ComponentInstanceState, Store } from "../task/mod.ts";
 import {
+  assertModeConsistent,
+  chooseMode,
+  type SuspensionMode,
+} from "../jspi/mod.ts";
+import {
   loadPlan,
   PlanError,
   resourceIndexOfDefined,
 } from "../plan/loader.ts";
+import { PendingCapability } from "../task/mod.ts";
 import type {
   WireCanonicalOptions,
   WireCoreDef,
@@ -97,6 +103,16 @@ export interface InstantiateInput {
   imports?: HostImports;
   /** Verify plan.component.sha256 against componentBytes (default true). */
   verifyHash?: boolean;
+  /**
+   * Opt in to JSPI-backed suspension (PLAN.md §6 role 1-3).
+   *
+   * Off by default, and deliberately so: in this mode every lifted export
+   * returns a Promise (empirical fact (e) — `WebAssembly.promising` always
+   * does), which is an API-shape change. Ignored on an engine without JSPI,
+   * where every blocking site keeps raising the precise `NeedsJspi` it raises
+   * today (the M3 degradation path).
+   */
+  jspi?: boolean;
 }
 
 /** An instantiated component: its export surface plus introspection state. */
@@ -144,6 +160,8 @@ class Executor {
   readonly adapterBytes: Map<string, Uint8Array>;
   readonly hostImports: HostImports;
   readonly verifyHash: boolean;
+  /** See `InstantiateInput.jspi` and jspi/bridge.ts's invariant. */
+  readonly suspensionMode: SuspensionMode;
 
   readonly stats: ExecutionStats = newStats();
   readonly modules: WebAssembly.Module[] = [];
@@ -175,6 +193,16 @@ class Executor {
    * on `RuntimeMemoryIndex`.
    */
   readonly liveMemories = new Map<number, LiveMemory>();
+  /** Set by the entry/import wrapping sites; checked in `finish`. */
+  wrappedEntries = false;
+  wrappedImports = false;
+
+  /** Record that an entry / import wrapping site ran under the current mode. */
+  noteWrapped(kind: "entry" | "import"): void {
+    if (this.suspensionMode !== "jspi") return;
+    if (kind === "entry") this.wrappedEntries = true;
+    else this.wrappedImports = true;
+  }
   readonly taskMayBlock = new WebAssembly.Global(
     { value: "i32", mutable: true },
     1,
@@ -209,6 +237,24 @@ class Executor {
     this.adapterBytes = input.adapters ?? new Map();
     this.hostImports = input.imports ?? {};
     this.verifyHash = input.verifyHash ?? true;
+    this.suspensionMode = chooseMode(input.jspi);
+    if (this.suspensionMode === "jspi") {
+      // The bridge (jspi/bridge.ts) is built and unit-tested, but the entry
+      // path is not yet asynchronous end to end: in `jspi` mode a lifted
+      // export's core function is `promising`-wrapped and therefore returns a
+      // Promise, which `liftBody` and the callback loop must await. Refusing
+      // here keeps the invariant honest — a half-wired `jspi` mode would
+      // `Suspending`-wrap imports while entries stayed plain, which by
+      // empirical fact (c) traps unconditionally on the first blocking
+      // built-in. Better a clear refusal at instantiate time.
+      throw new PendingCapability(
+        "JSPI suspension (M2 phase 3): the scheduler bridge and the " +
+          "promising/Suspending wrapping are implemented " +
+          "(runtime/src/jspi/bridge.ts), but the lifted-export entry path is " +
+          "still synchronous, so `jspi: true` cannot be honoured yet. Every " +
+          "blocking built-in continues to raise its precise NeedsJspi",
+      );
+    }
   }
 
   async verifyComponent(): Promise<void> {
@@ -409,6 +455,14 @@ class Executor {
   }
 
   finish(): ComponentHandle {
+    // Structural check of jspi/bridge.ts's invariant: both wrapping sites must
+    // agree with the mode. `wrappedEntries`/`wrappedImports` are set by the
+    // sites themselves, so this cannot pass by accident.
+    assertModeConsistent(
+      this.suspensionMode,
+      this.wrappedEntries,
+      this.wrappedImports,
+    );
     const exports: Record<string, unknown> = {};
     for (const exp of this.wire.exports) {
       const built = this.buildExport(exp, exp.name);
@@ -459,6 +513,7 @@ class Executor {
             opts,
             core,
             stats: this.stats,
+            suspensionMode: this.suspensionMode,
             trapState: this.trapState,
             syncCallStack: this.syncCallStack,
             allInstances: () => this.componentInstances.values(),
@@ -643,6 +698,7 @@ class Executor {
         return this.loaded.futureElems[i];
       },
       prepared: this.preparedCall,
+      suspensionMode: this.suspensionMode,
       syncCallStack: this.syncCallStack,
       trapState: this.trapState,
       loweredImport: (d) => this.buildLoweredImport(d),

@@ -45,6 +45,7 @@ import {
   Thread,
 } from "../task/mod.ts";
 import { PlanError } from "../plan/loader.ts";
+import { enterWasm, type SuspensionMode } from "../jspi/mod.ts";
 
 /**
  * Structural view of an intrinsics `SyncCallScope`: everything this module
@@ -435,6 +436,13 @@ export function createLiftedFunction(input: {
   opts: ResolvedOptions;
   core: CoreFn;
   stats: ExecutionStats;
+  /**
+   * Suspension discipline for this instantiation (jspi/bridge.ts). In `jspi`
+   * mode the export's core function is `promising`-wrapped, so the whole
+   * activation can suspend and the lifted function necessarily returns a
+   * Promise.
+   */
+  suspensionMode?: SuspensionMode;
   /** Optional; see intrinsics `HostTrapState`. */
   trapState?: { pending: unknown };
   /**
@@ -461,6 +469,12 @@ export function createLiftedFunction(input: {
   } = input;
   const inst = opts.instance;
   const store = inst.store;
+  const mode: SuspensionMode = input.suspensionMode ?? "plain";
+  // Entry wrapping, half of jspi/bridge.ts's invariant: a lifted export's core
+  // function is one of the three activations that can reach a blocking
+  // built-in, so it is `promising`-wrapped exactly when the imports are
+  // `Suspending`-wrapped.
+  const enteredCore = enterWasm(core, mode);
   const taskOpts: TaskOptions = {
     async_: opts.async,
     callback: opts.callback !== null,
@@ -530,7 +544,16 @@ export function createLiftedFunction(input: {
 
     const thread: Thread = new Thread(
       task,
-      liftBody({ name, ft, opts, core, stats, task, thread: () => thread }),
+      liftBody({
+        name,
+        ft,
+        opts,
+        core: enteredCore,
+        stats,
+        task,
+        thread: () => thread,
+        mode,
+      }),
     );
 
     const finishHostEntry = (): unknown => {
@@ -733,6 +756,7 @@ function* liftBody(input: {
   stats: ExecutionStats;
   task: Task;
   thread: () => Thread;
+  mode: SuspensionMode;
 }): Generator<BlockRequest, void, Cancelled> {
   const { name, ft, opts, core, stats, task } = input;
   const thread = input.thread();
