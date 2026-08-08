@@ -283,12 +283,12 @@ decide deliberately and document here.
     `Suspending` host import is legal but needs a suspension-legal stack:
     JS-initiated drops (`using`, FinalizationRegistry) enter via a `promising`
     trampoline; guest-initiated drops stay on pure-wasm paths (§5).
-  - Note: `CanonicalABI.md` line ~4013 still shows a vestigial `$async?`
-    immediate on `resource.drop`; the Explainer grammar and definitions.py
-    have no async drop. File an upstream issue; implement sync-only.
-    Second upstream finding: `canon_backpressure_set` exists in
-    definitions.py but is absent from the CanonicalABI.md prose (the repo's
-    own `diff.py` flags it) — file alongside.
+  - Upstream spec findings related to drops and backpressure (vestigial
+    `$async?` on `resource.drop`; dead `canon_backpressure_set` in
+    definitions.py) are tracked in
+    [upstream-component-model-repo-findings.md](upstream-component-model-repo-findings.md),
+    the single source for component-model issue/PR filing. Implementation is
+    sync-only drop regardless of upstream timing.
 - **Component `value` imports/exports**: wasmtime doesn't implement them;
   excluded from parity scope. `test/values/` is skipped and documented as such.
 - **Reentrance**: gates per spec Component Invariants, enforced in the runtime
