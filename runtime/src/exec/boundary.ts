@@ -359,6 +359,66 @@ function isPromiseLike(v: unknown): v is PromiseLike<unknown> {
   );
 }
 
+
+// ---------------------------------------------------------------------------
+// Handshake probe (M2 phase 3l)
+// ---------------------------------------------------------------------------
+//
+// Env-gated tracing of the drive loops. This exists because site 1 is the
+// first *lit* suspension site, so the `SuspensionPoint` <-> `Store.tick` <->
+// `driveAsync` handshake had never executed before it; a pure-microtask stall
+// there is invisible from the outside (no trap, no rejection -- just an await
+// nothing settles). Off unless CE_DRIVE_TRACE is set, and the getter is read
+// once at module load so normal runs pay a boolean test.
+const DRIVE_TRACE = (() => {
+  try {
+    return Deno.env.get("CE_DRIVE_TRACE") === "1";
+  } catch {
+    return false;
+  }
+})();
+let traceTurn = 0;
+
+function describeWaiter(t: unknown): string {
+  const w = t as {
+    readyFunc?: unknown;
+    ready?: () => boolean;
+    waiting?: () => boolean;
+    constructor?: { name?: string };
+  };
+  const kind = w?.constructor?.name ?? "?";
+  let verdict = "?";
+  try {
+    verdict = w.ready?.() ? "READY" : (w.readyFunc === null ? "explicit" : "not-ready");
+  } catch (e) {
+    verdict = `threw:${e}`;
+  }
+  return `${kind}[${verdict}]`;
+}
+
+function traceDrive(loop: string, store: Store, done: () => boolean, branch: string): void {
+  if (!DRIVE_TRACE) return;
+  let doneVerdict = "?";
+  try {
+    doneVerdict = String(done());
+  } catch (e) {
+    doneVerdict = `threw:${e}`;
+  }
+  const waiters = store.waiting.map(describeWaiter).join(",");
+  const awaiters = [...store.awaiting].map((t) => {
+    const a = t as { constructor?: { name?: string }; task?: { label?: string } };
+    return `${a?.constructor?.name ?? "?"}`;
+  }).join(",");
+  console.error(
+    `[drive #${traceTurn++}] ${loop} branch=${branch} ` +
+      `ready=${store.readyCandidates().length} ` +
+      `waiting=${store.waiting.length}{${waiters}} ` +
+      `awaiting=${store.awaiting.size} ` +
+      `hostCalls=${store.pendingHostCalls.size} ` +
+      `awaiters={${awaiters}} claim=${hasResumingThread()} done=${doneVerdict}`,
+  );
+}
+
 /**
  * Pump `store` until `done()` holds. Returns `undefined` if that was achieved
  * synchronously, or a Promise that settles when it has been.
@@ -369,27 +429,62 @@ function drive(
   what: string,
 ): void | Promise<void> {
   for (;;) {
+    traceDrive("drive", store, done, "top");
     while (store.tick()) {
+      traceDrive("drive", store, done, "ticked");
       if (store.hostFailure !== undefined) throw takeHostFailure(store);
     }
     if (store.hostFailure !== undefined) throw takeHostFailure(store);
-    if (done()) return;
+    if (done()) {
+      traceDrive("drive", store, done, "EXIT-done");
+      return;
+    }
     // A thread parked on a Promise (jspi) can only progress after a microtask
     // turn, exactly like an outstanding host call. So can an outstanding
     // ambient claim: a suspension has been settled and its activation has not
     // run yet (see `Store.tick`).
     if (store.awaiting.size > 0 || hasResumingThread()) {
+      traceDrive("drive", store, done, "->async(awaiting/claim)");
       return driveAsync(store, done, what);
     }
     if (store.pendingHostCalls.size === 0) {
+      traceDrive("drive", store, done, "DEADLOCK-TRAP");
       trapIf(
         true,
         `deadlock: ${what} cannot make progress (no thread is ready and no ` +
           `host call is outstanding)`,
       );
     }
+    traceDrive("drive", store, done, "->async(hostcalls)");
     return driveAsync(store, done, what);
   }
+}
+
+/** A settled parked-thread promise, tagged with the thread that owns it. */
+type AwaitWinner = {
+  t: { awaiting: Promise<unknown> | null; resumeWith(v: unknown, f?: { error: unknown }): void };
+  value: unknown;
+  failure: { error: unknown } | undefined;
+};
+
+/**
+ * Tagged promises, memoized by the *promise* (not the thread) so re-racing on
+ * every turn does not attach a fresh continuation to the same promise, and so
+ * a thread that parks again later can never pick up a stale tag.
+ */
+const taggedAwaits = new WeakMap<Promise<unknown>, Promise<AwaitWinner>>();
+
+function tagAwait(t: AwaitWinner["t"]): Promise<AwaitWinner> {
+  const p = t.awaiting!;
+  let tag = taggedAwaits.get(p);
+  if (tag === undefined) {
+    tag = p.then(
+      (value): AwaitWinner => ({ t, value, failure: undefined }),
+      (e): AwaitWinner => ({ t, value: undefined, failure: { error: e } }),
+    );
+    taggedAwaits.set(p, tag);
+  }
+  return tag;
 }
 
 async function driveAsync(
@@ -398,6 +493,7 @@ async function driveAsync(
   what: string,
 ): Promise<void> {
   for (;;) {
+    traceDrive("driveAsync", store, done, "top");
     // We are executing our own code again, so no engine-driven resumption is
     // in flight; drop any ambient claim before doing anything else.
     clearResumingThread();
@@ -405,46 +501,79 @@ async function driveAsync(
       if (store.hostFailure !== undefined) throw takeHostFailure(store);
     }
     if (store.hostFailure !== undefined) throw takeHostFailure(store);
-    if (done()) return;
+    if (done()) {
+      traceDrive("driveAsync", store, done, "EXIT-done");
+      return;
+    }
     // Let a settled-but-not-yet-run activation take its turn before we do
     // anything else (`Store.tick` refuses to progress while a claim is live).
     if (hasResumingThread()) {
+      traceDrive("driveAsync", store, done, "yield-claim");
       await Promise.resolve();
       continue;
     }
-    // Service one promise-parked thread (jspi). Resuming it re-enters wasm,
-    // which may park again; the loop handles that.
+    // Service promise-parked threads (jspi).
+    //
+    // This must NOT block on one chosen thread's promise. A thread parked on a
+    // promising-wrapped nested activation only settles once that activation's
+    // own suspension points have been resumed -- and resuming those is
+    // `Store.tick`'s job, i.e. *this loop's* job. Awaiting a single promise
+    // therefore stops the scheduler while waiting for something that needs the
+    // scheduler: a pure-microtask stall with no trap and no rejection.
+    // Observed on `async/async-calls-sync.wast` the moment site 1 became the
+    // first lit suspension site (M2 phase 3l): turn N serviced a promise that
+    // never settled while three other parked threads and three ready-able
+    // suspension points went unexamined.
+    //
+    // So: race every outstanding promise (parked threads AND host calls) and
+    // service whichever settles first, re-ticking each turn. The claim is
+    // taken in the tagged continuation -- as close to settlement as we can get
+    // -- so pin (i)'s window (engine-driven wasm resumption running built-ins
+    // before our continuation) is still covered for the thread that actually
+    // resumed, without falsely claiming the ambient for threads that did not.
     if (store.awaiting.size > 0) {
-      const t = [...store.awaiting][0] as {
-        awaiting: Promise<unknown> | null;
-        resumeWith(v: unknown, f?: { error: unknown }): void;
-      };
-      store.awaiting.delete(t);
-      const p = t.awaiting!;
-      // Claim the ambient for this activation across the await. By pin (i) the
-      // engine resumes the suspended wasm — and it calls its built-ins —
-      // strictly BEFORE our continuation runs, so the whole of that window is
-      // covered by the claim and the built-ins can identify their thread with
-      // an empty bracket stack. Released at the top of the next iteration.
-      setResumingThread(t);
-      let value: unknown;
-      let failure: { error: unknown } | undefined;
-      try {
-        value = await p;
-      } catch (e) {
-        failure = { error: e };
+      // Claim the ambient for ONE parked thread and await its promise -- as
+      // before, so pin (i)'s window is covered exactly as it was -- but race
+      // that promise against every other outstanding promise so this loop can
+      // never be held hostage by it. The claimed thread's promise may only be
+      // settleable by further scheduler progress (a promising-wrapped nested
+      // activation whose own suspension points this loop must still resume);
+      // blocking on it alone is the pure-microtask stall of M2 phase 3l.
+      const parked = [...store.awaiting] as AwaitWinner["t"][];
+      const chosen = parked[0];
+      const chosenTag = tagAwait(chosen);
+      const others: Promise<AwaitWinner | null>[] = parked.slice(1).map(tagAwait);
+      for (const h of store.pendingHostCalls) {
+        others.push(h.then(() => null, () => null));
       }
-      clearResumingThread();
-      t.resumeWith(value, failure);
+      setResumingThread(chosen);
+      let winner: AwaitWinner | null;
+      try {
+        winner = await Promise.race([chosenTag, ...others]);
+      } finally {
+        clearResumingThread();
+      }
+      // Resume whichever thread actually settled -- not necessarily the one we
+      // claimed. Resuming only the claimed thread would spin: its promise may
+      // never settle, the same thread would be chosen again next turn, and the
+      // already-settled tags would win the race instantly forever (observed as
+      // an OOM, not a hang). The claim is cleared above before any resumption,
+      // exactly as on the original single-promise path, so this does not widen
+      // the ambient window; it only ensures the loop always makes progress.
+      if (winner !== null && store.awaiting.has(winner.t)) {
+        winner.t.resumeWith(winner.value, winner.failure);
+      }
       continue;
     }
     if (store.pendingHostCalls.size === 0) {
+      traceDrive("driveAsync", store, done, "DEADLOCK-TRAP");
       trapIf(
         true,
         `deadlock: ${what} cannot make progress (no thread is ready and no ` +
           `host call is outstanding)`,
       );
     }
+    traceDrive("driveAsync", store, done, "await-race");
     // Settlement order among several outstanding host calls is the host's,
     // not ours — this is genuine, unavoidable nondeterminism at the boundary
     // (the reference has the same freedom in `Store.tick`). Everything

@@ -280,17 +280,16 @@ class Executor {
     //
     // Until instantiation-time calls are separated from the suspendable
     // import set, jspi mode stays an explicit embedder opt-in.
-    // Auto-detection OFF (M2 phase 3k). The blocker is no longer the
-    // orphaned-bracket rejection -- that is fixed, and the suite runs to
-    // completion. Both halves of the site-1 coupled change are now written
-    // (`createSyncStartCall` parks instead of raising `NeedsJspi`;
-    // `mkCalleeTask` gives the callee its own promising entry) and they
-    // type-check, but with detection on the caller parks and is never
-    // resumed: the run ends in event-loop exhaustion rather than a deadlock
-    // trap, i.e. `drive` returns or stalls while a `SuspensionPoint` is still
-    // pending. Site 1 is the FIRST lit site, so the `SuspensionPoint` <->
-    // `Store.tick` <-> `driveAsync` handshake has never executed before; that
-    // handshake, not the call intrinsics, is what the next slice must debug.
+    // Auto-detection OFF (still). The M2 phase 3l handshake stall is FIXED --
+    // `driveAsync` no longer serializes on one parked thread's promise, and
+    // `async-calls-sync` now runs to 42 under explicit `jspi: true` (pinned in
+    // runtime/tests/jspi/handshake_test.ts). What detection-on now exposes is
+    // a *different*, deeper bug: with several activations in flight at once,
+    // the single global ambient claim cannot say which activation a built-in
+    // belongs to, so brackets get attributed to the wrong task -- 14 x
+    // `exit-sync-call with an empty sync-call stack` and 16 x `unreachable`.
+    // That is the standing "activation-attached ambient" contract item, and it
+    // is the next round's subject. Racing exposed this; it did not create it.
     this.suspensionMode = chooseMode(input.jspi);
     void planNeedsSuspension;
   }
