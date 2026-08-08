@@ -1,0 +1,102 @@
+# Contract: CABI Descriptor IR v0
+
+The **descriptor IR** is the type/options information that drives host-boundary
+lift/lower — PLAN.md §8's "one IR, two executors." Producers: the translator
+shim (inside `plan.json` `types` / `canonicalOptions` tables) and tests.
+Consumers: the v1 interpreter (`runtime/src/cabi/`), the future generated-JS
+executor, and the world-digest computation.
+
+Status: **v0 — no stability promise until M1 exit.** The normative in-memory
+model is `runtime/src/cabi/types.ts`; this document defines its meaning and
+its JSON wire form inside the plan. Divergence between the two is a bug.
+
+## Value type model
+
+A `ValType` is a discriminated union (JSON: `{ "kind": … }` objects, nested
+structurally). Kinds:
+
+- Primitives: `bool`, `s8`, `u8`, `s16`, `u16`, `s32`, `u32`, `s64`, `u64`,
+  `f32`, `f64`, `char`, `string`
+- `list` (`element`, optional fixed `length`), `record` (`fields`:
+  `{label, type}[]`), `tuple` (`elements`), `variant` (`cases`:
+  `{label, type|null}[]`), `enum` (`labels`), `option` (`type`),
+  `result` (`ok|null`, `err|null`), `flags` (`labels`)
+- Handles: `own` / `borrow` (`resource`: index into the plan's resource table)
+- Async: `stream` / `future` (`element|null`), `error-context`
+
+Specialized forms are preserved (tuple/enum/option/result/flags are not
+pre-despecialized in the IR); `despecialize` is defined once, in the runtime,
+mirroring `definitions.py`. Labels remain strings in v0 (interning is a
+measured-need optimization).
+
+`FuncType` is `{ params: {label, type}[], results: ValType[], async?: bool }`.
+
+## Canonical options
+
+Per lifted/lowered function, referencing plan tables by index (see
+plan-format.md): `stringEncoding` (`utf8` | `utf16` | `latin1+utf16`),
+`memory?`, `realloc?`, `postReturn?`, `callback?`, `async`, `cancellable`,
+and the expected flat `coreType` (`{params, results}` of `i32|i64|f32|f64`).
+This mirrors `wasmtime_environ::component::CanonicalOptions` minus
+runtime-irrelevant fields; `data_model` is fixed to linear memory in v0 (GC
+data model is rejected by the shim).
+
+## Flattening
+
+The plan does **not** precompute flat lane lists. Executors compute flattening
+from `ValType` via the shared rules in `runtime/src/cabi/flatten.ts`, which is
+tested against fixtures generated from `definitions.py` (`flatten_functype`,
+MAX_FLAT_PARAMS=16, MAX_FLAT_RESULTS=1, async variants with their own
+limits, spill-to-memory rules). Rationale: one implementation of the trickiest
+rules, differentially anchored to the executable spec; smaller plans; less
+shim logic. The consistency check between computed flattening and the
+options' `coreType` is an instantiate-time assertion. (Precomputed lanes can
+be added later as a pure optimization without changing this contract's
+semantics.)
+
+## Host value mapping (normative for both executors)
+
+| Component type | JS value |
+|---|---|
+| bool | `boolean` |
+| s8..u32, f32, f64, char (as code point) | `number` |
+| s64/u64 | `bigint` (range-checked at lower) |
+| string | `string`; lowering applies USVString replacement (`toWellFormed`) |
+| list<u8> | `Uint8Array` (always a copy, never a view into guest memory) |
+| other lists / tuples | `Array` |
+| record | plain object keyed by label |
+| variant | `{ tag: label, val?: … }` single-tag object |
+| enum | label `string` |
+| option<T> | `undefined \| T`; nested options use `{ some: … } / null` shape per types.ts |
+| result | `{ ok: … } \| { err: … }` |
+| flags | object of `boolean`s keyed by label |
+| own/borrow | runtime handle class (bindgen wraps in resource classes) |
+| stream/future/error-context | runtime task-core objects (M2) |
+
+NaN handling, lane widening/padding (i64 lanes as `bigint`, `0n` padding),
+and latin1(windows-1252) details follow the decisions recorded in
+`runtime/README.md` and PLAN.md §7.
+
+## Trap discipline
+
+Lift/lower failures raise the runtime's `ComponentTrap` (not arbitrary
+`Error`s), with the trap conditions of `definitions.py` (`trap_if`) as the
+authority. Executors must produce the same trap/no-trap verdict for the same
+inputs — this is part of the differential-testing contract.
+
+## Executor contract
+
+Interpreter (v1) and generated-JS (P1) executors consume this IR unchanged;
+the differential test harness runs both over the same fixture corpus
+(`runtime/tests/fixtures/`, regenerable from the Python reference). Any IR
+extension must land with fixtures.
+
+## Open items (v0)
+
+- Resource-type representation in the plan (`resource` indices) vs types.ts's
+  identity-token `ResourceTypeInfo` — the shim emits indices; the runtime
+  builds tokens at instantiate; formalize in M0 integration.
+- Variant/option host shapes are settled for the interpreter but bindgen (§9)
+  may want ergonomic variations — any change lands here first.
+- `map` (in types.ts, from the reference) is not emitted by current
+  translators; keep behind a fixture-only flag.
