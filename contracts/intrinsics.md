@@ -6,8 +6,7 @@ the plan (`CoreDef::Trampoline` / `lower-import`). Producers of the
 requirement: the translator shim (per-plan manifest). Implementor: the runtime
 (`runtime/src/intrinsics/`).
 
-Status: **v0.1** (v0 amended post-M0 — see "v0.1 amendments"; the §A/§B
-split turned out simpler in reality than as first written).
+Status: **v0.2** (amended post-M0 and post-M1 — see amendment sections).
 
 Sources of truth (pinned `wasmtime-environ 47.0.3`):
 - (A) `wasmtime_environ::fact::Import` — every import FACT can emit.
@@ -106,3 +105,38 @@ core" is a feature, not a crash.
    unsupported kinds never fail, referenced unsupported kinds fail at
    instantiate time with a milestone-aware message. ("Instantiate-time, never
    call-time" is preserved.)
+
+## v0.2 amendments (post-M1)
+
+1. **ResourceTransfer semantics pinned**: `resource-transfer-borrow`
+   registers the source handle as a lender on the current sync-call scope
+   and increments `num_lends` **unconditionally — borrow handles may be
+   re-lent onward** (`definitions.py lift_borrow`/`Subtask.add_lender`; a
+   lent handle blocks `resource.drop` until the call returns). Same-instance
+   transfers take the rep fast path but still register the lender.
+2. **Trap-unwind obligations**: when a trap escapes a FACT sync-call
+   bracket, the host must unwind sync-call scopes (releasing lenders) AND
+   restore `may_leave` on all component instances — FACT clears it around
+   lift/lower and a trap skips its restore; without both unwinds the
+   instance is unusable for post-trap re-entry, which this runtime
+   deliberately supports.
+3. **Host-trap preservation across nested barriers**: the trap trampoline
+   must (re)record the pending trap before every throw, so the specific
+   message survives arbitrarily nested adapter exception barriers. Residual,
+   documented limitation: our traps are JS exceptions, so a guest
+   `try_table catch_all` can observe them mid-flight (wasmtime's are
+   unforgeable); full unforgeability would need an out-of-band poison flag.
+4. **`Transcoder` trampoline parameters are plan-visible**: `op` (one of the
+   12 `Transcode` ops), `from`/`to` runtime-memory indices, `from64`/`to64`.
+   Semantics authority is wasmtime's libcalls (partial-progress primitives
+   driving FACT's realloc/retry protocol), NOT definitions.py's whole-string
+   transcoding model. All 12 ops implemented and reference-tested.
+5. **Trap messages align to wasmtime's `Display for Trap` texts** (with the
+   `wasm trap: ` prefix where wasmtime uses it) — the official suite asserts
+   these strings, and wasmtime-compat is a plan goal.
+6. **v0.3 discussion item** (from `values/variants.wast:83`): one
+   async-lifted export currently makes a component's sync exports
+   unreachable (instantiate-time refusal of `task-return`). The rule is
+   correct per #5; a future amendment could permit lazily-trapping
+   trampolines for exports the embedder never calls — deliberate
+   silent-acceptance tradeoff, not adopted without discussion.

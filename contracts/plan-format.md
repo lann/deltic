@@ -7,10 +7,9 @@ component binary. This document is the interface between `crates/translator-shim
 documents (with [descriptor-ir.md](descriptor-ir.md) and
 [intrinsics.md](intrinsics.md)).
 
-Status: **v0.1** (v0 amended post-M0 with implementation reality — see
-"v0.1 amendments"). No stability promise until M1 exit. Changes require
-updating both producer and consumer in the same commit and bumping
-`formatVersion`.
+Status: **v0.2** (amended post-M0 and post-M1 — see amendment sections). No
+stability promise until M1 exit review completes. Changes require updating
+both producer and consumer in the same commit and bumping `formatVersion`.
 
 ## Decisions (with rationale)
 
@@ -196,3 +195,27 @@ Additions/corrections from the M0 integration, normative as of v0.1:
 8. Confirmations: adapter naming = static-module index; embedded
    `wasm_module_offset` equals slice position (shim-asserted); `NameMap` /
    `IndexMap` iteration is insertion-ordered (determinism holds).
+
+## v0.2 amendments (post-M1)
+
+1. **`importedResources` is now a spec'd field** (was amendment #2's gap):
+   `[{"import": RuntimeImportIndex}]` in `ResourceIndex` order; optional on
+   the wire (absent ⇒ empty, restoring v0.1 semantics). Executor obligation:
+   `ResourceIndex = importedResources.length + DefinedResourceIndex`.
+2. **Structured error envelope**: translation failures emit
+   `{"error": "<message>", "errorDetail": {"phase": "validation" |
+   "unsupported" | "internal", "message", "detail"?}}`. `errorDetail` is
+   additive; only `phase: "validation"` may be scored as a correct
+   `assert_invalid`/`assert_malformed` verdict. Body-validation failures in
+   FACT-generated (non-embedded) modules classify as `internal`, never
+   `validation`.
+3. **`producer.features` expanded** (`cm-fixed-length-lists`, `cm-map`,
+   `cm-implements`, `cm-threading`) — artifact-cache keys changed
+   accordingly.
+4. **`worldDigest` (shim-emitted) is legacy.** The normative digest is
+   `cewd:1` per [digest.md](digest.md), computed by consumers from the
+   plan's types/imports/exports at load time; the shim field is retained
+   for wire compatibility but nothing may depend on it.
+5. Known M2 blocker (unchanged, restated for visibility):
+   `CoreDef::UnsafeIntrinsic` (`context-{get,set}-i32-{0,1}`) remains
+   unrepresentable; the M2 plan extension owns it.

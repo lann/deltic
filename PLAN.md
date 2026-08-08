@@ -294,8 +294,12 @@ decide deliberately and document here.
     [upstream-component-model-repo-findings.md](upstream-component-model-repo-findings.md),
     the single source for component-model issue/PR filing. Implementation is
     sync-only drop regardless of upstream timing.
-- **Component `value` imports/exports**: wasmtime doesn't implement them;
-  excluded from parity scope. `test/values/` is skipped and documented as such.
+- **Component `value` imports/exports** (the component-level `value`
+  definition feature): wasmtime doesn't implement them; excluded from parity
+  scope. Note the official suite's `test/values/` directory is **not** this
+  feature — it is plain canonical-ABI value-passing tests (`canon lift` with
+  memory options) and is fully in scope (scope ruling corrected during M1;
+  the directory is green).
 - **Reentrance**: gates per spec Component Invariants, enforced in the runtime
   (see §4.3 item 4).
 
@@ -376,7 +380,7 @@ There is no single official conformance suite; the corpus is assembled:
 
 | Source | What | How used |
 |---|---|---|
-| [WebAssembly/component-model] `test/` | official, growing WAST suite: `binary/`, `validation/`, `linking/`, `resources/`, `async/`, `values/` | git submodule; primary gate. `values/` skipped (wasmtime parity, §7). Independent check on the wasmtime-frontend reuse. |
+| [WebAssembly/component-model] `test/` | official, growing WAST suite: `binary/`, `validation/`, `linking/`, `resources/`, `values/`, `async/` | git submodule; primary gate. All sync directories in scope incl. `values/` (CABI tests); `async/` gates M2. Independent check on the wasmtime-frontend reuse. |
 | same repo, `design/mvp/canonical-abi/definitions.py` + `run_tests.py` | executable CABI reference | port lift/lower edge-case tests to TS unit tests |
 | wit-bindgen runtime tests | guest programs exercising bindings | build Rust guests, sync and async, (wit-bindgen + `wasm-tools component new`); run against our host = the executable wit-bindgen-compat claim |
 | wasmtime `tests/misc_testsuite/component-model/` | engine-grade wast corpus | supplementary coverage |
@@ -429,7 +433,7 @@ a built artifact per release of the shim (reproducible from source).
 |---|---|---|
 | S0 | **Spike**: wasmtime-environ + FACT on wasm32 | **DONE — GO** (2026-08-08). `wasmtime-environ =47.0.3` builds for wasm32-unknown-unknown with zero imports; runs under Deno; FACT adapters (sync + async) emitted as core wasm; 1.66 MiB size-tuned (~0.5 MiB gzip); sub-ms steady-state translation. Fallback (vendoring FACT) not needed. See `crates/translator-spike/`. |
 | M0 | Contracts + plan executor on the task-model skeleton | `contracts/{plan-format,descriptor-ir,intrinsics}.md` v0 pinned (the Phase-2 fan-out gate); spike promoted to `translator-shim` emitting plan v0; runtime structured around Task/Thread/Subtask from the start; **`examples/guests/build/hello.component.wasm` (real wit-bindgen guest: strings, realloc, post-return) runs in Deno** |
-| M1 | Canonical ABI core | values + resources + intrinsics + host-boundary interpreter; official `test/{binary,validation,linking,resources}` green on Deno; sync wit-bindgen Rust guest roundtrip green |
+| M1 | Canonical ABI core | **DONE** (2026-08-08). Official suite green on Deno across all five sync directories — binary 119/122 (3 xfail: wasmtime-pin drift ×2, module-exports plan gap), validation 446/448 (+2 same-drift xfails), linking 272/272, resources 36/36, values 155/191 (+36 xfails, all M2-task-core-shaped) — zero unexpected failures; sync + async wit-bindgen guest fixtures roundtrip; transcoder trampoline (all 12 ops); imported resources; live component imports; structured verdicts; canonical world digest handshake (contracts/digest.md); typed TS facades for fixture worlds. Multi-agent per §15: 3 parallel tracks, 2 reviewer rounds (5 blocking findings fixed), interrupted mid-flight by a driver restart and recovered via task_id resumes. |
 | M2 | **Concurrency complete on Deno** | task scheduler; callback ABI; streams/futures/error-context; waitable sets; backpressure + cancellation; JSPI paths (stackful lifts, blocking sync lowers, async host imports); reentrance gates under suspension; official `test/async` green; async Rust guest roundtrip green |
 | M3 | Cross-engine | browser CI matrix (Chrome, Firefox+pref, WebKit best-effort); artifact cache; full suite green on all lanes; code-cache empirical check |
 | P1 | Perf track (post-success) | generated-JS host-boundary executor (differential-tested vs interpreter); deploy-time unbundled layout |
