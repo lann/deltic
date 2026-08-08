@@ -622,6 +622,26 @@ class Executor {
         return fn;
       },
       memoryToken: (i) => this.liveMemory(i),
+      streamElem: (i) => {
+        if (i >= this.loaded.streamElems.length) {
+          throw new PlanError(
+            `stream table ${i} is not in the plan's streamTables (plan v2)`,
+          );
+        }
+        return this.loaded.streamElems[i];
+      },
+      streamTableInstance: (i) =>
+        this.componentInstance(this.loaded.streamTableInstances[i] ?? 0),
+      futureTableInstance: (i) =>
+        this.componentInstance(this.loaded.futureTableInstances[i] ?? 0),
+      futureElem: (i) => {
+        if (i >= this.loaded.futureElems.length) {
+          throw new PlanError(
+            `future table ${i} is not in the plan's futureTables (plan v2)`,
+          );
+        }
+        return this.loaded.futureElems[i];
+      },
       prepared: this.preparedCall,
       syncCallStack: this.syncCallStack,
       trapState: this.trapState,

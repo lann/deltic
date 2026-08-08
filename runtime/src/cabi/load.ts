@@ -21,6 +21,11 @@ import {
   type FieldType,
   type ValType,
 } from "./types.ts";
+import {
+  liftErrorContext,
+  liftFuture,
+  liftStream,
+} from "./async_values.ts";
 
 export const MAX_LIST_BYTE_LENGTH = (1 << 28) - 1;
 
@@ -61,7 +66,7 @@ export function load(
     case "string":
       return loadString(cx, ptr);
     case "error-context":
-      throw new NotImplemented("error-context lift (needs task machinery)");
+      return liftErrorContext(cx, loadIntU(cx.opts.memory!, ptr, 4)) as never;
     case "list":
       return loadList(cx, ptr, d.element, d.length ?? null);
     case "record":
@@ -75,8 +80,9 @@ export function load(
     case "borrow":
       return liftBorrow(cx, loadIntU(mem, ptr, 4), d);
     case "stream":
+      return liftStream(cx, loadIntU(cx.opts.memory!, ptr, 4), d) as never;
     case "future":
-      throw new NotImplemented("stream/future lift (needs copy machinery)");
+      return liftFuture(cx, loadIntU(cx.opts.memory!, ptr, 4), d) as never;
   }
 }
 

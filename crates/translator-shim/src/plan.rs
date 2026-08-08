@@ -34,7 +34,7 @@ use wasmtime_environ::component::{
     CanonicalOptions, CanonicalOptionsDataModel, Component, ComponentTypes, CoreDef, CoreExport,
     Export, ExportItem, GlobalInitializer, InstantiateModule, InterfaceType, StringEncoding,
     Trampoline, TrampolineIndex, TypeDef, TypeFuncIndex, TypeResourceTable,
-    TypeResourceTableIndex, TypeTupleIndex,
+    TypeResourceTableIndex, TypeStreamTableIndex, TypeFutureTableIndex, TypeTupleIndex,
 };
 use wasmtime_environ::{EntityIndex, ModuleInternedTypeIndex, PrimaryMap, WasmValType};
 
@@ -42,10 +42,19 @@ use wasmtime_environ::{EntityIndex, ModuleInternedTypeIndex, PrimaryMap, WasmVal
 ///
 /// v1 (contracts/plan-format.md v0.3): additive — `CoreDef` gained the
 /// `"unsafe-intrinsic"` variant (previously a hard `unsupported` rejection).
+///
+/// v2 (M2 phase 2c): additive — `streamTables` / `futureTables`, mapping the
+/// `streamTable` / `futureTable` indices the stream and future trampolines
+/// already carried to their *element types*. Without them a consumer knows a
+/// `stream.read` targets table 3 but not what a table-3 element is, so it
+/// cannot size or lift the copy buffer at all. The same gap in the other
+/// direction (`task_return_type`, a `TypeTupleIndex` with no mapping into
+/// `plan.types`) is still open — see intrinsics/fact_calls.ts.
+///
 /// Per the contract's compat rule ("changes require updating both producer
 /// and consumer in the same commit and bumping `formatVersion`") the bump is
 /// unconditional even though the change is additive.
-pub const FORMAT_VERSION: u32 = 1;
+pub const FORMAT_VERSION: u32 = 2;
 
 // ---------------------------------------------------------------------------
 // Plan schema (serde structs; field order == emission order == contract order)
@@ -67,6 +76,15 @@ pub struct Plan {
     /// `TypeResourceTableIndex`. (Extension over the letter of plan-format.md,
     /// which references "the plan's resource table" without defining it.)
     pub resource_tables: Vec<ResourceTableDecl>,
+    /// Stream-table metadata, index space == wasmtime's
+    /// `TypeStreamTableIndex`; referenced by the `streamTable` field of every
+    /// `stream.*` trampoline. `element` is the `T` of `stream<T>`, absent for
+    /// the zero-width payload (`stream`). Plan v2.
+    pub stream_tables: Vec<AsyncTableDecl>,
+    /// Future-table metadata, index space == wasmtime's
+    /// `TypeFutureTableIndex`; referenced by the `futureTable` field of every
+    /// `future.*` trampoline. Plan v2.
+    pub future_tables: Vec<AsyncTableDecl>,
     /// Resource types this component *imports*, in `ResourceIndex` order
     /// (entry `i` is `ResourceIndex(i)`). Defined resources follow:
     /// `ResourceIndex = importedResources.len() + DefinedResourceIndex`,
@@ -166,6 +184,17 @@ pub enum Initializer {
         dtor: Option<CoreDefJson>,
         instance: u32,
     },
+}
+
+/// One stream or future table: the element type of the `stream<T>`/`future<T>`
+/// it tracks, plus the component instance that owns it (mirrors
+/// `ResourceTableDecl::Concrete`).
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AsyncTableDecl {
+    /// `T`, or `null` for the zero-width payload.
+    pub element: Option<ValTypeJson>,
+    pub instance: u32,
 }
 
 /// `CoreDef`, tag-for-tag per plan-format.md.
@@ -536,6 +565,9 @@ pub struct PlanBuilder<'a> {
     /// num_resource_tables()`, captured before `finish()` — `ComponentTypes`
     /// itself does not expose the count).
     num_resource_tables: usize,
+    /// Same for stream/future tables (plan v2).
+    num_stream_tables: usize,
+    num_future_tables: usize,
     /// RuntimeInstanceIndex -> StaticModuleIndex, built while walking
     /// initializers in order.
     instance_to_module: Vec<u32>,
@@ -550,6 +582,8 @@ impl<'a> PlanBuilder<'a> {
         types: &'a ComponentTypes,
         module_export_names: Vec<Vec<(String, EntityIndex)>>,
         num_resource_tables: usize,
+        num_stream_tables: usize,
+        num_future_tables: usize,
     ) -> Self {
         PlanBuilder {
             component,
@@ -557,6 +591,8 @@ impl<'a> PlanBuilder<'a> {
             types,
             module_export_names,
             num_resource_tables,
+            num_stream_tables,
+            num_future_tables,
             instance_to_module: Vec::new(),
             type_table: Vec::new(),
             type_index: HashMap::new(),
@@ -646,6 +682,30 @@ impl<'a> PlanBuilder<'a> {
             });
         }
 
+        // 5b. Stream / future tables (plan v2). Element types are resolved the
+        // same way `val_type` resolves an `InterfaceType::Stream`/`Future`:
+        // table -> stream/future type -> payload.
+        let mut stream_tables = Vec::new();
+        for i in 0..self.num_stream_tables {
+            let idx = TypeStreamTableIndex::from_u32(i as u32);
+            let table = self.types[idx].clone();
+            let payload = self.types[table.ty].payload;
+            stream_tables.push(AsyncTableDecl {
+                element: payload.map(|t| self.val_type(&t)).transpose()?,
+                instance: table.instance.as_u32(),
+            });
+        }
+        let mut future_tables = Vec::new();
+        for i in 0..self.num_future_tables {
+            let idx = TypeFutureTableIndex::from_u32(i as u32);
+            let table = self.types[idx].clone();
+            let payload = self.types[table.ty].payload;
+            future_tables.push(AsyncTableDecl {
+                element: payload.map(|t| self.val_type(&t)).transpose()?,
+                instance: table.instance.as_u32(),
+            });
+        }
+
         // 6. Imports (RuntimeImportIndex order).
         let mut imports = Vec::new();
         for (_, (import_idx, path)) in component.imports.iter() {
@@ -695,6 +755,8 @@ impl<'a> PlanBuilder<'a> {
             canonical_options,
             types: self.type_table,
             resource_tables,
+            stream_tables,
+            future_tables,
             imported_resources,
             imports,
             exports,

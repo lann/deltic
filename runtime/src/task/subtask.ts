@@ -97,7 +97,7 @@ export class Subtask extends Waitable {
   override drop(): void {
     trapIf(
       !this.resolveDelivered(),
-      "cannot drop a subtask before its resolution was delivered",
+      "cannot drop a subtask which has not yet resolved",
     );
     super.drop();
   }

@@ -21,6 +21,15 @@ export interface WirePlan {
   types: WireTypeDecl[];
   resourceTables: WireResourceTable[];
   /**
+   * Stream-table metadata (plan v2), index space == wasmtime's
+   * `TypeStreamTableIndex`; referenced by the `streamTable` field of every
+   * `stream.*` trampoline. `element` is the `T` of `stream<T>`, `null` for the
+   * zero-width payload. Optional on the wire so a v1 plan still parses.
+   */
+  streamTables?: WireAsyncTable[];
+  /** Future-table metadata (plan v2); see `streamTables`. */
+  futureTables?: WireAsyncTable[];
+  /**
    * Resource types the component imports, in `ResourceIndex` order:
    * `ResourceIndex = importedResources.length + DefinedResourceIndex`
    * (wasmtime `Component::resource_index`).
@@ -188,6 +197,12 @@ export type WireTypeDecl =
 export type WireResourceTable =
   | { kind: "concrete"; resource: number; instance: number }
   | { kind: "abstract"; id: number };
+
+/** One stream or future table (plan v2). */
+export interface WireAsyncTable {
+  element: WireValType | null;
+  instance: number;
+}
 
 /** One imported resource type: back-reference into `plan.imports`. */
 export interface WireImportedResource {

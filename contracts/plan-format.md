@@ -248,3 +248,27 @@ Additions/corrections from the M0 integration, normative as of v0.1:
    admitting reentrance the reference forbids. Pinned by a `// CONTRACT:`
    comment in `runtime/src/task/mod.ts`; fix is a nesting field in the plan,
    scheduled with the FACT-async work that will exercise it.
+   (M2 phase-2c status: still unexercised by any suite case — FACT compiles
+   the ancestor cases to unconditional compile-time traps.)
+
+## v2 amendments (M2 phase 2c)
+
+1. **`formatVersion` is now `2`** (strict equality both sides, same-commit
+   bump rule as v1).
+2. **`streamTables` / `futureTables` sections added**: entries
+   `{"element": ValType | null, "instance": RuntimeComponentInstanceIndex}`,
+   index spaces = wasmtime `TypeStreamTableIndex` / `TypeFutureTableIndex`.
+   Rationale: stream/future trampolines carried table indices with no table
+   section — a consumer could not size or lift a copy buffer from an opaque
+   index. Digest-neutral: table sections do not enter the world digest
+   (element types reach it only via function types on the world surface).
+3. **Known gaps, same class, still open**: (a) `task_return_type` arrives as
+   a wasmtime `TypeTupleIndex` with no mapping into `plan.types` — two
+   `canon_task_return` checks remain skipped for FACT tasks (type-index
+   comparison; memory-identity half of options equality — wasmtime's own
+   check is one-sided and the adapter-view memory is second-hand);
+   (b) `error-context` tables have no section — the transfer intrinsic
+   reuses resource-table instance mapping, which fails loudly (never
+   silently mis-routes) but is structurally the wrong index space. A v3
+   should add `errorContextTables` and the `TypeTupleIndex` mapping
+   together.

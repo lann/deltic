@@ -27,6 +27,11 @@ import {
   type FieldType,
   type ValType,
 } from "./types.ts";
+import {
+  lowerErrorContext,
+  lowerFuture,
+  lowerStream,
+} from "./async_values.ts";
 
 export function store(
   cx: LiftLowerContext,
@@ -82,7 +87,8 @@ export function store(
       storeString(cx, v as string, ptr);
       return;
     case "error-context":
-      throw new NotImplemented("error-context lower (needs task machinery)");
+      storeInt(mem, lowerErrorContext(cx, v as never), ptr, 4);
+      return;
     case "list":
       storeList(
         cx,
@@ -108,8 +114,11 @@ export function store(
       storeInt(mem, lowerBorrow(cx, v as number, d), ptr, 4);
       return;
     case "stream":
+      storeInt(mem, lowerStream(cx, v as never, d), ptr, 4);
+      return;
     case "future":
-      throw new NotImplemented("stream/future lower (needs copy machinery)");
+      storeInt(mem, lowerFuture(cx, v as never, d), ptr, 4);
+      return;
   }
 }
 

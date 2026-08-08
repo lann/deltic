@@ -317,7 +317,21 @@ export class Store {
     // where a Trap propagates out of `thread.resume()`), so the instance stays
     // locked — the Component Model's instance poisoning. See the `poison`
     // helper in exec/boundary.ts for the full rationale.
-    thread.resume();
+    //
+    // Capability signals are the exception, for the same reason as there: a
+    // `NeedsJspi`/`PendingCapability` marks an operation this runtime cannot
+    // perform, not a component fault. In the reference that operation blocks
+    // and then completes, so `leave_to` *is* reached and the instance stays
+    // enterable — poisoning here would turn one unsupported operation into a
+    // permanently dead instance.
+    try {
+      thread.resume();
+    } catch (e) {
+      if (e instanceof NeedsJspi || e instanceof PendingCapability) {
+        inst.leaveTo(null);
+      }
+      throw e;
+    }
     inst.leaveTo(null);
     return true;
   }

@@ -32,6 +32,7 @@ import {
   driveSyncLift,
   EventCode,
   type EventTuple,
+  NeedsJspi,
   needsJspi,
   packSubtaskResult,
   PendingCapability,
@@ -623,6 +624,46 @@ export function createLiftedFunction(input: {
       entered = false; // consumed: the lock is now permanent
     };
 
+    /**
+     * Is `e` a *capability* signal rather than a genuine trap?
+     *
+     * `NeedsJspi` and `PendingCapability` mean "this runtime is incomplete",
+     * not "the component faulted". Poisoning on them is wrong on the
+     * reference's own terms: the operation they stand in for — a synchronous
+     * stream copy, `waitable-set.wait`, a blocking cross-component call —
+     * *blocks and then completes* in definitions.py. `Store.lift` reaches
+     * `leave_to` in every one of those executions, so the instance stays
+     * enterable. Poisoning would attribute a permanent fault to a component
+     * that, on a complete runtime, is perfectly healthy — and it cascades:
+     * one unsupported operation made every later call on that instance report
+     * `cannot enter component instance`, which is neither our real behaviour
+     * nor the reference's.
+     *
+     * What unwinding must still do on this path, and what it must not:
+     *
+     *  - MUST release the reentrance lock (`leave`) — the call is over and no
+     *    activation of this instance survives it.
+     *  - MUST unwind the FACT sync-call scopes and restore `may_leave`
+     *    (`unwind`), for exactly the reasons it does after a trap: a bail-out
+     *    mid-adapter skips `exit-sync-call` and the `may_leave` restore, and
+     *    that state is shared with sibling instances.
+     *  - MUST NOT try to "finish" the abandoned operation. A stream end left
+     *    in `CopyState.COPYING` with its buffer parked in the shared object is
+     *    the honest record of "this copy never happened"; the counterpart has
+     *    not been notified and must not be, because on a complete runtime the
+     *    copy would still be pending. Likewise a `prepare-call` slot consumed
+     *    by a `*-start-call` that then bailed is already cleared by
+     *    `takePrepared`, so nothing leaks there.
+     *  - MUST NOT resolve or cancel the task: the host call fails, and the
+     *    task simply never resolved.
+     *
+     * In other words the instance is left exactly as a *pending* operation
+     * would leave it, which is the truthful state, and the only thing the
+     * embedder loses is the result of this one call.
+     */
+    const isCapabilitySignal = (e: unknown): boolean =>
+      e instanceof NeedsJspi || e instanceof PendingCapability;
+
     try {
       thread.resume();
       // definitions.py `canon_lift` (line 2213): the sync driving loop runs
@@ -630,7 +671,8 @@ export function createLiftedFunction(input: {
       if (!ft.async) driveSyncLift(task);
     } catch (e) {
       unwind();
-      poison();
+      if (isCapabilitySignal(e)) leave();
+      else poison();
       throw e;
     }
     // The reentrance gate is released here, before the store is pumped:

@@ -158,6 +158,8 @@ fn map_translation(
     // Capture counts only available on the builder, then finish the type
     // tables (moves core module types in as well).
     let num_resource_tables = types.num_resource_tables();
+    let num_stream_tables = types.num_stream_tables();
+    let num_future_tables = types.num_future_tables();
     let (component_types, _world_ty) = types.finish(&translation.component);
 
     // Distinguish embedded modules (slices of the input) from FACT adapters
@@ -236,6 +238,8 @@ fn map_translation(
         &component_types,
         module_export_names,
         num_resource_tables,
+        num_stream_tables,
+        num_future_tables,
     )
     .build(producer, component_id, module_entries, &adapter_import_names)?;
 

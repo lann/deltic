@@ -73,8 +73,10 @@ import {
   type BlockRequest,
   type Cancelled,
   ComponentInstanceState,
+  NeedsJspi,
   needsJspi,
   packSubtaskResult,
+  PendingCapability,
   Subtask,
   SubtaskState,
   Task,
@@ -496,11 +498,16 @@ export function createSyncStartCall(
       const thread = spawn(task, body);
       thread.resume();
       ok = true;
-    } finally {
+    } catch (e) {
       // A trap leaves the instance poisoned: `leave_to` is not reached
-      // (definitions.py `Store.lift`, line 578). See exec/boundary.ts.
-      if (ok) prepared.calleeInst.leaveTo(prepared.callerInst);
+      // (definitions.py `Store.lift`, line 578). A *capability signal* does
+      // not — see the `isCapabilitySignal` note in exec/boundary.ts.
+      if (e instanceof NeedsJspi || e instanceof PendingCapability) {
+        prepared.calleeInst.leaveTo(prepared.callerInst);
+      }
+      throw e;
     }
+    if (ok) prepared.calleeInst.leaveTo(prepared.callerInst);
 
     if (callerResults === null) {
       // The callee did not resolve within its first activation. definitions.py
@@ -621,9 +628,14 @@ export function createAsyncStartCall(
       const thread = spawn(task, body);
       thread.resume();
       ok = true;
-    } finally {
-      if (ok) prepared.calleeInst.leaveTo(prepared.callerInst);
+    } catch (e) {
+      // See the sync form above and `isCapabilitySignal` in exec/boundary.ts.
+      if (e instanceof NeedsJspi || e instanceof PendingCapability) {
+        prepared.calleeInst.leaveTo(prepared.callerInst);
+      }
+      throw e;
     }
+    if (ok) prepared.calleeInst.leaveTo(prepared.callerInst);
 
     if (subtask.resolved()) {
       // Eager completion: no handle, no event (definitions.py line 2293).

@@ -19,7 +19,7 @@ import { assertEq } from "../support/asserts.ts";
 import { Translator } from "../../src/shim/mod.ts";
 import { instantiateComponent } from "../../src/exec/mod.ts";
 import { PendingCapability } from "../../src/task/mod.ts";
-import { NotImplemented, Trap } from "../../src/cabi/mod.ts";
+import { AssertionError, NotImplemented, Trap } from "../../src/cabi/mod.ts";
 
 function assert(cond: boolean, msg: string): asserts cond {
   if (!cond) throw new Error(`assertion failed: ${msg}`);
@@ -112,13 +112,12 @@ Deno.test("async-probe: repeated calls are independent tasks", async () => {
   assertEq(component.stats.tasksResolved, 5);
 });
 
-Deno.test("async-probe: stream/future exports report the pending capability", async () => {
+Deno.test("async-probe: sum-stream lifts a real stream handle", async () => {
+  // With streams implemented, the stream parameter is no longer a capability
+  // refusal — it is a genuine value. Passing a non-stream must therefore fail
+  // as a *type* error from `lower_stream` (definitions.py line 1828 asserts
+  // its argument is a shared stream), not as a missing capability.
   const component = await instantiate();
-  // Instantiation succeeds even though this component's stream and future
-  // built-ins are unimplemented — see the CONTRACT note in
-  // src/intrinsics/mod.ts. The capability failure surfaces at the call, and
-  // as a PendingCapability, never a Trap (a Trap would be scoreable as a
-  // conformance verdict).
   const sum = component.exports["sum-stream"] as (v: unknown) => unknown;
   let raised: unknown;
   try {
@@ -126,22 +125,12 @@ Deno.test("async-probe: stream/future exports report the pending capability", as
   } catch (e) {
     raised = e;
   }
-  // Which layer notices first depends on the export: lifting a `stream`
-  // parameter trips cabi's own value-interpreter stub (`NotImplemented`)
-  // before any stream *built-in* is reached, while an export that only calls
-  // stream built-ins trips `PendingCapability`. Both are honest
-  // "not implemented yet" signals; what matters is that neither is a `Trap`,
-  // which a conformance run could score as a deliberate rejection.
   assert(
-    raised instanceof PendingCapability || raised instanceof NotImplemented,
-    `expected a capability signal, got ${raised}`,
+    raised instanceof AssertionError,
+    `expected a host-value type error, got ${raised}`,
   );
   assert(
-    !(raised instanceof Trap),
-    `a missing capability must never surface as a Trap, got: ${raised}`,
-  );
-  assert(
-    /stream|future/.test(String(raised)),
-    `message should name the capability, got: ${raised}`,
+    String(raised).includes("shared stream"),
+    `message should name the expected host shape, got: ${raised}`,
   );
 });

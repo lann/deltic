@@ -26,6 +26,11 @@ import {
   type FieldType,
   type ValType,
 } from "./types.ts";
+import {
+  liftErrorContext,
+  liftFuture,
+  liftStream,
+} from "./async_values.ts";
 
 /** Anything lift can pull core values from (CoreValueIter or the variant
  * coercion iterator). */
@@ -102,7 +107,7 @@ export function liftFlat(
     case "string":
       return liftFlatString(cx, vi);
     case "error-context":
-      throw new NotImplemented("error-context lift (needs task machinery)");
+      return liftErrorContext(cx, vi.next("i32") as number) as never;
     case "list":
       return liftFlatList(cx, vi, d.element, d.length ?? null);
     case "record":
@@ -116,8 +121,9 @@ export function liftFlat(
     case "borrow":
       return liftBorrow(cx, vi.next("i32") as number, d);
     case "stream":
+      return liftStream(cx, vi.next("i32") as number, d) as never;
     case "future":
-      throw new NotImplemented("stream/future lift (needs copy machinery)");
+      return liftFuture(cx, vi.next("i32") as number, d) as never;
   }
 }
 

@@ -30,6 +30,7 @@ export * from "./scheduler.ts";
 export * from "./thread.ts";
 export * from "./waitable.ts";
 export * from "./subtask.ts";
+export * from "./streams.ts";
 
 /** Anything a component instance's handle table can hold. */
 export type HandleTableEntry = unknown;

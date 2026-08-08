@@ -61,6 +61,8 @@ export class TranslateError extends Error {
 /**
  * The single formatVersion this executor understands.
  *
+ * v2 (M2 phase 2c): `streamTables` / `futureTables` — the element types the
+ * stream and future built-ins need to size their copy buffers.
  * v1 (contracts/plan-format.md v0.3): `CoreDef` gained `"unsafe-intrinsic"`.
  * The change is purely additive, but the contract's compat rule is a strict
  * equality check ("Validate `formatVersion` and fail fast on mismatch",
@@ -68,7 +70,7 @@ export class TranslateError extends Error {
  * rather than best-effort accepted — a stale cached artifact must be a loud
  * failure, not a subtly different execution.
  */
-export const SUPPORTED_FORMAT_VERSION = 1;
+export const SUPPORTED_FORMAT_VERSION = 2;
 
 /** A types-table entry after conversion. */
 export type LoadedType =
@@ -91,6 +93,13 @@ export interface LoadedPlan {
    * (plan-format.md v0.1 amendment #2 / v0.2 `importedResources`).
    */
   numImportedResources: number;
+  /** Element type per stream table (plan v2); `null` = zero-width payload. */
+  streamElems: (ValType | null)[];
+  /** Element type per future table (plan v2). */
+  futureElems: (ValType | null)[];
+  /** Owning component instance per stream/future table (plan v2). */
+  streamTableInstances: number[];
+  futureTableInstances: number[];
 }
 
 /**
@@ -140,11 +149,21 @@ export function loadPlan(wire: WirePlan): LoadedPlan {
   const types = wire.types.map((t, i) =>
     loadTypeDecl(t, resourceTokens, `types[${i}]`)
   );
+  const elems = (ts: { element: WireValType | null }[] | undefined, what: string) =>
+    (ts ?? []).map((t, i) =>
+      t.element === null
+        ? null
+        : loadValType(t.element, resourceTokens, `${what}[${i}].element`)
+    );
   return {
     wire,
     types,
     resourceTokens,
     numImportedResources: importedResources.length,
+    streamElems: elems(wire.streamTables, "streamTables"),
+    futureElems: elems(wire.futureTables, "futureTables"),
+    streamTableInstances: (wire.streamTables ?? []).map((t) => t.instance),
+    futureTableInstances: (wire.futureTables ?? []).map((t) => t.instance),
   };
 }
 

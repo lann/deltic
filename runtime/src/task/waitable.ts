@@ -158,7 +158,7 @@ export class WaitableSet {
 
   /** definitions.py `WaitableSet.drop` (line 852). */
   drop(): void {
-    trapIf(this.elems.length > 0, "dropping a non-empty waitable set");
-    trapIf(this.numWaiting > 0, "dropping a waitable set with waiters");
+    trapIf(this.elems.length > 0, "cannot drop waitable set with waitables");
+    trapIf(this.numWaiting > 0, "cannot drop waitable set with waiters");
   }
 }

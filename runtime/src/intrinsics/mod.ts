@@ -52,6 +52,30 @@ import {
   type PreparedCall,
 } from "./fact_calls.ts";
 import {
+  createErrorContextDebugMessage,
+  createErrorContextDrop,
+  createErrorContextNew,
+  createFutureCancelRead,
+  createFutureCancelWrite,
+  createFutureDropReadable,
+  createFutureDropWritable,
+  createFutureNew,
+  createFutureRead,
+  createFutureWrite,
+  createStreamCancelRead,
+  createStreamCancelWrite,
+  createStreamDropReadable,
+  createStreamDropWritable,
+  createStreamNew,
+  createStreamRead,
+  createStreamWrite,
+  type StreamTrampolineContext,
+  type AsyncTransferContext,
+  createStreamTransfer,
+  createFutureTransfer,
+  createErrorContextTransfer,
+} from "./stream_builtins.ts";
+import {
   createTranscoder,
   type TranscodeMemory,
   type TranscodeOp,
@@ -62,6 +86,7 @@ export * from "./transcode.ts";
 export * from "./context.ts";
 export * from "./async_builtins.ts";
 export * from "./fact_calls.ts";
+export * from "./stream_builtins.ts";
 
 /**
  * Where a host trap thrown *inside* a FACT adapter is remembered.
@@ -221,6 +246,11 @@ export interface TrampolineContext {
   memoryToken(index: number): unknown;
   /** The single in-flight FACT preparation (see `PreparedCall`). */
   prepared: { current: PreparedCall | null };
+  /** Element types of the plan v2 stream/future tables. */
+  streamElem(index: number): import("../cabi/types.ts").ValType | null;
+  futureElem(index: number): import("../cabi/types.ts").ValType | null;
+  streamTableInstance(index: number): ComponentInstanceState;
+  futureTableInstance(index: number): ComponentInstanceState;
   /** Build the lowered-import body for `lowered` (LoweredIndex). */
   loweredImport(decl: {
     lowered: number;
@@ -285,6 +315,11 @@ function deferredCapability(kind: string, capability: string): CoreFn {
  * instantiation — when a core module's start function may already be calling
  * these built-ins. See the header of ./async_builtins.ts.
  */
+/** Narrow the trampoline context to what the stream built-ins need. */
+function sctx(ctx: TrampolineContext): StreamTrampolineContext {
+  return ctx as unknown as StreamTrampolineContext;
+}
+
 function declaredInstance(
   decl: WireTrampoline,
   ctx: TrampolineContext,
@@ -507,47 +542,61 @@ function createTrampolineBody(
         ctx as unknown as FactCallContext,
       );
 
-    // --- stream / future / error-context (M2 phase 2) ---------------------
-    //
-    // CONTRACT: contracts/plan-format.md "Executor obligations" says
-    // "Instantiate-time (not call-time) failure for any trampoline kind,
-    // intrinsic, or op the executor doesn't support". That rule was written
-    // for the sync corpus, where an unsupported trampoline meant the whole
-    // component was out of reach anyway. It does not survive contact with
-    // 0.3 async: a single wit-bindgen guest routinely mixes exports we fully
-    // support (callback-ABI async) with exports we do not yet (streams), and
-    // the *only* thing the stream trampolines are reachable from is the
-    // stream-using export. Failing instantiation would make the supported
-    // exports unreachable because of a capability their code never touches —
-    // strictly less information for the embedder, and it would block the
-    // async-probe end-to-end test on a phase-2 feature.
-    //
-    // The conservative reading is therefore applied at the finest granularity
-    // the contract's *intent* allows: instantiation succeeds, and the
-    // capability failure is raised at the first call, naming the phase. It is
-    // still loud, still never a `Trap`, and still impossible to mistake for a
-    // conformance verdict (`PendingCapability`, not `Trap`). Reported as v0.3
-    // contract friction: the obligation needs an explicit carve-out for
-    // capability-scoped built-ins.
+    // --- stream / future / error-context (see ./stream_builtins.ts) -------
     case "stream-new":
-    case "stream-read":
-    case "stream-write":
-    case "stream-cancel-read":
-    case "stream-cancel-write":
-    case "stream-drop-readable":
-    case "stream-drop-writable":
+      return createStreamNew(
+        decl as unknown as { streamTable: number },
+        sctx(ctx),
+        declaredInstance(decl, ctx),
+      );
     case "future-new":
+      return createFutureNew(
+        decl as unknown as { futureTable: number },
+        sctx(ctx),
+        declaredInstance(decl, ctx),
+      );
+    case "stream-read":
+      return createStreamRead(decl as never, sctx(ctx), declaredInstance(decl, ctx));
+    case "stream-write":
+      return createStreamWrite(decl as never, sctx(ctx), declaredInstance(decl, ctx));
     case "future-read":
+      return createFutureRead(decl as never, sctx(ctx), declaredInstance(decl, ctx));
     case "future-write":
+      return createFutureWrite(decl as never, sctx(ctx), declaredInstance(decl, ctx));
+    case "stream-cancel-read":
+      return createStreamCancelRead(decl as never, sctx(ctx), declaredInstance(decl, ctx));
+    case "stream-cancel-write":
+      return createStreamCancelWrite(decl as never, sctx(ctx), declaredInstance(decl, ctx));
     case "future-cancel-read":
+      return createFutureCancelRead(decl as never, sctx(ctx), declaredInstance(decl, ctx));
     case "future-cancel-write":
+      return createFutureCancelWrite(decl as never, sctx(ctx), declaredInstance(decl, ctx));
+    case "stream-drop-readable":
+      return createStreamDropReadable(decl as never, sctx(ctx), declaredInstance(decl, ctx));
+    case "stream-drop-writable":
+      return createStreamDropWritable(decl as never, sctx(ctx), declaredInstance(decl, ctx));
     case "future-drop-readable":
+      return createFutureDropReadable(decl as never, sctx(ctx), declaredInstance(decl, ctx));
     case "future-drop-writable":
-      return deferredCapability(decl.kind, "streams and futures (M2 phase 2)");
+      return createFutureDropWritable(decl as never, sctx(ctx), declaredInstance(decl, ctx));
     case "error-context-new":
+      return createErrorContextNew(decl as never, sctx(ctx), declaredInstance(decl, ctx));
     case "error-context-debug-message":
+      return createErrorContextDebugMessage(decl as never, sctx(ctx), declaredInstance(decl, ctx));
     case "error-context-drop":
-      return deferredCapability(decl.kind, "error-context (M2 phase 2)");
+      return createErrorContextDrop(declaredInstance(decl, ctx));
+    case "stream-transfer":
+      return createStreamTransfer(ctx as unknown as AsyncTransferContext);
+    case "future-transfer":
+      return createFutureTransfer(ctx as unknown as AsyncTransferContext);
+    case "error-context-transfer":
+      return createErrorContextTransfer(
+        ctx as unknown as AsyncTransferContext,
+        // error-context tables are per component instance but the plan has no
+        // separate table section for them; the resource-table instance mapping
+        // is the same index space wasmtime uses for the transfer's arguments.
+        (t) => ctx.resourceTableInstance(t),
+      );
 
     case "resource-transfer-own":
       return (handle: number, srcTable: number, dstTable: number) =>

@@ -201,7 +201,32 @@ export interface FuncType {
  * These mirror definitions.py's Python shapes; final host-facing bindings
  * representations are an open question (README).
  */
+/**
+ * Opaque host token for the async value types.
+ *
+ * `stream`, `future` and `error-context` do not lift to plain data: the
+ * reference's `lift_async_value` (definitions.py line 1530) yields the
+ * *shared* stream/future object itself, because its identity is the value —
+ * two components holding ends of one stream must see each other's copies.
+ * Concretely these are `SharedStreamImpl`, `SharedFutureImpl` and
+ * `ErrorContext` instances (runtime/src/task/streams.ts); they are declared
+ * opaquely here to keep `cabi/types.ts` free of a dependency on the task
+ * layer. Host code should treat one as a token and pass it back unchanged.
+ *
+ * LIMITATION: this brand is *structural*, so an all-optional interface admits
+ * any object — it documents intent, it does not enforce it. The enforcement is
+ * at the lowering sites, which `assert_` on the concrete class before using a
+ * value (`lowerStream`/`lowerFuture` in cabi/async_values.ts check
+ * `instanceof SharedStreamImpl`/`SharedFutureImpl`). A nominal brand would
+ * need a required property, which the real classes could not satisfy without
+ * cabi importing the task layer — the cycle this declaration exists to avoid.
+ */
+export interface AsyncValue {
+  readonly __asyncValue?: never;
+}
+
 export type ComponentValue =
+  | AsyncValue
   | boolean
   | number
   | bigint

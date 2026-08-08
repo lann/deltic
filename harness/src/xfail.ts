@@ -256,7 +256,16 @@ export const XFAIL: XfailEntry[] = [
   },
 
   // =====================================================================
-  // async/ — M2 phase 1 (task core + callback ABI) triage.
+  // async/ — triage as of M2 phase 2c (streams/futures/error-context).
+  //
+  // Streams, futures and error-context are IMPLEMENTED; the entries below no
+  // longer describe a missing value type. The dominant remaining class is
+  // JSPI: the *synchronous* form of a stream/future copy, of
+  // `waitable-set.wait`, and of a cross-component call all block the calling
+  // wasm frame, which a stackless runtime cannot do. See
+  // runtime/src/intrinsics/stream_builtins.ts `finishCopy`.
+  //
+  // Historic note (M2 phase 1 triage) follows.
   //
   // What now works and is NOT listed here: `trap-on-reenter`,
   // `validate-no-async-abi-for-sync-type` and `validate-no-stream-char` are
@@ -280,366 +289,168 @@ export const XFAIL: XfailEntry[] = [
     file: "async/async-calls-sync.json",
     line: 250,
     reason:
-      "pending-capability: FACT cross-component sync-to-async calls " +
-      "(M2 phase 2) — the adapters import `sync-start-call`, the FACT " +
-      "intrinsic for a sync-lifted caller invoking an async callee " +
-      "across a component boundary. Instantiation is declined, so " +
-      "every command against the instance follows",
+      "needs JSPI (M2 phase 3): sync-start-call whose " +
+      "async-lifted callee did not resolve in its first " +
+      "activation (the caller's wasm frame must block). " +
+      "Streams/futures themselves are implemented as of M2 phase " +
+      "2c; what remains here is the synchronous form of a copy or " +
+      "wait, which blocks the calling wasm frame",
   },
   {
     file: "async/async-calls-sync.json",
     line: 251,
     reason:
-      "same blocking capability as line 250, see that entry",
+      "needs JSPI (M2 phase 3): sync-start-call whose " +
+      "async-lifted callee did not resolve in its first " +
+      "activation (the caller's wasm frame must block)",
   },
   // --- async/big-interleaving-test.json: root cause: STREAMS ---
   {
     file: "async/big-interleaving-test.json",
-    line: 825,
-    reason:
-      "pending-capability: streams (M2 phase 2) — the component uses " +
-      "stream/future built-ins, which are wired as " +
-      "deferred-capability trampolines until the copy machinery lands",
-  },
-  {
-    file: "async/big-interleaving-test.json",
-    line: 827,
-    reason:
-      "same blocking capability as line 825, see that entry",
-  },
-  {
-    file: "async/big-interleaving-test.json",
-    line: 836,
-    reason:
-      "same blocking capability as line 825, see that entry",
-  },
-  {
-    file: "async/big-interleaving-test.json",
-    line: 844,
-    reason:
-      "same blocking capability as line 825, see that entry",
-  },
-  {
-    file: "async/big-interleaving-test.json",
-    line: 856,
-    reason:
-      "same blocking capability as line 825, see that entry",
-  },
-  {
-    file: "async/big-interleaving-test.json",
-    line: 863,
-    reason:
-      "same blocking capability as line 825, see that entry",
-  },
-  {
-    file: "async/big-interleaving-test.json",
     line: 873,
     reason:
-      "same blocking capability as line 825, see that entry",
-  },
-  {
-    file: "async/big-interleaving-test.json",
-    line: 884,
-    reason:
-      "same blocking capability as line 825, see that entry",
-  },
-  {
-    file: "async/big-interleaving-test.json",
-    line: 896,
-    reason:
-      "same blocking capability as line 825, see that entry",
-  },
-  {
-    file: "async/big-interleaving-test.json",
-    line: 906,
-    reason:
-      "same blocking capability as line 825, see that entry",
-  },
-  {
-    file: "async/big-interleaving-test.json",
-    line: 914,
-    reason:
-      "same blocking capability as line 825, see that entry",
+      "needs JSPI (M2 phase 3): FACT call into a stackful " +
+      "async-lifted export (async canonical options without a " +
+      "callback)",
   },
   {
     file: "async/big-interleaving-test.json",
     line: 934,
     reason:
-      "same blocking capability as line 825, see that entry",
-  },
-  {
-    file: "async/big-interleaving-test.json",
-    line: 946,
-    reason:
-      "same blocking capability as line 825, see that entry",
-  },
-  {
-    file: "async/big-interleaving-test.json",
-    line: 964,
-    reason:
-      "same blocking capability as line 825, see that entry",
-  },
-  {
-    file: "async/big-interleaving-test.json",
-    line: 1024,
-    reason:
-      "same blocking capability as line 825, see that entry",
-  },
-  {
-    file: "async/big-interleaving-test.json",
-    line: 1058,
-    reason:
-      "same blocking capability as line 825, see that entry",
-  },
-  {
-    file: "async/big-interleaving-test.json",
-    line: 1104,
-    reason:
-      "same blocking capability as line 825, see that entry",
-  },
-  {
-    file: "async/big-interleaving-test.json",
-    line: 1132,
-    reason:
-      "same blocking capability as line 825, see that entry",
-  },
-  {
-    file: "async/big-interleaving-test.json",
-    line: 1160,
-    reason:
-      "same blocking capability as line 825, see that entry",
-  },
-  {
-    file: "async/big-interleaving-test.json",
-    line: 1206,
-    reason:
-      "same blocking capability as line 825, see that entry",
+      "needs JSPI (M2 phase 3): FACT call into a stackful " +
+      "async-lifted export (async canonical options without a " +
+      "callback)",
   },
   {
     file: "async/big-interleaving-test.json",
     line: 1256,
     reason:
-      "same blocking capability as line 825, see that entry",
-  },
-  {
-    file: "async/big-interleaving-test.json",
-    line: 1288,
-    reason:
-      "same blocking capability as line 825, see that entry",
-  },
-  {
-    file: "async/big-interleaving-test.json",
-    line: 1344,
-    reason:
-      "same blocking capability as line 825, see that entry",
-  },
-  {
-    file: "async/big-interleaving-test.json",
-    line: 1392,
-    reason:
-      "same blocking capability as line 825, see that entry",
-  },
-  {
-    file: "async/big-interleaving-test.json",
-    line: 1407,
-    reason:
-      "same blocking capability as line 825, see that entry",
-  },
-  {
-    file: "async/big-interleaving-test.json",
-    line: 1417,
-    reason:
-      "same blocking capability as line 825, see that entry",
-  },
-  {
-    file: "async/big-interleaving-test.json",
-    line: 1427,
-    reason:
-      "same blocking capability as line 825, see that entry",
-  },
-  {
-    file: "async/big-interleaving-test.json",
-    line: 1438,
-    reason:
-      "same blocking capability as line 825, see that entry",
-  },
-  {
-    file: "async/big-interleaving-test.json",
-    line: 1448,
-    reason:
-      "same blocking capability as line 825, see that entry",
-  },
-  {
-    file: "async/big-interleaving-test.json",
-    line: 1457,
-    reason:
-      "same blocking capability as line 825, see that entry",
+      "needs JSPI (M2 phase 3): FACT call into a stackful " +
+      "async-lifted export (async canonical options without a " +
+      "callback)",
   },
   {
     file: "async/big-interleaving-test.json",
     line: 1469,
     reason:
-      "same blocking capability as line 825, see that entry",
-  },
-  {
-    file: "async/big-interleaving-test.json",
-    line: 1481,
-    reason:
-      "same blocking capability as line 825, see that entry",
-  },
-  {
-    file: "async/big-interleaving-test.json",
-    line: 1491,
-    reason:
-      "same blocking capability as line 825, see that entry",
-  },
-  {
-    file: "async/big-interleaving-test.json",
-    line: 1504,
-    reason:
-      "same blocking capability as line 825, see that entry",
+      "needs JSPI (M2 phase 3): FACT call into a stackful " +
+      "async-lifted export (async canonical options without a " +
+      "callback)",
   },
   {
     file: "async/big-interleaving-test.json",
     line: 1520,
     reason:
-      "same blocking capability as line 825, see that entry",
+      "observed: Error: expected return, got trap: wasm trap: " +
+      "wasm `unreachable` instruction executed",
   },
   {
     file: "async/big-interleaving-test.json",
     line: 1533,
     reason:
-      "same blocking capability as line 825, see that entry",
+      "observed: Error: expected return, got trap: cannot enter " +
+      "component instance 3 (reentrance forbidden)",
   },
   {
     file: "async/big-interleaving-test.json",
     line: 1544,
     reason:
-      "same blocking capability as line 825, see that entry",
+      "observed: Error: expected return, got trap: cannot enter " +
+      "component instance 3 (reentrance forbidden)",
   },
   {
     file: "async/big-interleaving-test.json",
     line: 1555,
     reason:
-      "same blocking capability as line 825, see that entry",
+      "observed: Error: expected return, got trap: cannot enter " +
+      "component instance 3 (reentrance forbidden)",
   },
   {
     file: "async/big-interleaving-test.json",
     line: 1568,
     reason:
-      "same blocking capability as line 825, see that entry",
+      "observed: Error: expected return, got trap: cannot enter " +
+      "component instance 3 (reentrance forbidden)",
   },
   {
     file: "async/big-interleaving-test.json",
     line: 1584,
     reason:
-      "same blocking capability as line 825, see that entry",
-  },
-  {
-    file: "async/big-interleaving-test.json",
-    line: 1594,
-    reason:
-      "same blocking capability as line 825, see that entry",
+      "observed: Error: expected return, got trap: cannot enter " +
+      "component instance 3 (reentrance forbidden)",
   },
   {
     file: "async/big-interleaving-test.json",
     line: 1603,
     reason:
-      "same blocking capability as line 825, see that entry",
+      "needs JSPI (M2 phase 3): waitable-set.wait with no pending " +
+      "event (the calling wasm frame must block; a callback-ABI " +
+      "guest should return the WAIT code instead)",
   },
   {
     file: "async/big-interleaving-test.json",
     line: 1614,
     reason:
-      "same blocking capability as line 825, see that entry",
+      "observed: Error: expected return, got trap: table index " +
+      "out of range",
   },
   {
     file: "async/big-interleaving-test.json",
     line: 1633,
     reason:
-      "same blocking capability as line 825, see that entry",
+      "observed: Error: expected return, got trap: cannot enter " +
+      "component instance 3 (reentrance forbidden)",
   },
   {
     file: "async/big-interleaving-test.json",
     line: 1644,
     reason:
-      "same blocking capability as line 825, see that entry",
+      "observed: Error: expected return, got trap: cannot enter " +
+      "component instance 3 (reentrance forbidden)",
   },
   // --- async/builtin-trap-poisons-instance.json: root cause: STREAMS ---
-  {
-    file: "async/builtin-trap-poisons-instance.json",
-    line: 38,
-    reason:
-      "pending-capability: streams (M2 phase 2) — this component's `f` " +
-      "drives stream.new/write/drop-writable to prove a *built-in* trap " +
-      "poisons too; the stream built-ins are deferred-capability " +
-      "trampolines until the copy machinery lands. (The two non-stream " +
-      "assertions in this file, lines 9 and 10, now pass: instance " +
-      "poisoning and wasmtime trap-message parity both landed.)",
-  },
   // --- async/cancel-stream.json: root cause: STREAMS ---
   {
     file: "async/cancel-stream.json",
     line: 202,
     reason:
-      "pending-capability: streams (M2 phase 2) — the component uses " +
-      "stream/future built-ins, which are wired as " +
-      "deferred-capability trampolines until the copy machinery lands",
+      "observed: Error: expected return, got trap: wasm trap: " +
+      "wasm `unreachable` instruction executed",
   },
   // --- async/cancel-subtask.json: root cause: FACT-ASYNC ---
   {
     file: "async/cancel-subtask.json",
     line: 201,
     reason:
-      "pending-capability: FACT cross-component async calls (M2 phase " +
-      "2) — the component's adapters import `async-start-call` / " +
-      "`async-return-call`, wasmtime's FACT intrinsics for calling an " +
-      "async-lifted export from another *component* (as opposed to " +
-      "from the host, which this phase implements). Instantiation is " +
-      "declined, so every command against the instance follows",
+      "observed: Error: expected return, got trap: wasm trap: " +
+      "wasm `unreachable` instruction executed",
   },
   // --- async/cancellable.json: root cause: FACT-ASYNC ---
   {
     file: "async/cancellable.json",
     line: 322,
     reason:
-      "pending-capability: FACT cross-component async calls (M2 phase " +
-      "2) — the component's adapters import `async-start-call` / " +
-      "`async-return-call`, wasmtime's FACT intrinsics for calling an " +
-      "async-lifted export from another *component* (as opposed to " +
-      "from the host, which this phase implements). Instantiation is " +
-      "declined, so every command against the instance follows",
+      "needs JSPI (M2 phase 3): waitable-set.wait with no pending " +
+      "event (the calling wasm frame must block; a callback-ABI " +
+      "guest should return the WAIT code instead). " +
+      "Streams/futures themselves are implemented as of M2 phase " +
+      "2c; what remains here is the synchronous form of a copy or " +
+      "wait, which blocks the calling wasm frame",
   },
   // --- async/closed-stream.json: root cause: STREAMS ---
-  {
-    file: "async/closed-stream.json",
-    line: 102,
-    reason:
-      "pending-capability: streams (M2 phase 2) — the component uses " +
-      "stream/future built-ins, which are wired as " +
-      "deferred-capability trampolines until the copy machinery lands",
-  },
   // --- async/cross-abi-calls.json: root cause: FACT-ASYNC ---
   // --- async/cross-task-future.json: root cause: STREAMS ---
-  {
-    file: "async/cross-task-future.json",
-    line: 103,
-    reason:
-      "pending-capability: streams (M2 phase 2) — the component uses " +
-      "stream/future built-ins, which are wired as " +
-      "deferred-capability trampolines until the copy machinery lands",
-  },
   // --- async/deadlock.json: root cause: FACT-ASYNC ---
   {
     file: "async/deadlock.json",
     line: 73,
     reason:
-      "pending-capability: FACT cross-component async calls (M2 phase " +
-      "2) — the component's adapters import `async-start-call` / " +
-      "`async-return-call`, wasmtime's FACT intrinsics for calling an " +
-      "async-lifted export from another *component* (as opposed to " +
-      "from the host, which this phase implements). Instantiation is " +
-      "declined, so every command against the instance follows",
+      "needs JSPI (M2 phase 3): waitable-set.wait with no pending " +
+      "event (the calling wasm frame must block; a callback-ABI " +
+      "guest should return the WAIT code instead). " +
+      "Streams/futures themselves are implemented as of M2 phase " +
+      "2c; what remains here is the synchronous form of a copy or " +
+      "wait, which blocks the calling wasm frame",
   },
   // --- async/dont-block-start.json: root cause: FACT-SYNC ---
   {
@@ -660,168 +471,110 @@ export const XFAIL: XfailEntry[] = [
     file: "async/drop-cross-task-borrow.json",
     line: 305,
     reason:
-      "pending-capability: FACT cross-component async calls (M2 phase " +
-      "2) — the component's adapters import `async-start-call` / " +
-      "`async-return-call`, wasmtime's FACT intrinsics for calling an " +
-      "async-lifted export from another *component* (as opposed to " +
-      "from the host, which this phase implements). Instantiation is " +
-      "declined, so every command against the instance follows",
+      "observed: AssertionError: transfer-borrow outside an " +
+      "enter-sync-call/exit-sync-call bracket",
   },
   {
     file: "async/drop-cross-task-borrow.json",
     line: 307,
     reason:
-      "same blocking capability as line 305, see that entry",
+      "observed: AssertionError: transfer-borrow outside an " +
+      "enter-sync-call/exit-sync-call bracket",
   },
   {
     file: "async/drop-cross-task-borrow.json",
     line: 309,
     reason:
-      "same blocking capability as line 305, see that entry",
+      "observed: AssertionError: transfer-borrow outside an " +
+      "enter-sync-call/exit-sync-call bracket",
   },
   // --- async/drop-stream.json: root cause: STREAMS ---
   {
     file: "async/drop-stream.json",
     line: 158,
     reason:
-      "pending-capability: streams (M2 phase 2) — the component uses " +
-      "stream/future built-ins, which are wired as " +
-      "deferred-capability trampolines until the copy machinery lands",
-  },
-  {
-    file: "async/drop-stream.json",
-    line: 160,
-    reason:
-      "same blocking capability as line 158, see that entry",
+      "observed: Error: expected trap \"cannot remove busy " +
+      "stream\", got \"cannot drop busy stream\"",
   },
   // --- async/drop-subtask.json: root cause: FACT-ASYNC ---
   {
     file: "async/drop-subtask.json",
     line: 139,
     reason:
-      "pending-capability: FACT cross-component async calls (M2 phase " +
-      "2) — the component's adapters import `async-start-call` / " +
-      "`async-return-call`, wasmtime's FACT intrinsics for calling an " +
-      "async-lifted export from another *component* (as opposed to " +
-      "from the host, which this phase implements). Instantiation is " +
-      "declined, so every command against the instance follows",
-  },
-  {
-    file: "async/drop-subtask.json",
-    line: 140,
-    reason:
-      "same blocking capability as line 139, see that entry",
+      "needs JSPI (M2 phase 3): waitable-set.wait with no pending " +
+      "event (the calling wasm frame must block; a callback-ABI " +
+      "guest should return the WAIT code instead). " +
+      "Streams/futures themselves are implemented as of M2 phase " +
+      "2c; what remains here is the synchronous form of a copy or " +
+      "wait, which blocks the calling wasm frame",
   },
   // --- async/drop-waitable-set.json: root cause: FACT-ASYNC ---
-  {
-    file: "async/drop-waitable-set.json",
-    line: 84,
-    reason:
-      "pending-capability: FACT cross-component async calls (M2 phase " +
-      "2) — the component's adapters import `async-start-call` / " +
-      "`async-return-call`, wasmtime's FACT intrinsics for calling an " +
-      "async-lifted export from another *component* (as opposed to " +
-      "from the host, which this phase implements). Instantiation is " +
-      "declined, so every command against the instance follows",
-  },
   // --- async/empty-wait.json: root cause: FACT-ASYNC ---
   {
     file: "async/empty-wait.json",
     line: 199,
     reason:
-      "pending-capability: FACT cross-component async calls (M2 phase " +
-      "2) — the component's adapters import `async-start-call` / " +
-      "`async-return-call`, wasmtime's FACT intrinsics for calling an " +
-      "async-lifted export from another *component* (as opposed to " +
-      "from the host, which this phase implements). Instantiation is " +
-      "declined, so every command against the instance follows",
+      "needs JSPI (M2 phase 3): waitable-set.wait with no pending " +
+      "event (the calling wasm frame must block; a callback-ABI " +
+      "guest should return the WAIT code instead). " +
+      "Streams/futures themselves are implemented as of M2 phase " +
+      "2c; what remains here is the synchronous form of a copy or " +
+      "wait, which blocks the calling wasm frame",
   },
   // --- async/futures-must-write.json: root cause: STREAMS ---
-  {
-    file: "async/futures-must-write.json",
-    line: 117,
-    reason:
-      "pending-capability: streams (M2 phase 2) — the component uses " +
-      "stream/future built-ins, which are wired as " +
-      "deferred-capability trampolines until the copy machinery lands",
-  },
-  {
-    file: "async/futures-must-write.json",
-    line: 118,
-    reason:
-      "same blocking capability as line 117, see that entry",
-  },
   // --- async/partial-stream-copies.json: root cause: STREAMS ---
   {
     file: "async/partial-stream-copies.json",
     line: 238,
     reason:
-      "pending-capability: streams (M2 phase 2) — the component uses " +
-      "stream/future built-ins, which are wired as " +
-      "deferred-capability trampolines until the copy machinery lands",
+      "needs JSPI (M2 phase 3): waitable-set.wait with no pending " +
+      "event (the calling wasm frame must block; a callback-ABI " +
+      "guest should return the WAIT code instead). " +
+      "Streams/futures themselves are implemented as of M2 phase " +
+      "2c; what remains here is the synchronous form of a copy or " +
+      "wait, which blocks the calling wasm frame",
   },
   // --- async/passing-resources.json: root cause: STREAMS ---
   {
     file: "async/passing-resources.json",
     line: 175,
     reason:
-      "pending-capability: streams (M2 phase 2) — the component uses " +
-      "stream/future built-ins, which are wired as " +
-      "deferred-capability trampolines until the copy machinery lands",
+      "observed: TypeError: Converting circular structure to JSON " +
+      "--> starting at object with constructor 'Object' | " +
+      "property 'rt' -> object with constructor " +
+      "'ResourceTypeInfo' | property",
   },
   {
     file: "async/passing-resources.json",
     line: 176,
     reason:
-      "same blocking capability as line 175, see that entry",
+      "observed: Error: expected trap \"unknown handle index 3\", " +
+      "got \"wasm trap: wasm `unreachable` instruction executed\"",
   },
   // --- async/same-component-stream-future.json: root cause: STREAMS ---
-  {
-    file: "async/same-component-stream-future.json",
-    line: 253,
-    reason:
-      "pending-capability: streams (M2 phase 2) — the component uses " +
-      "stream/future built-ins, which are wired as " +
-      "deferred-capability trampolines until the copy machinery lands",
-  },
-  {
-    file: "async/same-component-stream-future.json",
-    line: 255,
-    reason:
-      "same blocking capability as line 253, see that entry",
-  },
-  {
-    file: "async/same-component-stream-future.json",
-    line: 257,
-    reason:
-      "same blocking capability as line 253, see that entry",
-  },
-  {
-    file: "async/same-component-stream-future.json",
-    line: 259,
-    reason:
-      "same blocking capability as line 253, see that entry",
-  },
   // --- async/sync-barges-in.json: root cause: FACT-ASYNC ---
   {
     file: "async/sync-barges-in.json",
     line: 311,
     reason:
-      "pending-capability: FACT cross-component async calls (M2 phase " +
-      "2) — the component's adapters import `async-start-call` / " +
-      "`async-return-call`, wasmtime's FACT intrinsics for calling an " +
-      "async-lifted export from another *component* (as opposed to " +
-      "from the host, which this phase implements). Instantiation is " +
-      "declined, so every command against the instance follows",
+      "needs JSPI (M2 phase 3): waitable-set.wait with no pending " +
+      "event (the calling wasm frame must block; a callback-ABI " +
+      "guest should return the WAIT code instead). " +
+      "Streams/futures themselves are implemented as of M2 phase " +
+      "2c; what remains here is the synchronous form of a copy or " +
+      "wait, which blocks the calling wasm frame",
   },
   // --- async/sync-streams.json: root cause: STREAMS ---
   {
     file: "async/sync-streams.json",
     line: 208,
     reason:
-      "pending-capability: streams (M2 phase 2) — the component uses " +
-      "stream/future built-ins, which are wired as " +
-      "deferred-capability trampolines until the copy machinery lands",
+      "needs JSPI (M2 phase 3): synchronous stream copy with no " +
+      "counterpart ready (the calling wasm frame must block until " +
+      "the other end arrives). Streams/futures themselves are " +
+      "implemented as of M2 phase 2c; what remains here is the " +
+      "synchronous form of a copy or wait, which blocks the " +
+      "calling wasm frame",
   },
   // --- async/trap-if-block-and-sync.json: see entries ---
   {
@@ -851,475 +604,489 @@ export const XFAIL: XfailEntry[] = [
     file: "async/trap-if-block-and-sync.json",
     line: 286,
     reason:
-      "same blocking capability as line 5, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-block-and-sync.json",
     line: 287,
     reason:
-      "same blocking capability as line 5, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-block-and-sync.json",
     line: 288,
     reason:
-      "same blocking capability as line 5, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-block-and-sync.json",
     line: 289,
     reason:
-      "same blocking capability as line 5, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-block-and-sync.json",
     line: 290,
     reason:
-      "same blocking capability as line 5, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-block-and-sync.json",
     line: 291,
     reason:
-      "same blocking capability as line 5, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-block-and-sync.json",
     line: 292,
     reason:
-      "same blocking capability as line 5, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-block-and-sync.json",
     line: 293,
     reason:
-      "same blocking capability as line 5, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-block-and-sync.json",
     line: 294,
     reason:
-      "same blocking capability as line 5, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-block-and-sync.json",
     line: 295,
     reason:
-      "same blocking capability as line 5, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-block-and-sync.json",
     line: 296,
     reason:
-      "same blocking capability as line 5, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-block-and-sync.json",
     line: 297,
     reason:
-      "same blocking capability as line 5, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-block-and-sync.json",
     line: 298,
     reason:
-      "same blocking capability as line 5, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-block-and-sync.json",
     line: 299,
     reason:
-      "same blocking capability as line 5, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-block-and-sync.json",
     line: 300,
     reason:
-      "same blocking capability as line 5, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-block-and-sync.json",
     line: 301,
     reason:
-      "same blocking capability as line 5, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-block-and-sync.json",
     line: 302,
     reason:
-      "same blocking capability as line 5, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-block-and-sync.json",
     line: 303,
     reason:
-      "same blocking capability as line 5, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-block-and-sync.json",
     line: 304,
     reason:
-      "same blocking capability as line 5, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-block-and-sync.json",
     line: 305,
     reason:
-      "same blocking capability as line 5, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-block-and-sync.json",
     line: 306,
     reason:
-      "same blocking capability as line 5, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-block-and-sync.json",
     line: 307,
     reason:
-      "same blocking capability as line 5, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-block-and-sync.json",
     line: 308,
     reason:
-      "same blocking capability as line 5, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-block-and-sync.json",
     line: 309,
     reason:
-      "same blocking capability as line 5, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-block-and-sync.json",
     line: 310,
     reason:
-      "same blocking capability as line 5, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-block-and-sync.json",
     line: 311,
     reason:
-      "same blocking capability as line 5, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-block-and-sync.json",
     line: 312,
     reason:
-      "same blocking capability as line 5, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-block-and-sync.json",
     line: 313,
     reason:
-      "same blocking capability as line 5, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-block-and-sync.json",
     line: 314,
     reason:
-      "same blocking capability as line 5, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-block-and-sync.json",
     line: 315,
     reason:
-      "same blocking capability as line 5, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-block-and-sync.json",
     line: 316,
     reason:
-      "same blocking capability as line 5, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-block-and-sync.json",
     line: 317,
     reason:
-      "same blocking capability as line 5, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-block-and-sync.json",
     line: 318,
     reason:
-      "same blocking capability as line 5, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-block-and-sync.json",
     line: 319,
     reason:
-      "same blocking capability as line 5, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-block-and-sync.json",
     line: 320,
     reason:
-      "same blocking capability as line 5, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-block-and-sync.json",
     line: 321,
     reason:
-      "same blocking capability as line 5, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-block-and-sync.json",
     line: 322,
     reason:
-      "same blocking capability as line 5, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-block-and-sync.json",
     line: 323,
     reason:
-      "same blocking capability as line 5, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-block-and-sync.json",
     line: 324,
     reason:
-      "same blocking capability as line 5, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-block-and-sync.json",
     line: 325,
     reason:
-      "same blocking capability as line 5, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-block-and-sync.json",
     line: 326,
     reason:
-      "same blocking capability as line 5, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-block-and-sync.json",
     line: 327,
     reason:
-      "same blocking capability as line 5, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-block-and-sync.json",
     line: 328,
     reason:
-      "same blocking capability as line 5, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-block-and-sync.json",
     line: 329,
     reason:
-      "same blocking capability as line 5, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-block-and-sync.json",
     line: 330,
     reason:
-      "same blocking capability as line 5, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-block-and-sync.json",
     line: 331,
     reason:
-      "same blocking capability as line 5, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   // --- async/trap-if-done.json: root cause: STREAMS ---
-  {
-    file: "async/trap-if-done.json",
-    line: 446,
-    reason:
-      "pending-capability: streams (M2 phase 2) — the component uses " +
-      "stream/future built-ins, which are wired as " +
-      "deferred-capability trampolines until the copy machinery lands",
-  },
-  {
-    file: "async/trap-if-done.json",
-    line: 448,
-    reason:
-      "same blocking capability as line 446, see that entry",
-  },
-  {
-    file: "async/trap-if-done.json",
-    line: 450,
-    reason:
-      "same blocking capability as line 446, see that entry",
-  },
-  {
-    file: "async/trap-if-done.json",
-    line: 452,
-    reason:
-      "same blocking capability as line 446, see that entry",
-  },
-  {
-    file: "async/trap-if-done.json",
-    line: 454,
-    reason:
-      "same blocking capability as line 446, see that entry",
-  },
-  {
-    file: "async/trap-if-done.json",
-    line: 456,
-    reason:
-      "same blocking capability as line 446, see that entry",
-  },
-  {
-    file: "async/trap-if-done.json",
-    line: 458,
-    reason:
-      "same blocking capability as line 446, see that entry",
-  },
-  {
-    file: "async/trap-if-done.json",
-    line: 460,
-    reason:
-      "same blocking capability as line 446, see that entry",
-  },
-  {
-    file: "async/trap-if-done.json",
-    line: 462,
-    reason:
-      "same blocking capability as line 446, see that entry",
-  },
-  {
-    file: "async/trap-if-done.json",
-    line: 464,
-    reason:
-      "same blocking capability as line 446, see that entry",
-  },
-  {
-    file: "async/trap-if-done.json",
-    line: 466,
-    reason:
-      "same blocking capability as line 446, see that entry",
-  },
-  {
-    file: "async/trap-if-done.json",
-    line: 468,
-    reason:
-      "same blocking capability as line 446, see that entry",
-  },
-  {
-    file: "async/trap-if-done.json",
-    line: 470,
-    reason:
-      "same blocking capability as line 446, see that entry",
-  },
   // --- async/trap-if-sync-and-waitable-set.json: root cause: FACT-ASYNC ---
   {
     file: "async/trap-if-sync-and-waitable-set.json",
     line: 281,
     reason:
-      "pending-capability: FACT cross-component async calls (M2 phase " +
-      "2) — the component's adapters import `async-start-call` / " +
-      "`async-return-call`, wasmtime's FACT intrinsics for calling an " +
-      "async-lifted export from another *component* (as opposed to " +
-      "from the host, which this phase implements). Instantiation is " +
-      "declined, so every command against the instance follows",
+      "cascade: this file's component was declined earlier, so " +
+      "every later command against the instance fails; see the " +
+      "first entry for this file",
   },
   {
     file: "async/trap-if-sync-and-waitable-set.json",
     line: 283,
     reason:
-      "same blocking capability as line 281, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-sync-and-waitable-set.json",
     line: 285,
     reason:
-      "same blocking capability as line 281, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-sync-and-waitable-set.json",
     line: 287,
     reason:
-      "same blocking capability as line 281, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-sync-and-waitable-set.json",
     line: 289,
     reason:
-      "same blocking capability as line 281, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-sync-and-waitable-set.json",
     line: 291,
     reason:
-      "same blocking capability as line 281, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-sync-and-waitable-set.json",
     line: 293,
     reason:
-      "same blocking capability as line 281, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-sync-and-waitable-set.json",
     line: 295,
     reason:
-      "same blocking capability as line 281, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-sync-and-waitable-set.json",
     line: 297,
     reason:
-      "same blocking capability as line 281, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-sync-and-waitable-set.json",
     line: 299,
     reason:
-      "same blocking capability as line 281, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-sync-and-waitable-set.json",
     line: 301,
     reason:
-      "same blocking capability as line 281, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-sync-and-waitable-set.json",
     line: 303,
     reason:
-      "same blocking capability as line 281, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   {
     file: "async/trap-if-sync-and-waitable-set.json",
     line: 305,
     reason:
-      "same blocking capability as line 281, see that entry",
+      "cascade of this file's first failure: the component was " +
+      "declined at instantiation, so no instance exists for this " +
+      "command",
   },
   // --- async/trap-if-transfer-in-waitable-set.json: root cause: STREAMS ---
-  {
-    file: "async/trap-if-transfer-in-waitable-set.json",
-    line: 49,
-    reason:
-      "pending-capability: streams (M2 phase 2) — the component uses " +
-      "stream/future built-ins, which are wired as " +
-      "deferred-capability trampolines until the copy machinery lands",
-  },
-  {
-    file: "async/trap-if-transfer-in-waitable-set.json",
-    line: 51,
-    reason:
-      "same blocking capability as line 49, see that entry",
-  },
   // --- async/wait-during-callback.json: root cause: STREAMS ---
-  {
-    file: "async/wait-during-callback.json",
-    line: 77,
-    reason:
-      "pending-capability: streams (M2 phase 2) — the component uses " +
-      "stream/future built-ins, which are wired as " +
-      "deferred-capability trampolines until the copy machinery lands",
-  },
   // --- async/zero-length.json: root cause: STREAMS ---
   {
     file: "async/zero-length.json",
     line: 223,
     reason:
-      "pending-capability: streams (M2 phase 2) — the component uses " +
-      "stream/future built-ins, which are wired as " +
-      "deferred-capability trampolines until the copy machinery lands",
+      "needs JSPI (M2 phase 3): sync-start-call whose " +
+      "async-lifted callee did not resolve in its first " +
+      "activation (the caller's wasm frame must block). " +
+      "Streams/futures themselves are implemented as of M2 phase " +
+      "2c; what remains here is the synchronous form of a copy or " +
+      "wait, which blocks the calling wasm frame",
   },
 ];
 

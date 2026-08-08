@@ -21,6 +21,11 @@ import {
   type FieldType,
   type ValType,
 } from "./types.ts";
+import {
+  lowerErrorContext,
+  lowerFuture,
+  lowerStream,
+} from "./async_values.ts";
 
 export function lowerFlat(
   cx: LiftLowerContext,
@@ -52,7 +57,7 @@ export function lowerFlat(
     case "string":
       return lowerFlatString(cx, v as string);
     case "error-context":
-      throw new NotImplemented("error-context lower (needs task machinery)");
+      return [lowerErrorContext(cx, v as never)];
     case "list":
       return lowerFlatList(
         cx,
@@ -71,8 +76,9 @@ export function lowerFlat(
     case "borrow":
       return [lowerBorrow(cx, v as number, d)];
     case "stream":
+      return [lowerStream(cx, v as never, d)];
     case "future":
-      throw new NotImplemented("stream/future lower (needs copy machinery)");
+      return [lowerFuture(cx, v as never, d)];
   }
 }
 

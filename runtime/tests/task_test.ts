@@ -393,7 +393,7 @@ Deno.test("waitable set: dropping a non-empty set traps", () => {
   const wset = new WaitableSet();
   const sub = new Subtask();
   sub.join(wset);
-  assertThrows(() => wset.drop(), "non-empty");
+  assertThrows(() => wset.drop(), "waitables");
 });
 
 Deno.test("waitable set: poll returns NONE rather than blocking", () => {
@@ -436,7 +436,7 @@ Deno.test("subtask: lenders are released exactly at resolve delivery", () => {
 
 Deno.test("subtask: dropping before resolve delivery traps", () => {
   const sub = new Subtask();
-  assertThrows(() => sub.drop(), "before its resolution was delivered");
+  assertThrows(() => sub.drop(), "has not yet resolved");
 });
 
 Deno.test("subtask: the pending event delivers the resolution", () => {
