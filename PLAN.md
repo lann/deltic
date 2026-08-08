@@ -23,6 +23,20 @@ already made (with rationale), and the open questions.
   spec ([WebAssembly/component-model]).
 - Compatibility with wasmtime-built and wit-bindgen-built guest components,
   sync and async alike, made executable via imported conformance/test suites.
+- **"Parity" means functional parity, not behavioral identity.** The bar is:
+  the same feature set, spec-conforming behavior, and wasmtime/wit-bindgen
+  guests running correctly. Where the spec sanctions a range of behaviors,
+  this host may — and does — diverge from wasmtime's choices (deterministic
+  FIFO scheduling per §6; deterministic NaN profile; JS-native host value
+  shapes). Wasmtime-identical observable behavior is adopted only where
+  (a) something external forces it — the official suite's `assert_trap`
+  matches message text, which is de facto wasmtime wording — or (b) it is
+  free by construction (the translation frontend *is* wasmtime-environ, §4).
+  Behavior mandated by the spec/reference (e.g. instance poisoning on trap,
+  per definitions.py) is spec conformance, not wasmtime-matching, even when
+  wasmtime exhibits it too. The tie-breaking authority for semantic
+  questions is the spec + `definitions.py`, with wasmtime as corroborating
+  evidence — never the other way around.
 - TypeScript throughout the JS side: the runtime, the harness, and all
   generated bindings.
 - A performance story that can get fast later without rearchitecting.
