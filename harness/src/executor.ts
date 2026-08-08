@@ -25,9 +25,16 @@ export interface InstanceRef {
   readonly kind: Kind;
 }
 
-/** Result of invoking an exported function. */
+/**
+ * Result of invoking an exported function. `values` holds the *runtime's*
+ * host-side value representation (e.g. `ComponentValue` for a component,
+ * definitions.py shapes — see runtime/src/cabi/types.ts), one entry per
+ * result, by arity — NOT the wast-JSON `Value` schema. `src/value-mapping.ts`
+ * converts against an `assert_return`'s expected `Value[]` for comparison.
+ */
 export type InvokeOutcome =
-  | { kind: "returned"; values: Value[] }
+  // deno-lint-ignore no-explicit-any
+  | { kind: "returned"; values: any[] }
   | { kind: "trapped"; message: string };
 
 /** What an instantiation is expected to do — lets a partial executor decline

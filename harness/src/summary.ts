@@ -7,7 +7,9 @@ export interface DirStats {
   executed: number;
   passed: number;
   failed: number;
+  xfail: number;
   pendingRuntime: number;
+  pendingCapability: number;
   unsupportedDirective: number;
 }
 
@@ -17,7 +19,9 @@ function emptyStats(): DirStats {
     executed: 0,
     passed: 0,
     failed: 0,
+    xfail: 0,
     pendingRuntime: 0,
+    pendingCapability: 0,
     unsupportedDirective: 0,
   };
 }
@@ -25,8 +29,14 @@ function emptyStats(): DirStats {
 export class Summary {
   readonly dirs: Map<string, DirStats> = new Map();
 
-  /** `dir` is the test-suite subdirectory, e.g. "binary" or "validation". */
-  add(dir: string, file: FileResult): void {
+  /** `dir` is the test-suite subdirectory, e.g. "binary" or "validation".
+   * `isXfail(r)` classifies an otherwise-failed command as a known,
+   * checked-in xfail rather than an unexpected failure. */
+  add(
+    dir: string,
+    file: FileResult,
+    isXfail: (r: FileResult["results"][number]) => boolean = () => false,
+  ): void {
     let stats = this.dirs.get(dir);
     if (stats === undefined) {
       stats = emptyStats();
@@ -41,10 +51,12 @@ export class Summary {
           break;
         case "failed":
           stats.executed++;
-          stats.failed++;
+          if (isXfail(r)) stats.xfail++;
+          else stats.failed++;
           break;
         case "skipped":
           if (r.reason === "pending-runtime") stats.pendingRuntime++;
+          else if (r.reason === "pending-capability") stats.pendingCapability++;
           else stats.unsupportedDirective++;
           break;
       }
@@ -58,7 +70,9 @@ export class Summary {
       t.executed += s.executed;
       t.passed += s.passed;
       t.failed += s.failed;
+      t.xfail += s.xfail;
       t.pendingRuntime += s.pendingRuntime;
+      t.pendingCapability += s.pendingCapability;
       t.unsupportedDirective += s.unsupportedDirective;
     }
     return t;
@@ -71,7 +85,9 @@ export class Summary {
       "executed",
       "passed",
       "failed",
+      "xfail",
       "pending-runtime",
+      "pending-capability",
       "unsupported-directive",
     ];
     const row = (name: string, s: DirStats): string[] => [
@@ -80,7 +96,9 @@ export class Summary {
       String(s.executed),
       String(s.passed),
       String(s.failed),
+      String(s.xfail),
       String(s.pendingRuntime),
+      String(s.pendingCapability),
       String(s.unsupportedDirective),
     ];
     const rows = [...this.dirs.keys()].sort().map((dir) =>

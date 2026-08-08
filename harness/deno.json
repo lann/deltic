@@ -3,12 +3,16 @@
   "exports": {
     "./executor": "./src/executor.ts",
     "./runner": "./src/runner.ts",
+    "./runtime-executor": "./src/runtime-executor.ts",
     "./schema": "./src/schema.ts",
-    "./summary": "./src/summary.ts"
+    "./summary": "./src/summary.ts",
+    "./value-mapping": "./src/value-mapping.ts",
+    "./xfail": "./src/xfail.ts"
   },
   "tasks": {
     "gen": "cargo run -q -p testgen --manifest-path ../Cargo.toml",
-    "test": "deno test --allow-read=. tests/",
-    "conformance": "deno task gen && deno task test"
+    "shim-check": "test -f ../target/wasm32-unknown-unknown/release/translator_shim.wasm || cargo build -p translator-shim --manifest-path ../Cargo.toml --target wasm32-unknown-unknown --release",
+    "test": "deno test --allow-read=.. --allow-env=CONFORMANCE_EXECUTOR tests/",
+    "conformance": "deno task gen && deno task shim-check && deno task test"
   }
 }

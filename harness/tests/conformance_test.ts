@@ -5,11 +5,43 @@
 
 import type { WastJson } from "../src/schema.ts";
 import { CoreOnlyExecutor } from "../src/executor.ts";
+import { RuntimeExecutor } from "../src/runtime-executor.ts";
 import { runWastJson } from "../src/runner.ts";
 import { Summary } from "../src/summary.ts";
+import { isXfail } from "../src/xfail.ts";
 
 const generatedRoot = new URL("../generated/", import.meta.url);
 const summary = new Summary();
+
+// `CONFORMANCE_EXECUTOR=core-only` keeps the old JS-WebAssembly-API-only
+// stub available for pipeline sanity (harness/README "Wire-up"); default is
+// the real runtime, which needs the translator shim's wasm32 build.
+const useCoreOnly = Deno.env.get("CONFORMANCE_EXECUTOR") === "core-only";
+
+const shimPath = new URL(
+  "../../target/wasm32-unknown-unknown/release/translator_shim.wasm",
+  import.meta.url,
+);
+
+async function makeExecutor(): Promise<CoreOnlyExecutor | RuntimeExecutor> {
+  if (useCoreOnly) return new CoreOnlyExecutor();
+  let shimWasm: Uint8Array;
+  try {
+    shimWasm = await Deno.readFile(shimPath);
+  } catch {
+    Deno.test("translator shim build artifact is missing", () => {
+      throw new Error(
+        `missing ${shimPath} — run: cargo build -p translator-shim ` +
+          `--target wasm32-unknown-unknown --release (or set ` +
+          `CONFORMANCE_EXECUTOR=core-only for the pipeline-sanity stub)`,
+      );
+    });
+    return new CoreOnlyExecutor();
+  }
+  return await RuntimeExecutor.create(shimWasm);
+}
+
+const executorFactory = await makeExecutor();
 
 let manifest: { files: string[] };
 try {
@@ -32,14 +64,19 @@ for (const relPath of manifest.files) {
     const doc: WastJson = JSON.parse(
       await Deno.readTextFile(new URL(relPath, generatedRoot)),
     );
+    // A fresh executor instance per file for RuntimeExecutor too (component
+    // definitions/instances must not leak across .wast files); reset() also
+    // clears the CoreOnlyExecutor's transient state (currently none).
     const result = await runWastJson(
       doc,
       (filename) => Deno.readFile(new URL(`${dir}/${filename}`, generatedRoot)),
-      new CoreOnlyExecutor(),
+      executorFactory,
     );
-    summary.add(dir, result);
+    summary.add(dir, result, (r) => isXfail(relPath, r.line));
 
-    const failures = result.results.filter((r) => r.status === "failed");
+    const failures = result.results.filter((r) =>
+      r.status === "failed" && !isXfail(relPath, r.line)
+    );
     if (failures.length > 0) {
       const lines = failures.map((f) =>
         `  ${doc.source_filename}:${f.line} ${f.type}: ${f.detail}`
@@ -56,3 +93,4 @@ Deno.test("conformance summary", () => {
     throw new Error("no commands ran - is harness/generated populated?");
   }
 });
+

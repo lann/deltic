@@ -145,22 +145,107 @@ the executor owns everything semantic. Anything the executor cannot do yet
 throws `PendingRuntimeError`, which the runner records as a
 skip(`pending-runtime`) rather than a failure.
 
-`CoreOnlyExecutor` is today's implementation: core modules are validated and
-compiled with the JS `WebAssembly` API; **all component-layer operations
+`CoreOnlyExecutor` is the pipeline-sanity stub: core modules are validated
+and compiled with the JS `WebAssembly` API; **all component-layer operations
 throw `PendingRuntimeError`**. This is forced, not lazy: V8 rejects the
 component preamble (`00 61 73 6d 0d 00 01 00`) outright, so
 `WebAssembly.validate` returns `false` for valid and invalid components
 alike — no component verdict can come from the JS API. That layer is
-precisely what component-engine will implement (pinned by a unit test in
-`tests/runner_unit_test.ts`).
+pinned by a unit test in `tests/runner_unit_test.ts`. It stays available via
+`CONFORMANCE_EXECUTOR=core-only deno task test` for pipeline sanity (no shim
+build required).
 
-Current expectation: the official suite contains **zero top-level core
-modules**, so every suite command is `pending-runtime` except the 5 text
-artifacts (`unsupported-directive`); the core execution path is covered by
-unit fixtures. As runtime milestones land (M1: binary/validation/linking/
-resources, M2: async), `pending-runtime` counts convert into
-executed/passed counts with no harness changes.
+`RuntimeExecutor` (`src/runtime-executor.ts`) is the real thing, driving
+`runtime/`'s public API (`@component-engine/runtime/{shim,exec,cabi,plan}`,
+consumed read-only — this is Track A's territory):
 
-`test/values/` is converted and runs through the same pipeline, but per
-PLAN.md §7 component `value` imports/exports are outside parity scope
-(wasmtime doesn't implement them); expect it to stay skipped even post-M2.
+- `validate` / component `instantiate`: `Translator.translate` (the wasm32
+  shim under Deno) is the verdict — a structured `{error}` envelope (surfaced
+  as a thrown `PlanError`) means invalid/malformed; the JS API can't
+  distinguish the two either, so neither does this.
+- successful translation feeds `instantiateComponent` (plan v0 → compiled
+  core modules → task-model-backed export surface); its `Trap` /
+  `UnsupportedFeatureError` / `PlanError` outcomes map to
+  `TrapError`/`LinkError`/`PendingRuntimeError` by the command's expected
+  outcome (`assert_uninstantiable` vs `assert_unlinkable` vs a plain
+  instantiation gap).
+- `module_definition`/`module_instance` reuse the same translate/instantiate
+  path against a small per-file definition table (by name, or "most recent").
+- `invoke` calls the export as a plain JS function
+  (`component.exports[field](...)` — see `runtime/src/exec/boundary.ts`
+  `createLiftedFunction`) with arguments converted from wast-JSON `Value` to
+  the runtime's `ComponentValue` host shapes (`src/value-mapping.ts`); the
+  arity of the raw JS return (`undefined`/bare-value/array, see
+  `resultsToHost`) is reconstructed into a proper result list using the
+  export's `FuncType.results.length` (recomputed from the plan, since a
+  single `list`-typed result is otherwise indistinguishable from a
+  multi-result array).
+- `get` (a core `global.get` wast action) has no component-level equivalent
+  in this suite; declined honestly as `pending-runtime` rather than guessed.
+- capability gaps the M0 sync executor is expected to hit (async canonical
+  options, stream/future values, error-context — all M2) are recognized by
+  message substring (`CAPABILITY_MARKERS` in `runtime-executor.ts`) and
+  reported as skip(`pending-capability: ...`) — a precise subset of
+  `pending-runtime` naming the exact missing feature, for Track A hand-off,
+  rather than a generic skip or a false failure.
+
+### Value comparison
+
+`src/value-mapping.ts` converts both directions against the runtime's
+`ComponentValue` (definitions.py host shapes — variant/enum/option/result as
+single-key `{label: payload}` objects, tuple as despecialized record,
+flags as `{label: boolean}`, `list<u8>` as `Uint8Array`): `toComponentValue`
+for invoke arguments, `compareValue`/`compareValues` for `assert_return`
+(recursive, type-directed by the *expected* value's own tag — no separate
+`FuncType` needed on either side, matching how the runtime itself never
+exposes one across its export-call boundary).
+
+Floats compare bit-exact: the expected bit-pattern string is decoded via a
+shared `DataView` scratch buffer and compared against the actual value's
+re-encoded bits, except `nan:canonical`/`nan:arithmetic` expectations, which
+match by NaN pattern class instead of exact bits. In practice the runtime's
+deterministic NaN profile (`runtime/src/cabi/float.ts`) always produces
+exactly the canonical NaN bit pattern, so both classes are satisfied by
+every NaN the runtime returns — but the pattern-class check is written
+generally in case a less-deterministic engine's NaN ever needs it.
+
+### Trap-message matching
+
+`runner.ts`'s `trapMatches` compares by substring first (the suite's own
+convention), then falls back to a small checked-in table
+(`TRAP_MESSAGE_EQUIVALENTS`) of confirmed-equivalent wording pairs, e.g. the
+suite's `"unknown handle index N"` vs. the runtime's
+`"table index out of range"`/`"table entry empty"` (both are `trapIf(...)`
+call sites in `runtime/src/cabi/handles.ts` — same semantic condition,
+independently-authored text). A message pair not in the table is a plain
+substring failure, not a silent pass — the table only encodes *confirmed*
+equivalences, not a permissive fuzzy match.
+
+### Triage: xfail list
+
+`src/xfail.ts` is a checked-in `{file, line, reason}` list (line = the
+command's 1-based source line, stable across regen) for commands that fail
+today for a known, understood cause outside harness territory (a
+translator-shim encoding gap, an M0-vs-M2 semantic gap, etc.) — distinct
+from "unexpected regression". `tests/conformance_test.ts` treats a failure
+matched in `XFAIL` as `xfail` in the summary rather than `failed`, and it
+does not fail the surrounding `Deno.test`. It is *not* auto-verified against
+the actual outcome (an xfail'd command that starts passing again isn't
+flagged) — periodically diff the summary's `xfail` column against
+`XFAIL.length`.
+
+`test/async/` and `test/values/` are deliberately **not** triaged into
+`xfail.ts` — PLAN.md §7 excludes `test/values/` from parity scope entirely
+(wasmtime doesn't implement component `value` imports/exports), and
+`test/async/` is M2 scope; both are expected to show real failures against
+the M0 (sync-only) executor and are left as visible `failed` counts rather
+than suppressed, so the summary keeps signaling exactly how much of the
+suite the *current* milestone should be judged against (binary, linking,
+resources, validation).
+
+### Wire-up
+
+`deno task conformance` = `deno task gen` (testgen regen) + `deno task
+shim-check` (build the wasm32 shim if the artifact is missing) + `deno task
+test`. `CONFORMANCE_EXECUTOR=core-only` switches `deno task test` back to
+the JS-API-only stub.
