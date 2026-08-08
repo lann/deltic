@@ -275,7 +275,7 @@ Deno.test("async lower: subtask.cancel on a pending host call returns BLOCKED", 
   const [, subtaski] = unpackSubtaskResult(packed);
   const subtask = f.inst.handles.get(subtaski) as Subtask;
 
-  const cancel = createSubtaskCancel({ async: true });
+  const cancel = createSubtaskCancel({ async: true }, f.inst);
   const rc = f.asGuest(() => cancel(subtaski)) as number;
   assertEq(rc, BLOCKED);
   // The request is recorded, and the subtask is untouched otherwise.
@@ -306,7 +306,7 @@ Deno.test("async lower: a second subtask.cancel traps", () => {
   const f = mkFixture(() => new Promise<number>(() => {}));
   const packed = f.asGuest(() => f.call(1, 64)) as number;
   const [, subtaski] = unpackSubtaskResult(packed);
-  const cancel = createSubtaskCancel({ async: true });
+  const cancel = createSubtaskCancel({ async: true }, f.inst);
   assertEq(f.asGuest(() => cancel(subtaski)), BLOCKED);
   let raised: unknown;
   try {

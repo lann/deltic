@@ -318,8 +318,12 @@ function mkCalleeTask(input: {
    * first, so a subtask observed before this fires must still report STARTING.
    */
   onStarted?: () => void;
-  /** Receives the caller-side flat results produced by `[async-return]`. */
-  onCallerResults: (r: CoreValue[]) => void;
+  /**
+   * Receives the caller-side flat results produced by `[async-return]`, or
+   * `null` when the callee resolved as *cancelled* (definitions.py
+   * `Task.cancel` -> `on_resolve(None)`).
+   */
+  onCallerResults: (r: CoreValue[] | null) => void;
 }): { task: Task; body: (t: Thread) => Generator<BlockRequest, void, Cancelled> } {
   const { prepared, callee, callback, postReturn, ctx, calleeUsesAsyncAbi } =
     input;
@@ -373,8 +377,9 @@ function mkCalleeTask(input: {
     (result) => {
       if (result === null) {
         // Cancelled before returning: there is nothing for `[async-return]`
-        // to copy. The subtask's CANCELLED_BEFORE_* state carries the news.
-        input.onCallerResults([]);
+        // to copy. The subtask's CANCELLED_BEFORE_* state carries the news,
+        // so signal it rather than a normal empty result.
+        input.onCallerResults(null);
         return;
       }
       // `[async-return]` takes the callee's flat results and, when the
@@ -482,7 +487,7 @@ export function createSyncStartCall(
       // export" (fact.rs:608), so the callee always uses the async ABI.
       calleeUsesAsyncAbi: true,
       onCallerResults: (r) => {
-        callerResults = r;
+        callerResults = r ?? [];
       },
     });
 
@@ -577,12 +582,6 @@ export function createAsyncStartCall(
     // reported as STARTING, and the STARTED transition delivers its own event
     // if the guest has already been handed a subtask index.
     const subtask = new Subtask();
-    // Cross-component cancellation is not wired: `Task.request_cancellation`
-    // needs the callee task, which is reachable, but the suite's cancellation
-    // cases route through streams first. Accept-and-ignore keeps a legal
-    // `subtask.cancel` returning BLOCKED rather than crashing (see the same
-    // decision for host imports in exec/boundary.ts).
-    subtask.onCancel = () => {};
 
     let onProgress: () => void = () => {};
     const { task, body } = mkCalleeTask({
@@ -611,12 +610,28 @@ export function createAsyncStartCall(
         // `[async-return]` already wrote the caller's results (through the
         // retptr the caller supplied), so there is nothing to carry here: the
         // guest learns of completion from the SUBTASK event.
-        void r;
-        if (!subtask.resolved()) subtask.resolve(SubtaskState.RETURNED, []);
+        if (!subtask.resolved()) {
+          subtask.resolve(
+            r === null
+              // definitions.py `canon_lower`'s `on_resolve` (line 2267): a
+              // cancelled callee resolves CANCELLED_BEFORE_{STARTED,RETURNED}
+              // depending on how far it got.
+              ? (subtask.state === SubtaskState.STARTING
+                ? SubtaskState.CANCELLED_BEFORE_STARTED
+                : SubtaskState.CANCELLED_BEFORE_RETURNED)
+              : SubtaskState.RETURNED,
+            [],
+          );
+        }
         onProgress();
       },
     });
-    void task;
+    // Cross-component cancellation: `subtask.cancel` forwards to the callee
+    // task's `request_cancellation` (definitions.py line 519), which delivers
+    // TASK_CANCELLED to a cancellable block point — for a callback-ABI callee
+    // that is its WAIT/YIELD, so the guest observes the cancellation and calls
+    // `task.cancel`, resolving this subtask CANCELLED_BEFORE_RETURNED.
+    subtask.onCancel = (callerInst) => task.requestCancellation(callerInst);
 
     trapIf(
       !prepared.calleeInst.mayEnterFrom(prepared.callerInst),

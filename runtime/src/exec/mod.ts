@@ -2,3 +2,5 @@
 
 export * from "./boundary.ts";
 export * from "./executor.ts";
+
+export * from "./host_streams.ts";

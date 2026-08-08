@@ -363,11 +363,25 @@ export function createSubtaskDrop(inst: ComponentInstanceState): CoreFn {
  * territory. The async form returns `BLOCKED` instead of blocking, and is
  * fully supported.
  */
-export function createSubtaskCancel(decl: { async?: boolean }): CoreFn {
+export function createSubtaskCancel(
+  decl: { async?: boolean },
+  inst: ComponentInstanceState,
+): CoreFn {
   const async_ = decl.async === true;
   return (i?: number) => {
-    const thread = currentThread<Thread>();
-    const inst = thread.task.inst as ComponentInstanceState;
+    // The handle table is the **declared** instance's, not
+    // `current_thread().task.inst`. definitions.py `canon_subtask_cancel`
+    // (line 2476) uses the latter because the reference has no fused
+    // adapters, so the running task and the subtask's owner always coincide.
+    // With FACT they do not: `async-start-call` adds the subtask to
+    // `prepare-call`'s `caller_instance`, which for a nested component is a
+    // *different* instance from the one whose task is running — observed as
+    // caller=2 vs task.inst=3 in `big-interleaving-test.wast:1584`, where the
+    // lookup then failed with "table index out of range". wasmtime names the
+    // owner on the trampoline for exactly this reason
+    // (`Trampoline::SubtaskCancel { instance, .. }`), which is the same
+    // correction already applied to every other instance-scoped built-in —
+    // see this module's header.
     trapIf(!inst.mayLeave, "subtask.cancel: cannot leave component instance");
     const subtask = inst.handles.get(i ?? 0);
     trapIf(

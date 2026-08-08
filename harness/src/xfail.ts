@@ -339,39 +339,11 @@ export const XFAIL: XfailEntry[] = [
   },
   {
     file: "async/big-interleaving-test.json",
-    line: 1584,
-    reason:
-      "observed: Error: expected return, got trap: table index " +
-      "out of range",
-  },
-  {
-    file: "async/big-interleaving-test.json",
     line: 1603,
     reason:
       "needs JSPI (M2 phase 3): waitable-set.wait with no pending " +
       "event (the calling wasm frame must block; a callback-ABI " +
       "guest should return the WAIT code instead)",
-  },
-  {
-    file: "async/big-interleaving-test.json",
-    line: 1614,
-    reason:
-      "observed: Error: expected return, got trap: table index " +
-      "out of range",
-  },
-  {
-    file: "async/big-interleaving-test.json",
-    line: 1633,
-    reason:
-      "observed: Error: expected return, got trap: cannot enter " +
-      "component instance 3 (reentrance forbidden)",
-  },
-  {
-    file: "async/big-interleaving-test.json",
-    line: 1644,
-    reason:
-      "observed: Error: expected return, got trap: cannot enter " +
-      "component instance 3 (reentrance forbidden)",
   },
   // --- async/builtin-trap-poisons-instance.json: root cause: STREAMS ---
   // --- async/cancel-stream.json: root cause: STREAMS ---
@@ -380,8 +352,10 @@ export const XFAIL: XfailEntry[] = [
     file: "async/cancel-subtask.json",
     line: 201,
     reason:
-      "observed: Error: expected return, got trap: wasm trap: " +
-      "wasm `unreachable` instruction executed",
+      "observed: NeedsJspi: needs JSPI (M2 phase 3): " +
+      "waitable-set.wait with no pending event (the calling wasm " +
+      "frame must block; a callback-ABI guest should return the " +
+      "WAIT code instead)",
   },
   // --- async/cancellable.json: root cause: FACT-ASYNC ---
   {

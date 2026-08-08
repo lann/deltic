@@ -75,6 +75,20 @@ function liftAsyncValue(
     end.inWaitableSet(),
     `cannot lift ${what} while it's in a waitable set`,
   );
+  // Remember the driving store so a host wrapper can pump the guest later.
+  // Single-store only: a shared object crossing into a SECOND store is
+  // unsupported misuse — fail loudly rather than silently pumping the first
+  // (review advisory, host-streams round). Class field initializes to null;
+  // != null covers both sentinels.
+  const holder = end.shared as { boundStore?: unknown };
+  const store = (inst as unknown as { store?: unknown }).store;
+  if (holder.boundStore != null && store != null) {
+    assert_(
+      holder.boundStore === store,
+      `${what} crossed into a second store; multi-store is unsupported`,
+    );
+  }
+  holder.boundStore ??= store;
   return end.shared;
 }
 
@@ -105,8 +119,22 @@ export function lowerStream(
     "lower_stream expects a shared stream value",
   );
   assert_(!containsBorrow(t), "stream may not contain a borrow");
+  // Loud element-type check. A host-created stream carries a hand-passed
+  // `ValType` (typed derivation is bindgen's job), so this is the first point
+  // at which a mismatch against the guest's declared `stream<T>` can be
+  // caught — and a silent mismatch would corrupt every copy, since the
+  // element type is what sizes and lifts the buffer.
+  const declared = (t as { element?: ValType | null }).element ?? null;
+  assert_(
+    sameElemType(v.t, declared),
+    `stream element type mismatch: host end carries ` +
+      `${JSON.stringify(v.t)}, callee expects ${JSON.stringify(declared)}`,
+  );
   const inst = cx.inst;
   assert_(inst !== null, "stream lower requires a component instance");
+  (v as { boundStore?: unknown }).boundStore ??=
+    (inst as unknown as { store?: unknown }).store;
+  (v as { onLowered?: ((i: unknown) => void) | null }).onLowered?.(inst);
   return inst!.handles.add(new ReadableStreamEnd(v));
 }
 
@@ -121,8 +149,17 @@ export function lowerFuture(
     "lower_future expects a shared future value",
   );
   assert_(!containsBorrow(t), "future may not contain a borrow");
+  const declared = (t as { element?: ValType | null }).element ?? null;
+  assert_(
+    sameElemType(v.t, declared),
+    `future element type mismatch: host end carries ` +
+      `${JSON.stringify(v.t)}, callee expects ${JSON.stringify(declared)}`,
+  );
   const inst = cx.inst;
   assert_(inst !== null, "future lower requires a component instance");
+  (v as { boundStore?: unknown }).boundStore ??=
+    (inst as unknown as { store?: unknown }).store;
+  (v as { onLowered?: ((i: unknown) => void) | null }).onLowered?.(inst);
   return inst!.handles.add(new ReadableFutureEnd(v));
 }
 

@@ -193,6 +193,21 @@ export interface SharedBase {
 }
 
 export class SharedStreamImpl implements SharedBase {
+  /**
+   * Optional hook fired when this shared object is lowered into a component
+   * instance (`lower_stream`/`lower_future`). Host-owned ends use it to learn
+   * which `Store` is driving the guest they were just handed to; guest-owned
+   * streams leave it unset. Keeps `cabi` free of any host-stream knowledge.
+   */
+  onLowered: ((inst: { store: unknown }) => void) | null = null;
+  /**
+   * The `Store` driving the component this object has been handed to, set the
+   * first time it is lifted or lowered. Host ends need it to pump the guest
+   * between export calls (see exec/host_streams.ts `HostActivity.pump`); a
+   * purely guest-to-guest stream never reads it.
+   */
+  boundStore: unknown = null;
+
   dropped = false;
   pendingInst: unknown = null;
   pendingBuffer: GuestBuffer | null = null;
@@ -323,6 +338,21 @@ export class SharedStreamImpl implements SharedBase {
 
 /** definitions.py `class SharedFutureImpl` (line 1119). Exactly one element. */
 export class SharedFutureImpl implements SharedBase {
+  /**
+   * Optional hook fired when this shared object is lowered into a component
+   * instance (`lower_stream`/`lower_future`). Host-owned ends use it to learn
+   * which `Store` is driving the guest they were just handed to; guest-owned
+   * streams leave it unset. Keeps `cabi` free of any host-stream knowledge.
+   */
+  onLowered: ((inst: { store: unknown }) => void) | null = null;
+  /**
+   * The `Store` driving the component this object has been handed to, set the
+   * first time it is lifted or lowered. Host ends need it to pump the guest
+   * between export calls (see exec/host_streams.ts `HostActivity.pump`); a
+   * purely guest-to-guest stream never reads it.
+   */
+  boundStore: unknown = null;
+
   dropped = false;
   pendingInst: unknown = null;
   pendingBuffer: GuestBuffer | null = null;

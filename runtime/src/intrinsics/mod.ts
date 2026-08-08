@@ -521,7 +521,10 @@ function createTrampolineBody(
     case "subtask-drop":
       return createSubtaskDrop(declaredInstance(decl, ctx));
     case "subtask-cancel":
-      return createSubtaskCancel(decl as unknown as { async?: boolean });
+      return createSubtaskCancel(
+        decl as unknown as { async?: boolean },
+        declaredInstance(decl, ctx),
+      );
     case "thread-yield":
       return createThreadYield(decl as unknown as { cancellable?: boolean });
 

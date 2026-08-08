@@ -14,8 +14,15 @@
 //   test_roundtrips (driving loop)   -> tests/task_test.ts (sync driving loop,
 //                                       deadlock trap) + the e2e suites
 //   stream/future + error-context    -> the value types are implemented
-//   lift/lower                          (cabi/async_values.ts) and the copy
-//                                       protocol lives in task/streams.ts
+//   lift/lower                          (cabi/async_values.ts), the copy
+//                                       protocol lives in task/streams.ts, and
+//                                       the host-side ends the reference tests
+//                                       needed are exec/host_streams.ts —
+//                                       exercised by
+//                                       tests/integration/e2e_streams_test.ts
+//   test_handles (full port)         -> host-side ends give the missing piece
+//                                       (a host that drives a component and
+//                                       holds handles across the call)
 //
 // What remains ignored is blocked on a *capability*, not on the scheduler:
 // stream/future copy machinery (M2 phase 2) and genuine wasm-stack suspension
@@ -23,31 +30,21 @@
 
 const deferred: [name: string, reason: string][] = [
   [
+    "test_cancel_copy (host-driven)",
+    "the host stream API has read/write/drop but no cancel operation " +
+    "(HostReadableEnd/HostWritableEnd lack a shared.cancel counterpart); " +
+    "run_tests.py's host-driven cancellation permutations and " +
+    "test_host_partial_reads_writes' buffer-size permutations have no TS " +
+    "port yet — e2e guests cover the shapes, not the permutations " +
+    "(review advisory, host-streams round; bindgen-era API addition)",
+  ],
+  [
     "test_cross_component_realloc",
     "needs the component instance *tree* (ComponentInstance.parent) so a " +
     "callee can reach a caller's realloc across a nested lift; the plan has " +
     "no wire form for instance nesting (see the CONTRACT note on " +
     "ComponentInstanceState.enteringSet) — v0.3 contract friction, not a " +
     "scheduler gap",
-  ],
-  [
-    "test_handles (full port)",
-    "needs host-function Threads reaching back into a component (the " +
-    "reference's mk_host_func runs host code on a real Thread); our host " +
-    "imports are plain JS functions, so Task-scoped borrow lifetime at task " +
-    "exit is covered instead by handles_test.ts + the resources e2e suite",
-  ],
-  [
-    "stream/future tests: test_eager_stream_completion, test_async_stream_ops, " +
-    "test_stream_forward, test_receive_own_stream, test_host_partial_reads_writes, " +
-    "test_wasm_to_wasm_stream(_empty), test_cancel_copy, test_futures, " +
-    "test_self_copy",
-    "the copy machinery now exists (runtime/src/task/streams.ts + " +
-    "intrinsics/stream_builtins.ts) and is exercised by the official async " +
-    "suite; these particular run_tests.py ports additionally need HOST-side " +
-    "stream ends (the reference's tests drive a stream from Python), which is " +
-    "a host API we have not designed — tracked separately from the guest-side " +
-    "machinery, which is done",
   ],
   [
     "test_sync_using_wait",
