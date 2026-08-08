@@ -417,8 +417,7 @@ component-engine/
   examples/                  # custom WIT worlds + Rust guests (the demo path)
   third_party/
     component-model/         # submodule: spec + official tests + definitions.py
-  tools/                     # CI scripts, browser drivers, subagent recovery (agent-sessions.sh)
-  .opencode/agent/           # model-pinned subagent definitions (see §15)
+  tools/                     # CI scripts, browser drivers, artifact cache impl per platform
 ```
 
 Deno workspace for TS; cargo workspace for Rust; translator wasm checked in as
@@ -456,11 +455,13 @@ written, not after it is declared done.
 
 ## 15. Development protocol (multi-agent)
 
-Work is parallelized across model-pinned subagents, defined in
-`.opencode/agent/*.md` + `opencode.json` (restart opencode to apply changes).
-The premise: this repo has unusually dense objective gates (official suite,
-`definitions.py` ports, roundtrip fixtures, differential oracles), which is
-what makes cheap-model implementation safe.
+Work is parallelized across model-pinned subagents defined in the operator's
+**global** opencode config (`~/.config/opencode/agent/`; `explore` pinned in
+the global `opencode.jsonc`) — deliberately not vendored into this repo, so
+all repo-specific context (contracts, spec authorities, gates) travels in
+each dispatch prompt. The premise: this repo has unusually dense objective
+gates (official suite, `definitions.py` ports, roundtrip fixtures,
+differential oracles), which is what makes cheap-model implementation safe.
 
 | Agent | Model | Role |
 |---|---|---|
@@ -485,9 +486,11 @@ Dispatch rules:
 
 Review protocol: every track is reviewed against its contracts before commit
 — by the orchestrator inline, or by `reviewer` subagents in parallel. A
-review dispatch names the diff scope and governing contracts; the reviewer
-definition mandates loading PLAN §5–§7 and the spec sources
-(`definitions.py` as tie-breaker) before judging CABI/async semantics.
+review dispatch **must** name the diff scope, the governing `contracts/*.md`,
+and — for anything touching CABI/async semantics — PLAN §5–§7 plus the spec
+sources (`definitions.py` as tie-breaker): the generic reviewer judges only
+against named authorities and flags unnamed ones rather than filling gaps
+from memory.
 Revision rounds go back to the *same* coder session via `task_id` (context
 intact), not a fresh agent.
 
@@ -495,8 +498,8 @@ Failure recovery (content-filter false positives, driver interrupts): an
 aborted `task` call kills neither the child session (context persists in the
 opencode db) nor its effects (files/commands persist on disk). Ladder:
 
-1. Locate the orphan (`tools/agent-sessions.sh <parent-session-id>`); resume
-   via `task_id` — "summarize status, then continue".
+1. Locate the orphan (`opencode-agent-sessions <parent-session-id>`, on
+   PATH); resume via `task_id` — "summarize status, then continue".
 2. Two failed resumes → assume poisoned context: fresh agent, handoff prompt
    = original track + "partial work exists, audit state first" + artifact
    pointers. Gates arbitrate what's already done (the agents' audit-first
