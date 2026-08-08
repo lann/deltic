@@ -1,0 +1,11 @@
+package component-engine:stream-echo;
+
+/// Consumes AND produces a stream in one export — reports wit-bindgen 0.60's
+/// stream-producer-side viability (`wit_stream::new()`) for the streams
+/// phase's demand-side inventory (PLAN.md, task brief item 3d).
+world stream-echo {
+  /// Reads every value off `input` and forwards it (doubled) onto a newly
+  /// created output stream, which is returned immediately (the forwarding
+  /// runs in the background).
+  export echo-doubled: async func(input: stream<u32>) -> stream<u32>;
+}

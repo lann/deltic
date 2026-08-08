@@ -1,0 +1,24 @@
+[package]
+name = "guest-context-user"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# `async-spawn` pulls in `futures` and enables `wit_bindgen::rt::async_support::spawn_local`,
+# needed to create multiple concurrently-interleaved task activations (each
+# with its own context-local-storage slot 0 value) from a single export.
+wit-bindgen = { version = "=0.60.0", features = ["async-spawn"] }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = "debuginfo"
+
+# Opt out of the repository's root cargo workspace.
+[workspace]

@@ -1,0 +1,24 @@
+[package]
+name = "guest-future-user"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# `async-spawn` lets `make-future` write to its returned future's writer half
+# in the background (a write is a rendezvous that only completes once the
+# host reads it, so it cannot be awaited before the reader is returned).
+wit-bindgen = { version = "=0.60.0", features = ["async-spawn"] }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = "debuginfo"
+
+# Opt out of the repository's root cargo workspace.
+[workspace]

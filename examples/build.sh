@@ -20,14 +20,15 @@ TARGET=wasm32-unknown-unknown
 BUILD_DIR=guests/build
 export CARGO_TARGET_DIR="$PWD/guests/target"
 
-GUESTS="hello values resources async-probe"
+GUESTS="hello values resources async-probe yield-only context-user backpressure-probe stream-echo future-user"
 
 # wasm-tools validation features per guest (component-model always on;
-# the async guest additionally needs the CM 0.3 async feature).
+# CM 0.3 async guests additionally need the cm-async feature).
 features_for() {
   case "$1" in
-    async-probe) echo "component-model,cm-async" ;;
-    *)           echo "component-model" ;;
+    async-probe|yield-only|context-user|backpressure-probe|stream-echo|future-user)
+      echo "component-model,cm-async" ;;
+    *) echo "component-model" ;;
   esac
 }
 
@@ -62,6 +63,9 @@ if command -v wasmtime >/dev/null 2>&1; then
   # Component Model 0.3 async export (callback ABI): runs on wasmtime 47
   # with default flags; exercises yield suspension + task.return.
   check '42' async-probe.component.wasm              'wait-then-double(21)'
+  check '3' yield-only.component.wasm                 'yield-n-times(3)'
+  check '6' context-user.component.wasm               'interleave(4)'
+  check '5' backpressure-probe.component.wasm         'toggle-around-yield(5)'
   echo "smoke run OK"
 else
   echo "(wasmtime not found; skipping smoke run)"

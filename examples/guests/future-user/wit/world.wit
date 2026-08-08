@@ -1,0 +1,12 @@
+package component-engine:future-user;
+
+/// Exercises both future directions: awaiting a host-provided (imported)
+/// future value, and producing/resolving an exported one.
+world future-user {
+  /// Awaits the given future, returns its value doubled.
+  export double-future: async func(f: future<u32>) -> u32;
+  /// Returns a future that resolves to `x + 1` after one suspension —
+  /// exercises the guest-as-producer side of `future<T>` (`wit_future::new`,
+  /// `FutureWriter::write`).
+  export make-future: async func(x: u32) -> future<u32>;
+}

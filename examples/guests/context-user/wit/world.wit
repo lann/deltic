@@ -1,0 +1,17 @@
+package component-engine:context-user;
+
+/// Exercises context-local storage (canonical `context.get`/`context.set`
+/// slot 0, PLAN.md §5/§6) across interleaved, concurrently-suspended task
+/// activations. wit-bindgen's own async runtime uses slot 0 internally to
+/// stash a per-activation `TaskState` pointer; this guest spawns several
+/// concurrent local tasks (via `spawn_local`) that each yield a different
+/// number of times, forcing the callback ABI to save/restore distinct
+/// context values as activations interleave — exactly the isolation the
+/// host's task/context implementation must get right.
+world context-user {
+  /// Spawns `count` locally-concurrent tasks; task `i` (0-indexed) yields
+  /// `i` times before contributing `i` to a shared total. Returns the total
+  /// (`count * (count - 1) / 2`) once every spawned task has completed,
+  /// proving no task's context/state leaked into another's.
+  export interleave: async func(count: u32) -> u32;
+}

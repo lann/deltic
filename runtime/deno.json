@@ -6,7 +6,8 @@
     "./task": "./src/task/mod.ts",
     "./exec": "./src/exec/mod.ts",
     "./intrinsics": "./src/intrinsics/mod.ts",
-    "./shim": "./src/shim/mod.ts"
+    "./shim": "./src/shim/mod.ts",
+    "./jspi": "./src/jspi/mod.ts"
   },
   "tasks": {
     "test": "deno test --allow-read=..",

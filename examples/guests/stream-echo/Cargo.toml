@@ -1,0 +1,24 @@
+[package]
+name = "guest-stream-echo"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# `async-spawn` lets `echo-stream` pump values from the input stream into the
+# output stream's writer in the background while returning the reader half
+# immediately (a stream write is a rendezvous, like a future write).
+wit-bindgen = { version = "=0.60.0", features = ["async-spawn"] }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = "debuginfo"
+
+# Opt out of the repository's root cargo workspace.
+[workspace]
