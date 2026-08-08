@@ -339,45 +339,10 @@ export const XFAIL: XfailEntry[] = [
   },
   {
     file: "async/big-interleaving-test.json",
-    line: 1520,
-    reason:
-      "observed: Error: expected return, got trap: wasm trap: " +
-      "wasm `unreachable` instruction executed",
-  },
-  {
-    file: "async/big-interleaving-test.json",
-    line: 1533,
-    reason:
-      "observed: Error: expected return, got trap: cannot enter " +
-      "component instance 3 (reentrance forbidden)",
-  },
-  {
-    file: "async/big-interleaving-test.json",
-    line: 1544,
-    reason:
-      "observed: Error: expected return, got trap: cannot enter " +
-      "component instance 3 (reentrance forbidden)",
-  },
-  {
-    file: "async/big-interleaving-test.json",
-    line: 1555,
-    reason:
-      "observed: Error: expected return, got trap: cannot enter " +
-      "component instance 3 (reentrance forbidden)",
-  },
-  {
-    file: "async/big-interleaving-test.json",
-    line: 1568,
-    reason:
-      "observed: Error: expected return, got trap: cannot enter " +
-      "component instance 3 (reentrance forbidden)",
-  },
-  {
-    file: "async/big-interleaving-test.json",
     line: 1584,
     reason:
-      "observed: Error: expected return, got trap: cannot enter " +
-      "component instance 3 (reentrance forbidden)",
+      "observed: Error: expected return, got trap: table index " +
+      "out of range",
   },
   {
     file: "async/big-interleaving-test.json",
@@ -410,13 +375,6 @@ export const XFAIL: XfailEntry[] = [
   },
   // --- async/builtin-trap-poisons-instance.json: root cause: STREAMS ---
   // --- async/cancel-stream.json: root cause: STREAMS ---
-  {
-    file: "async/cancel-stream.json",
-    line: 202,
-    reason:
-      "observed: Error: expected return, got trap: wasm trap: " +
-      "wasm `unreachable` instruction executed",
-  },
   // --- async/cancel-subtask.json: root cause: FACT-ASYNC ---
   {
     file: "async/cancel-subtask.json",

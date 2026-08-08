@@ -9,9 +9,16 @@
 import { assertEq } from "./support/asserts.ts";
 import { Trap } from "../src/cabi/mod.ts";
 import {
+  BLOCKED,
   createWaitableSetPoll,
   createWaitableSetWait,
 } from "../src/intrinsics/async_builtins.ts";
+import {
+  createStreamCancelWrite,
+  createStreamNew,
+  createStreamRead,
+  createStreamWrite,
+} from "../src/intrinsics/stream_builtins.ts";
 import {
   createLiftedFunction,
   newStats,
@@ -20,6 +27,7 @@ import {
 } from "../src/exec/boundary.ts";
 import {
   ComponentInstanceState,
+  CopyResult,
   EventCode,
   NeedsJspi,
   popCurrentThread,
@@ -279,4 +287,101 @@ Deno.test("callback loop: EXIT without resolving the task traps", () => {
   // `trap_if(self.state != Task.State.RESOLVED)` once the last thread goes.
   const { fn } = mkCallbackExport({ packed: 0 }); // CallbackCode.EXIT
   assertTraps(() => fn(), "without resolving");
+});
+
+// ---------------------------------------------------------------------------
+// Cancelling a partially-satisfied stream copy
+// ---------------------------------------------------------------------------
+
+Deno.test("stream.cancel-write supersedes an undelivered COMPLETED", () => {
+  // Minimal shape of `test/async/big-interleaving-test.wast:1520`:
+  //   write 8  -> BLOCKED (parks, no reader yet)
+  //   read  4  -> COMPLETED | 4   (rendezvous, writer partially satisfied)
+  //   cancel-write -> CANCELLED | 4
+  //
+  // The third step is where definitions.py and wasmtime disagree.
+  // `cancel_copy` (line 2652) returns the writer's already-armed pending event
+  // verbatim, which is COMPLETED|4; wasmtime converts an *undelivered* stream
+  // COMPLETED into CANCELLED with the count preserved
+  // (`futures_and_streams.rs:4004-4015`), and the suite asserts wasmtime's
+  // answer. Getting this wrong is silent: the guest is told its write finished
+  // when it was actually cancelled with 4 of 8 elements copied.
+  const store = new Store();
+  const inst = new ComponentInstanceState(0, store);
+  const memory = new WebAssembly.Memory({ initial: 1 });
+  const view = {
+    addrType: "i32" as const,
+    get bytes() {
+      return new Uint8Array(memory.buffer);
+    },
+    get view() {
+      return new DataView(memory.buffer);
+    },
+    get length() {
+      return memory.buffer.byteLength;
+    },
+    ptrType: () => "i32" as const,
+    ptrSize: () => 4 as const,
+  };
+  const opts: ResolvedOptions = {
+    stringEncoding: "utf8",
+    // deno-lint-ignore no-explicit-any
+    memory: view as any,
+    realloc: null,
+    postReturn: null,
+    callback: null,
+    async: true,
+    cancellable: false,
+    coreType: { params: [], results: [] },
+    instance: inst,
+  };
+  const ctx = {
+    componentInstance: () => inst,
+    options: () => opts,
+    streamElem: () => ({ kind: "u8" } as const),
+    futureElem: () => null,
+  };
+
+  // deno-lint-ignore no-explicit-any
+  const newStream = createStreamNew({ streamTable: 0 }, ctx as any, inst);
+  // deno-lint-ignore no-explicit-any
+  const write = createStreamWrite({ streamTable: 0, options: 0 }, ctx as any, inst);
+  // deno-lint-ignore no-explicit-any
+  const read = createStreamRead({ streamTable: 0, options: 0 }, ctx as any, inst);
+  const cancelWrite = createStreamCancelWrite(
+    { streamTable: 0, async: true },
+    // deno-lint-ignore no-explicit-any
+    ctx as any,
+    inst,
+  );
+
+  const packed = newStream() as bigint;
+  const ri = Number(packed & 0xffff_ffffn);
+  const wi = Number(packed >> 32n);
+
+  const task = new Task(
+    { params: [], results: [], async: true },
+    { async_: true, callback: true, stringEncoding: "utf8", memory: null },
+    inst,
+    () => [],
+    () => {},
+  );
+  const thread = new Thread(task, (function* () {})());
+  pushCurrentThread(thread);
+  try {
+    // 8 elements at offset 0, no reader yet: parks.
+    assertEq(write(wi, 0, 8), BLOCKED);
+    // 4 elements into offset 64: rendezvous, COMPLETED with progress 4.
+    const r = read(ri, 64, 4) as number;
+    assertEq(r & 0xf, CopyResult.COMPLETED);
+    assertEq(r >> 4, 4);
+    // The writer still has 4 of its 8 outstanding and an undelivered
+    // COMPLETED event. Cancelling must report CANCELLED, keeping the count.
+    const cw = cancelWrite(wi) as number;
+    assertEq(cw & 0xf, CopyResult.CANCELLED);
+    assertEq(cw >> 4, 4);
+    assertEq(cw, 0x42);
+  } finally {
+    popCurrentThread(thread);
+  }
 });

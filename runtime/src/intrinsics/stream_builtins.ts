@@ -327,6 +327,29 @@ function cancelCopy(input: {
     !end.copying() && code === eventCode && index === i,
     `unexpected event delivered by ${what}`,
   );
+  // UPSTREAM DIVERGENCE (definitions.py is wrong here; wasmtime is right).
+  //
+  // `cancel_copy` (definitions.py line 2652) returns an already-armed pending
+  // event verbatim, so cancelling a stream write that had been partially
+  // satisfied yields COMPLETED with the copied count. wasmtime instead
+  // *supersedes* an undelivered stream COMPLETED with CANCELLED, keeping the
+  // count (`futures_and_streams.rs:4004-4015`):
+  //
+  //     (ReturnCode::Completed(count), Event::StreamWrite { .. })
+  //         => ReturnCode::Cancelled(count),
+  //     (ReturnCode::Dropped(_) | ReturnCode::Completed(_), _) => code,
+  //
+  // and `test/async/big-interleaving-test.wast:1526-1531` asserts wasmtime's
+  // answer (0x42 = CANCELLED | 4<<4, not 0x40). The reasoning is sound: the
+  // guest never observed the completion, so reporting it as completed would
+  // lose the fact that the operation was cancelled. Note the two exclusions
+  // encoded below — DROPPED keeps its code, and a *future* COMPLETED keeps
+  // its code (only `Event::Stream{Read,Write}` is converted).
+  const isStreamEvent = eventCode === EventCode.STREAM_READ ||
+    eventCode === EventCode.STREAM_WRITE;
+  if (isStreamEvent && (payload & 0xf) === CopyResult.COMPLETED) {
+    return ((payload & ~0xf) | CopyResult.CANCELLED) >>> 0;
+  }
   return payload;
 }
 

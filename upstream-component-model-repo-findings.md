@@ -120,3 +120,60 @@ CanonicalABI.md and the Explainer instead.
   validation authority).
 
 [WebAssembly/component-model]: https://github.com/WebAssembly/component-model
+
+## CM-3: `cancel_copy` returns a stale COMPLETED where wasmtime reports CANCELLED
+
+**Status:** DRAFT — candidate upstream issue/PR against `definitions.py`
+**Found:** 2026-08-08, implementing the stream copy protocol (M2 phase 2c review)
+
+### Evidence
+
+`definitions.py` `cancel_copy` (line 2652):
+
+```python
+e.state = CopyState.CANCELLING_COPY
+if not e.has_pending_event():
+    e.shared.cancel()
+    ...
+code,index,payload = e.get_pending_event()
+return [payload]
+```
+
+When the end already has an armed-but-**undelivered** event, the pending event
+is returned verbatim. For a stream write that was partially satisfied by a
+rendezvous, that event is `COMPLETED | (count << 4)` (armed by `on_copy` in
+`stream_copy`), so a subsequent `stream.cancel-write` reports COMPLETED.
+
+wasmtime instead supersedes it
+(`wasmtime-47.0.3 runtime/component/concurrent/futures_and_streams.rs:4004`):
+
+```rust
+match (code, event) {
+    (ReturnCode::Completed(count), Event::StreamWrite { .. })
+        => ReturnCode::Cancelled(count),
+    (ReturnCode::Dropped(_) | ReturnCode::Completed(_), _) => code,
+    ...
+}
+```
+
+i.e. an undelivered **stream** `Completed(count)` becomes `Cancelled(count)`;
+`Dropped` is unchanged, and a **future** `Completed` is unchanged.
+
+The official suite asserts wasmtime's answer, not the reference's:
+`test/async/big-interleaving-test.wast:1520-1531` writes 8, reads 4, then
+cancels the write and expects `0x42` (`CANCELLED | 4<<4`). Under the
+reference's rule the answer is `0x40`. The neighbouring test at :1504 does not
+disagree — it `poll`s the event first, so the cancel finds nothing pending and
+takes the `shared.cancel()` path to CANCELLED either way, which is why only
+the no-poll variant exposes the difference.
+
+### Why wasmtime looks right
+
+The guest never observed the completion. Reporting COMPLETED would tell it the
+write finished when in fact it was cancelled after copying 4 of 8 elements, and
+the count alone cannot distinguish the two.
+
+### Suggested change
+
+In `cancel_copy`, when the pending event is a stream `COMPLETED`, deliver
+`CANCELLED` with the same progress count.
