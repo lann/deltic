@@ -455,6 +455,7 @@ written, not after it is declared done.
 | 0.3 concurrency scope | high | it is the critical path — resourced first, not deferred; task-model-first runtime; callback ABI before JSPI paths; `definitions.py` as executable reference; M2 gated on official `test/async` |
 | wasmtime CM-async maturity (feature flags, FACT async gaps) | medium | verified in S0 on a toy async component; pinned versions; gaps contained in the shim (worst case: extend vendored FACT) |
 | Testing wasmtime-with-wasmtime blind spots | medium | official suite + definitions.py ports as independent checks |
+| Testing-toolchain format skew: testgen assembles with `wast` 255 while the shim validates with wasmparser 0.252 (wasmtime-47 pin) — the 0.253–0.255 window re-arited 🧵 thread opcodes (byte-level desync, see `trap-if-block-and-sync` xfail) | low, bounded | known 5-entry xfail set; exits on the next wasmtime bump; testgen cannot downgrade (suite text syntax needs `wast` ≥255) |
 | CSP variance in embedders | low | baseline needs only `wasm-unsafe-eval`; JS codegen is optional |
 
 ## 15. Development protocol (multi-agent)

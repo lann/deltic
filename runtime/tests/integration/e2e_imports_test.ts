@@ -258,19 +258,44 @@ Deno.test({
       true,
       `expected a lend trap, got: ${error}`,
     );
-    // The trap escaped a FACT sync-call bracket mid-argument-translation.
-    // The component must still be usable afterwards: no stale sync-call
-    // scope, no handle left lent, and `may_leave` restored on every instance
-    // (see the post-trap reuse test in e2e_suite_test.ts). `lend-trap` made
-    // one resource before trapping, so `run` makes the second one (0x42).
-    assertEq(fn(c, "run")(), 0x42);
-    // One resource is still live: the handle `lend-trap` made before trapping
-    // stays in the App instance's table (a trap runs no destructors), and
-    // `run` dropped the one it made. Unwinding restores *reentrance* state,
-    // not resource ownership.
-    assertEq(fn(c, "live")(), 1);
+    // The trap escaped a FACT sync-call bracket mid-argument-translation, so
+    // the entered instance is now poisoned: definitions.py `Store.lift`
+    // (line 578) never reaches `leave_to` when a Trap propagates out of
+    // `canon_lift`, and `test/async/builtin-trap-poisons-instance.wast`
+    // asserts that the next call reports the reentrance error.
+    assertEq(
+      String(catchOf(() => fn(c, "run")())).includes(
+        "cannot enter component instance",
+      ),
+      true,
+      "the trapped instance must be poisoned",
+    );
+    // Exactly one instance is poisoned. The other two components in this
+    // three-component fixture were never entered by the trapping call, and
+    // the host-boundary unwind keeps their bookkeeping clean: `may_leave`
+    // restored and the shared sync-call scope stack emptied (see `unwind` in
+    // exec/boundary.ts — that hygiene is still load-bearing for *siblings*
+    // even though the entered instance is now poisoned).
+    const poisoned = c.componentInstances.filter((i) => i && !i.mayEnter);
+    assertEq(poisoned.length, 1);
+    for (const i of c.componentInstances) {
+      if (i && i.mayEnter) assertEq(i.mayLeave, true);
+    }
+    // A fresh instantiation is unaffected and runs the success path.
+    const c2 = await instantiate("relend-borrow", {});
+    assertEq(fn(c2, "run")(), 0x41);
   },
 });
+
+/** Run `f` and return whatever it threw (or undefined). */
+function catchOf(f: () => unknown): unknown {
+  try {
+    f();
+  } catch (e) {
+    return e;
+  }
+  return undefined;
+}
 
 Deno.test({
   name: "relend: a trap two adapter hops down keeps its specific message",

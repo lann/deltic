@@ -165,26 +165,37 @@ Deno.test({
 });
 
 Deno.test({
-  name: "suite resources/borrows.0: the instance is reusable after a trap",
+  name: "suite resources/borrows.0: a trapped instance is poisoned",
   ignore: !ready,
   fn: async () => {
-    // A trap inside a FACT adapter skips that adapter's `exit-sync-call` and
-    // the `may_leave` restores around its lift/lower. wasmtime papers over
-    // this by poisoning the store; this runtime supports post-trap re-entry,
-    // so the state has to be unwound at the host boundary instead. Without
-    // that, the stale `SyncCallScope` keeps the lent handle at num_lends > 0
-    // (every later `own` lift traps "while borrowed") and the cleared
-    // `may_leave` flag trips FACT's own CannotLeaveComponent check.
+    // definitions.py `Store.lift` (line 578):
+    //
+    //   trap_if(not inst.may_enter_from(caller))
+    //   inst.enter_from(caller)
+    //   on_cancel = canon_lift(...)   # a Trap propagates out of here ...
+    //   inst.leave_to(caller)         # ... so this never runs
+    //
+    // A trap therefore leaves every instance the call entered permanently
+    // un-enterable. `test/async/builtin-trap-poisons-instance.wast` asserts
+    // this directly ("cannot enter component instance" on the second invoke),
+    // and the whole suite relies on it — which is why files that test several
+    // traps build a fresh component instance for each one.
     const c = await instantiate("resources", "borrows.0.wasm");
-    // The *same* specific trap on every attempt. Without the unwinding, the
-    // second call reports "may_leave violation" instead: the first trap left
-    // the defining instance's `may_leave` cleared and its lender scope on the
-    // stack. (A full `run` cannot follow here because borrows.wast's guest
-    // asserts it gets handle index 1, and the trapped call leaks one — the
-    // relend fixture in e2e_imports_test.ts covers the success-path reuse.)
-    for (let i = 0; i < 3; i++) {
-      assertTraps(() => fn(c, "lend-trap")(), "while borrowed");
-    }
+    assertTraps(() => fn(c, "lend-trap")(), "while borrowed");
+    // Same instance, second attempt: the reentrance gate, not the lend check.
+    assertTraps(() => fn(c, "lend-trap")(), "cannot enter component instance");
+    // Exactly one instance is poisoned — the one this call entered. Siblings
+    // stay usable, which is why the lock is per-instance rather than a
+    // whole-store poison the way wasmtime does it.
+    const poisoned = c.componentInstances.filter((i) => i && !i.mayEnter);
+    assertEq(poisoned.length, 1);
+
+    // A *fresh* instance reproduces the original, specific trap — the trap
+    // left no residue in the shared executor state (the sync-call scope stack
+    // and the `may_leave` flags of instances this call did not enter are still
+    // unwound at the host boundary; see `unwind` in exec/boundary.ts).
+    const c2 = await instantiate("resources", "borrows.0.wasm");
+    assertTraps(() => fn(c2, "lend-trap")(), "while borrowed");
   },
 });
 
@@ -194,7 +205,10 @@ Deno.test({
   name: "suite resources/handle-table.2: handle-table trap cases",
   ignore: !ready,
   fn: async () => {
-    const c = await instantiate("resources", "handle-table.2.wasm");
+    // One fresh instance per trap: a trapped instance is poisoned and can
+    // never be entered again (definitions.py `Store.lift`, line 578 — the
+    // Trap skips `leave_to`). This mirrors how the .wast file itself is
+    // written, with a new component instance per assertion.
     for (
       const name of [
         "drop-never-allocated", // :201
@@ -206,6 +220,7 @@ Deno.test({
         "borrow-never-valid", // :213
       ]
     ) {
+      const c = await instantiate("resources", "handle-table.2.wasm");
       assertTraps(() => fn(c, name)(), "table");
     }
   },
@@ -217,9 +232,12 @@ Deno.test({
   fn: async () => {
     // :322 / :324 — an index valid in one resource table used with another
     // resource type must trap, not alias.
+    // Fresh instance per trap (see handle-table.2 above): the first trap
+    // poisons the instance.
     const c = await instantiate("resources", "handle-table.5.wasm");
     assertTraps(() => fn(c, "drop-R1-as-R2")(), "type mismatch");
-    assertTraps(() => fn(c, "return-R1-as-R2")(), "type mismatch");
+    const c2 = await instantiate("resources", "handle-table.5.wasm");
+    assertTraps(() => fn(c2, "return-R1-as-R2")(), "type mismatch");
   },
 });
 

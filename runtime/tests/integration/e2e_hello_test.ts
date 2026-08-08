@@ -147,9 +147,14 @@ Deno.test("task model: reentrance gate blocks concurrent entry", async () => {
   // Gate released: calls work again.
   assertEq(greet("after"), "Hello, after!");
 
-  // Host input of the wrong JS type must not wedge the gates either. (It
-  // surfaces as a host-side error, not a CM trap — cabi asserts host-value
-  // validity per the open question in runtime/README.md.)
+  // Host input of the wrong JS type fails as a host-side error, not a CM trap
+  // (cabi asserts host-value validity per the open question in
+  // runtime/README.md). It still poisons: the failure happens *inside* the
+  // task, after `task.start()`, so the guest may already have run realloc and
+  // half-written its argument buffer — the instance is in exactly the
+  // indeterminate state poisoning exists for. definitions.py `Store.lift`
+  // (line 578) makes no exception either: anything propagating out of
+  // `canon_lift` skips `leave_to`.
   let threw = false;
   try {
     greet(123 as unknown as string);
@@ -157,6 +162,6 @@ Deno.test("task model: reentrance gate blocks concurrent entry", async () => {
     threw = true;
   }
   assert(threw, "number lowered as string must fail");
-  assert(inst.mayEnter, "gate must recover after a failed call");
-  assertEq(greet("recovered"), "Hello, recovered!");
+  assert(!inst.mayEnter, "a failed call must poison the instance");
+  assertTrap(() => greet("after-poison"), "cannot enter component instance");
 });

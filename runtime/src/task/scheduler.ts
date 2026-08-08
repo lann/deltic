@@ -312,11 +312,13 @@ export class Store {
       "tick: waiting thread's instance is not enterable from the host",
     );
     inst.enterFrom(null);
-    try {
-      thread.resume();
-    } finally {
-      inst.leaveTo(null);
-    }
+    // Deliberately NOT a `finally`: if the resumed thread traps, the reference
+    // never reaches `leave_to` either (definitions.py `Store.tick`, line 597,
+    // where a Trap propagates out of `thread.resume()`), so the instance stays
+    // locked — the Component Model's instance poisoning. See the `poison`
+    // helper in exec/boundary.ts for the full rationale.
+    thread.resume();
+    inst.leaveTo(null);
     return true;
   }
 }

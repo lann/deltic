@@ -573,39 +573,14 @@ export const XFAIL: XfailEntry[] = [
   // --- async/builtin-trap-poisons-instance.json: root cause: STREAMS ---
   {
     file: "async/builtin-trap-poisons-instance.json",
-    line: 9,
-    reason:
-      "trap-message fidelity: the suite expects wasmtime's `wasm " +
-      "trap: wasm `unreachable` instruction executed`, we report " +
-      "`guest trapped: unreachable`. A host-boundary message gap " +
-      "(runtime/src/exec/boundary.ts `callCore`), not a semantic one " +
-      "(pending-capability: trap-message parity for guest " +
-      "unreachable)",
-  },
-  {
-    file: "async/builtin-trap-poisons-instance.json",
-    line: 10,
-    reason:
-      "instance poisoning after a built-in trap: the suite expects a " +
-      "later call to report `cannot enter component instance` because " +
-      "the trapped instance stays poisoned; we unwind cleanly at the " +
-      "host boundary and re-enter, so the guest traps again instead. " +
-      "Deliberate divergence recorded in boundary.ts (we support " +
-      "post-trap re-entry where wasmtime poisons the store) — needs a " +
-      "poison flag on ComponentInstanceState (pending-capability: " +
-      "instance poisoning)",
-  },
-  {
-    file: "async/builtin-trap-poisons-instance.json",
     line: 38,
     reason:
-      "same blocking capability as line 9, see that entry",
-  },
-  {
-    file: "async/builtin-trap-poisons-instance.json",
-    line: 39,
-    reason:
-      "same blocking capability as line 9, see that entry",
+      "pending-capability: streams (M2 phase 2) — this component's `f` " +
+      "drives stream.new/write/drop-writable to prove a *built-in* trap " +
+      "poisons too; the stream built-ins are deferred-capability " +
+      "trampolines until the copy machinery lands. (The two non-stream " +
+      "assertions in this file, lines 9 and 10, now pass: instance " +
+      "poisoning and wasmtime trap-message parity both landed.)",
   },
   // --- async/cancel-stream.json: root cause: STREAMS ---
   {
@@ -1007,10 +982,24 @@ export const XFAIL: XfailEntry[] = [
     file: "async/trap-if-block-and-sync.json",
     line: 5,
     reason:
-      "translator error [validation]: invalid leading byte (0x28) for " +
-      "canonical function lift — the shim's canonical-lift decoder " +
-      "rejects an encoding this file uses; crates/translator-shim gap " +
-      "(pending-capability: canonical-lift option encoding 0x28)",
+      "wasmparser pin drift (same class as binary.json:962/1194 and " +
+      "attributes.json:30/213): `testgen` assembles the suite with `wast` " +
+      "255.0.0 while `translator-shim` validates with `wasmparser` 0.252.0, " +
+      "the version wasmtime-environ 47.0.3 links against. The 0.253-0.255 " +
+      "window re-aritied the thread built-in opcodes: `0x2a` is " +
+      "`ThreadUnsuspend` (no payload) in 0.252 but " +
+      "`ThreadSuspendThenResume{cancellable}` (reads one byte) in 0.255. " +
+      "This file's canonical section ends `... 2a 00 28 ...` at 0xc16; " +
+      "0.252 stops after `2a`, misreads the `00` at 0xc17 as a new " +
+      "canonical function (`0x00` = lift family), then rejects the `0x28` " +
+      "at 0xc18 — the reported error, exactly. Not a plan.rs mapping bug: " +
+      "the failure is in wasmparser's decoder, before any mapping runs. " +
+      "Lifted by a wasmtime-environ whose wasmparser is >= the 0.255 line; " +
+      "downgrading testgen to `wast` 252 is NOT a fix (verified: it fails " +
+      "to parse 44 of the 59 suite files, which use the newer " +
+      "`(memory (core memory ...))` text syntax). Note the file's canonical " +
+      "functions are all deferred thread built-ins anyway (PLAN.md §16) " +
+      "(pending-capability: wasmparser/wast pin alignment)",
   },
   {
     file: "async/trap-if-block-and-sync.json",
