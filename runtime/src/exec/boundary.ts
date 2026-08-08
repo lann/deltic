@@ -32,6 +32,7 @@ import {
   driveSyncLift,
   clearResumingThread,
   EventCode,
+  withActivation,
   hasResumingThread,
   type EventTuple,
   NeedsJspi,
@@ -823,8 +824,14 @@ export function createLiftedFunction(input: {
 function* awaitCore(
   fn: CoreFn,
   args: CoreValue[],
+  // deno-lint-ignore no-explicit-any
+  thread: any,
 ): Generator<BlockRequest, CoreValue[], unknown> {
-  const raw = callCore(fn, args);
+  // Enter wasm with the activation-attached ambient in scope. In jspi mode the
+  // engine captures this context when it registers its resumption, so a
+  // built-in called by the resumed activation can recover its thread even when
+  // nobody is driving (see `withActivation`).
+  const raw = withActivation(thread, () => callCore(fn, args));
   // `callCore` normalizes a bare value to a one-element array; a promising
   // entry yields `[Promise]`.
   if (raw.length === 1 && isPromiseLike(raw[0])) {
@@ -883,7 +890,7 @@ function* liftBody(input: {
 
   if (!opts.async) {
     const flatResults = normalizeCoreValues(
-      yield* awaitCore(core, flatArgs),
+      yield* awaitCore(core, flatArgs, thread),
       opts.coreType.results,
       `${name} results`,
     );
@@ -926,7 +933,7 @@ function* liftBody(input: {
           `without a callback)`,
       );
     }
-    yield* awaitCore(core, flatArgs);
+    yield* awaitCore(core, flatArgs, thread);
     task.exitImplicitThread(thread);
     return;
   }
@@ -946,7 +953,7 @@ function* liftBody(input: {
     input.mode,
   );
   const [packed] = normalizeCoreValues(
-    yield* awaitCore(core, flatArgs),
+    yield* awaitCore(core, flatArgs, thread),
     opts.coreType.results,
     `${name} results`,
   ) as [number];
@@ -1219,7 +1226,7 @@ export function* runCallbackLoop(input: {
     inst.exclusiveThread = task.implicitThread;
     stats.callbackInvocations++;
     const [next] = normalizeCoreValues(
-      yield* awaitCore(callback, [event[0], event[1], event[2]]),
+      yield* awaitCore(callback, [event[0], event[1], event[2]], thread),
       ["i32"],
       `${name} callback result`,
     ) as [number];

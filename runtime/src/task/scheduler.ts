@@ -46,6 +46,7 @@
 // subtask) genuinely requires JSPI and is M2 phase 3; those sites fail loudly
 // rather than pretending (see `needsJspi`).
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import { assert_, trapIf } from "../cabi/trap.ts";
 
 /** definitions.py `Cancelled` (line 248). */
@@ -228,6 +229,32 @@ export function popCurrentThread(t: CurrentThreadLike): void {
 // deno-lint-ignore no-explicit-any
 let resumingThread: any = null;
 
+/**
+ * Activation-attached ambient (jspi pin (h)).
+ *
+ * The `resumingThread` slot below covers resumptions *we* drive. It cannot
+ * cover the ones we do not: a **background activation** — one whose lifted
+ * call has already returned — is resumed by the engine whenever its
+ * suspension settles, outside every frame and every driving loop we own.
+ * Tracing a FACT sync-call bracket that spanned a suspension showed exactly
+ * that: `enter-sync-call` ran under a task, the matching `exit-sync-call` ran
+ * with no ambient at all.
+ *
+ * An ambient that survives an undriven resumption has to travel *with the
+ * activation*, which is what an async-context store does: the engine registers
+ * its resumption continuation on our Promise at suspension time, inside our
+ * frame, so the context is captured and restored. Pinned by
+ * `runtime/tests/jspi/ambient_test.ts` pin (h).
+ */
+// deno-lint-ignore no-explicit-any
+const activationAls = new AsyncLocalStorage<any>();
+
+/** Run `fn` with `t` as the activation-attached ambient. */
+// deno-lint-ignore no-explicit-any
+export function withActivation<T>(t: any, fn: () => T): T {
+  return activationAls.run(t, fn);
+}
+
 /** Claim the ambient for `t` across an engine-driven resumption. */
 // deno-lint-ignore no-explicit-any
 export function setResumingThread(t: any): void {
@@ -250,7 +277,8 @@ export function clearResumingThread(): void {
 }
 
 export function currentThread<T = CurrentThreadLike>(): T {
-  const t = threadStack[threadStack.length - 1] ?? resumingThread ?? undefined;
+  const t = threadStack[threadStack.length - 1] ?? resumingThread ??
+    activationAls.getStore() ?? undefined;
   if (t === undefined) {
     // Reaching this is not an internal invariant violation, so it must not be
     // an `AssertionError`: it is a *known incompleteness*. wasmtime lets a
@@ -277,7 +305,8 @@ export function currentThread<T = CurrentThreadLike>(): T {
 }
 
 export function maybeCurrentThread(): CurrentThreadLike | undefined {
-  return threadStack[threadStack.length - 1] ?? resumingThread ?? undefined;
+  return threadStack[threadStack.length - 1] ?? resumingThread ??
+    activationAls.getStore() ?? undefined;
 }
 
 /** definitions.py `current_task()` (line 309). */

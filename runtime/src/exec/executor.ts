@@ -280,17 +280,20 @@ class Executor {
     //
     // Until instantiation-time calls are separated from the suspendable
     // import set, jspi mode stays an explicit embedder opt-in.
-    // Auto-detection is OFF. See the M2 phase 3g report: the JSPI path is
-    // green for the whole runtime suite (215/215, both terminating and
-    // producer activation shapes) but under the conformance harness a
-    // background activation still reaches `exit-sync-call` with no task in
-    // scope — reached directly from wasm, with no JS frame above it, which
-    // none of the three claim sites explains. Three incremental attempts have
-    // each fixed a real bug and uncovered another; this needs a dedicated
-    // session with tracing rather than another guess.
+    // Auto-detection OFF for the last remaining reason (M2 phase 3i).
     //
-    // `planNeedsSuspension` computes the right answer and `input.jspi` forces
-    // the mode, so the whole path stays exercisable.
+    // The attribution bug traced in 3h is FIXED: the FACT adapter callee was
+    // the one wasm entry that could suspend without an activation-attached
+    // ambient, and it is now wrapped (intrinsics/fact_calls.ts). Tracing
+    // confirms every `enter-sync-call`/`exit-sync-call` now sees an ALS
+    // context, balanced and matching.
+    //
+    // A residual `exit-sync-call` imbalance remains on some path the trace did
+    // not capture before the run aborted. The runtime suite is green with
+    // detection on (215/215); only the conformance harness reproduces it.
+    //
+    // `planNeedsSuspension` computes the right answer; `input.jspi` forces the
+    // mode.
     this.suspensionMode = chooseMode(input.jspi);
     void planNeedsSuspension;
   }

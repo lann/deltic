@@ -83,6 +83,7 @@ import {
   type TaskOptions,
   Thread,
 } from "../task/mod.ts";
+import { withActivation } from "../task/mod.ts";
 import {
   callCore,
   type CoreFn,
@@ -404,7 +405,24 @@ function mkCalleeTask(input: {
   ): Generator<BlockRequest, void, Cancelled> {
     if (!(yield* task.enterImplicitThread(thread))) return;
     const calleeArgs = task.start();
-    const raw = callCore(callee, calleeArgs as CoreValue[]);
+    // WASM ENTRY (3 of 3 that can reach a blocking built-in).
+    //
+    // The other two — a lifted export's core function and a callback export —
+    // are entered through `awaitCore`, which establishes the
+    // activation-attached ambient. This one was not, and it is precisely the
+    // entry that owns a FACT sync-call bracket: `enter-sync-call` runs here
+    // under this task, and if the callee suspends, the engine resumes it later
+    // with no driver. Without the ambient travelling with the activation the
+    // matching `exit-sync-call` had no task in scope at all (traced in M2
+    // phase 3h as `ENTER-SYNC owner=K26` / `EXIT-SYNC owner=EXECUTOR`).
+    //
+    // Entries deliberately NOT wrapped: `realloc`, `post-return`, resource
+    // destructors and the `[async-start]`/`[async-return]` copy adapters.
+    // None of them may block — they cannot reach a canonical built-in that
+    // suspends — so the engine can never resume them, and wrapping would only
+    // cost an ALS frame on the hot copy path.
+    const raw = withActivation(thread, () =>
+      callCore(callee, calleeArgs as CoreValue[]));
 
     if (!calleeUsesAsyncAbi) {
       // Sync canonical options (definitions.py `canon_lift` line 2168, `if not
