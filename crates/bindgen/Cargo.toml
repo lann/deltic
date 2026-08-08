@@ -1,0 +1,46 @@
+[package]
+name = "bindgen"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "bindgen"
+path = "src/main.rs"
+
+[lib]
+name = "bindgen"
+path = "src/lib.rs"
+
+[dependencies]
+# Version pinning (PLAN.md §9, §15 pins wit-parser to the wasmtime-environ
+# cadence): wasmtime-environ =47.0.3 (crates/translator-shim) pins
+# wasmparser 0.252.0 exactly. wit-parser and wasmparser are released in
+# lockstep as part of the wasm-tools workspace (same version number across
+# the whole workspace's crates), so wit-parser's version number IS the
+# wasm-tools release train version. There is no wit-parser 0.252.0 release
+# whose *wit-bindgen-core* counterpart also exists (wit-bindgen has its own,
+# slower release cadence and vendors a specific wasm-tools/wit-parser
+# version per release — see wit-bindgen-core's own Cargo.toml pins).
+# Surveyed via `cargo add --dry-run` against the crates.io index:
+#   wit-bindgen-core 0.55.0 -> wit-parser 0.246.2 (wasmparser 0.246.2)
+#   wit-bindgen-core 0.58.0 -> wit-parser 0.251.0 (wasmparser 0.251.0)
+#   wit-bindgen-core 0.60.0 -> wit-parser 0.254.0 (wasmparser 0.254.0)
+# 0.251.0 is one release behind wasmtime-environ's 0.252.0 pin (0.254.0
+# would be two releases ahead). Picked the nearest-and-not-newer pair
+# (0.58.0 / 0.251.0): WIT feature-resolution semantics for a slightly older
+# wasm-tools release are a subset of a newer one, so parsing our fixture
+# corpus (no bleeding-edge WIT features) is unaffected; being *behind*
+# wasmtime-environ is the conservative direction (never claims to resolve a
+# feature wasmtime's frontend doesn't also know about). Bump both together
+# when translator-shim's wasmtime-environ pin moves and a matching
+# wit-bindgen-core release exists.
+wit-parser = { version = "=0.251.0", features = ["serde"] }
+wit-bindgen-core = "=0.58.0"
+anyhow = "1"
+sha2 = { version = "0.10", default-features = false, features = ["std"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+clap = { version = "4", features = ["derive"] }
+
+[dev-dependencies]

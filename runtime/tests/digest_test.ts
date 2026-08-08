@@ -1,0 +1,289 @@
+// Cross-language digest equality — the design validation for the canonical
+// world digest (contracts/plan-format.md v0.1 amendment #7; full spec in
+// crates/bindgen/src/digest.rs's module doc comment, mirrored in
+// runtime/src/digest/digest.ts's).
+//
+// Fixtures: runtime/tests/bindgen/fixtures/*.envelope.json are the shim's
+// C-ABI JSON envelope (`{plan, adapters}` — runtime/src/shim/mod.ts /
+// crates/translator-shim's README) for each of the three sync guest
+// fixtures, checked in as static data. Regenerated (2026-08-08, REVISION
+// ROUND) against a current, building `crates/translator-shim` (Track A's
+// `importedResources` field — plan-format.md v0.1 amendment #2 / v0.2
+// proposal — is now present in every envelope, as an empty array for all
+// three fixtures; verified digest-neutral: `computeWorldDigest` on the
+// regenerated envelopes matches the same `EXPECTED` values below, byte-for-
+// byte identical canonical JSON, since none of these fixtures have
+// component-level imports). Regenerate from a clean `crates/translator-shim`
+// checkout:
+//
+//   cargo build -p translator-shim --example dump-plan
+//   for w in hello values resources; do
+//     cargo run -q -p translator-shim --example dump-plan -- \
+//       examples/guests/build/$w.component.wasm --full \
+//       > runtime/tests/bindgen/fixtures/$w.envelope.json
+//   done
+//
+// (requires examples/guests/build/*.wasm — ./examples/build.sh)
+//
+// Expected digests below are cross-checked against `crates/bindgen`'s WIT
+// side:
+//   cargo run -p bindgen -- digest examples/guests/<w>/wit --world <w>
+
+import { assertEq } from "./support/asserts.ts";
+import { loadEnvelope } from "../src/plan/mod.ts";
+import { computeWorldDigest, DigestError } from "../src/digest/digest.ts";
+import { diffWorldDigest } from "../src/digest/verify.ts";
+import type { WireExport, WirePlan } from "../src/plan/format.ts";
+
+/**
+ * Minimal synthetic `WirePlan` builder for exercising `DigestError` guard
+ * paths without needing a real translated component. Only the fields
+ * `computeWorldDigest` actually reads are populated meaningfully; the rest
+ * are empty/zeroed placeholders satisfying `WirePlan`'s shape.
+ */
+function syntheticPlan(overrides: Partial<WirePlan>): WirePlan {
+  return {
+    formatVersion: 1,
+    producer: { shimVersion: "test", wasmtimeEnviron: "test", features: [] },
+    component: { sha256: "0".repeat(64), len: 0 },
+    modules: [],
+    initializers: [],
+    trampolines: [],
+    canonicalOptions: [],
+    types: [],
+    resourceTables: [],
+    imports: [],
+    exports: [],
+    worldDigest: "",
+    ...overrides,
+  };
+}
+
+async function expectDigestError(
+  plan: WirePlan,
+  messageIncludes: string,
+): Promise<void> {
+  try {
+    await computeWorldDigest(plan);
+    throw new Error("expected computeWorldDigest to throw a DigestError");
+  } catch (e) {
+    if (!(e instanceof DigestError)) {
+      throw new Error(`expected a DigestError, got: ${e}`);
+    }
+    if (!e.message.includes(messageIncludes)) {
+      throw new Error(
+        `expected DigestError message to include ${JSON.stringify(messageIncludes)}, got: ${e.message}`,
+      );
+    }
+  }
+}
+
+const root = new URL("../../", import.meta.url);
+
+async function readEnvelope(name: string) {
+  const text = await Deno.readTextFile(
+    new URL(`runtime/tests/bindgen/fixtures/${name}.envelope.json`, root),
+  );
+  return loadEnvelope(text);
+}
+
+// Computed independently by `cargo run -p bindgen -- digest <wit> --world <w>`
+// (crates/bindgen/tests/digest_fixtures.rs asserts these same values on the
+// Rust side — the two implementations were developed against the same
+// fixture corpus and must never be "fixed" independently of one another).
+const EXPECTED = {
+  hello: "sha256:04ae5eb2633ff22f5af8c5e9234c18d089e80a99e04b0946929f0a2e3f5ad7c9",
+  values: "sha256:e0791536cb4b9731057b82831150611eed64f22d665130a02f247d3227e2e4a7",
+  resources: "sha256:b518eda0084b7bbf4e490aa50137cd579b443e1fe6a2c5d52132f2b020b02dc8",
+};
+
+for (const world of ["hello", "values", "resources"] as const) {
+  Deno.test(`digest: ${world} plan digest matches WIT-computed digest (cross-language equality)`, async () => {
+    const { wire } = await readEnvelope(world);
+    const { digest } = await computeWorldDigest(wire);
+    assertEq(digest, EXPECTED[world]);
+  });
+}
+
+Deno.test("digest: recomputing from the same plan is deterministic", async () => {
+  const { wire } = await readEnvelope("values");
+  const a = await computeWorldDigest(wire);
+  const b = await computeWorldDigest(wire);
+  assertEq(a.digest, b.digest);
+  assertEq(a.canonicalJson, b.canonicalJson);
+});
+
+Deno.test("digest: mismatch report names a concrete first divergence (values WIT vs hello plan)", async () => {
+  const { wire: helloWire } = await readEnvelope("hello");
+  // The `values` world's canonical JSON, as an independent "expected" side
+  // (in real bindgen-generated code this would be `WORLD_DIGEST`'s
+  // canonical JSON, embedded at generation time — here reconstructed from
+  // the values plan fixture, which is digest-equal to the values WIT by
+  // the test above).
+  const { wire: valuesWire } = await readEnvelope("values");
+  const { canonicalJson: valuesCanonicalJson } = await computeWorldDigest(
+    valuesWire,
+  );
+
+  const mismatch = await diffWorldDigest(helloWire, valuesCanonicalJson);
+  if (mismatch === null) {
+    throw new Error("expected a digest mismatch between hello and values");
+  }
+  assertEq(mismatch.expected, EXPECTED.values);
+  assertEq(mismatch.actual, EXPECTED.hello);
+  // Not just "digests differ": a concrete path into the export tree.
+  if (mismatch.firstDivergence === null) {
+    throw new Error("expected a concrete firstDivergence path, got null");
+  }
+  console.log("mismatch report:", mismatch.firstDivergence);
+  // Concrete, not just "digests differ": names the exports list and shows
+  // the actual counts that diverge (hello has 1 export, values has 17).
+  if (!mismatch.firstDivergence.includes("exports")) {
+    throw new Error(
+      `expected firstDivergence to name the exports-list mismatch, got: ${mismatch.firstDivergence}`,
+    );
+  }
+  if (!mismatch.firstDivergence.includes("17") || !mismatch.firstDivergence.includes("1 ")) {
+    throw new Error(
+      `expected firstDivergence to show the diverging counts (17 vs 1), got: ${mismatch.firstDivergence}`,
+    );
+  }
+});
+
+Deno.test("digest: mismatch report names a concrete divergent export name (same export count)", async () => {
+  // A sharper case than the count-mismatch above: two worlds with the same
+  // *number* of exports, where the Nth export differs by name — the report
+  // must point at that specific slot, not just say lengths matched.
+  const { wire: helloWire } = await readEnvelope("hello");
+  const decoyExpected = JSON.stringify({
+    cewd: 1,
+    imports: [],
+    exports: [{
+      kind: "func",
+      name: "not-greet",
+      func: { params: [{ kind: "string" }], results: [{ kind: "string" }], async: false },
+    }],
+  });
+  const mismatch = await diffWorldDigest(helloWire, decoyExpected);
+  if (mismatch === null) throw new Error("expected a mismatch");
+  console.log("mismatch report (same count):", mismatch.firstDivergence);
+  if (!mismatch.firstDivergence?.includes("greet") || !mismatch.firstDivergence?.includes("name")) {
+    throw new Error(
+      `expected firstDivergence to name the diverging export name, got: ${mismatch.firstDivergence}`,
+    );
+  }
+});
+
+Deno.test("digest: verifyWorldDigest returns null on an exact match", async () => {
+  const { wire } = await readEnvelope("hello");
+  const { verifyWorldDigest } = await import("../src/digest/verify.ts");
+  const result = await verifyWorldDigest(wire, EXPECTED.hello);
+  assertEq(result, null);
+});
+
+Deno.test("digest: verifyWorldDigest flags a mismatch (wrong expected digest)", async () => {
+  const { wire } = await readEnvelope("hello");
+  const { verifyWorldDigest } = await import("../src/digest/verify.ts");
+  const result = await verifyWorldDigest(wire, EXPECTED.values);
+  if (result === null) throw new Error("expected a mismatch");
+  assertEq(result.expected, EXPECTED.values);
+  assertEq(result.actual, EXPECTED.hello);
+});
+
+// ---------------------------------------------------------------------------
+// DigestError guard paths (REVISION ROUND: review found these unexercised).
+// ---------------------------------------------------------------------------
+
+Deno.test("digest: imported-resources guard fires (own/borrow cannot be safely aliased)", async () => {
+  // CONTRACT: format.ts:23-33's `importedResources` (v0.2 proposal). No
+  // alias map exists from an imported resource's `ResourceIndex` to a
+  // qualified name yet, so any plan declaring imported resources must be
+  // refused outright rather than risk silently aliasing an own/borrow site
+  // to the wrong (exported) resource — see digest.ts's buildResourceNameMap.
+  const plan = syntheticPlan({
+    importedResources: [{ import: 0 }],
+    imports: [{ name: "res", path: [], kind: "resource" }],
+  });
+  await expectDigestError(plan, "imported resource");
+});
+
+Deno.test("digest: multi-named-resource aliasing guard fires (2+ named resources, unresolved table indices)", async () => {
+  // Two distinct named (exported) resources but MORE resourceTables entries
+  // than named resources: table-index aliasing across instance boundaries
+  // (module docs' "Known limitation") cannot be resolved for the extra
+  // index, and with 2+ named resources the single-resource shortcut does
+  // not apply either. Must throw rather than guess which name it means.
+  const exports: WireExport[] = [
+    { kind: "type", name: "res-a", type: { kind: "resource", resource: 0 } },
+    { kind: "type", name: "res-b", type: { kind: "resource", resource: 1 } },
+  ];
+  const plan = syntheticPlan({
+    resourceTables: [
+      { kind: "concrete", resource: 0, instance: 0 },
+      { kind: "concrete", resource: 0, instance: 1 },
+      { kind: "concrete", resource: 0, instance: 2 }, // unresolved 3rd index
+    ],
+    exports,
+  });
+  await expectDigestError(plan, "resourceTables alias resolution");
+});
+
+Deno.test("digest: own/borrow guard fires with zero named resources", async () => {
+  // No type export names ANY resource, yet a function signature references
+  // resourceTables[0] via `own<T>` — there is nothing to alias it to
+  // (the <=1-named-resource shortcut maps nothing when named.size === 0),
+  // so resolving the own/borrow site must fail loudly instead of silently
+  // treating it as some default name.
+  const plan = syntheticPlan({
+    resourceTables: [{ kind: "concrete", resource: 0, instance: 0 }],
+    types: [
+      {
+        kind: "func",
+        params: [],
+        results: [{ kind: "own", resource: 0 }],
+        async: false,
+      },
+    ],
+    exports: [
+      {
+        kind: "lifted-func",
+        name: "make",
+        coreDef: { kind: "trampoline", index: 0 },
+        options: 0,
+        type: 0,
+      },
+    ],
+  });
+  await expectDigestError(plan, "no resolvable qualified name");
+});
+
+Deno.test("digest: CEWD_VERSION bump changes the digest", async () => {
+  // A future incompatible renormalization bumps `CEWD_VERSION`
+  // (digest.ts:47); confirm that alone is sufficient to change the digest,
+  // so an old bindgen-embedded digest never spuriously "matches" a plan
+  // computed under a new normalization.
+  const { wire } = await readEnvelope("hello");
+  const { computeWorldDigest: recompute, CEWD_VERSION } = await import(
+    "../src/digest/digest.ts"
+  );
+  const a = await recompute(wire);
+  const parsed = JSON.parse(a.canonicalJson);
+  assertEq(parsed.cewd, CEWD_VERSION);
+  const bumped = { ...parsed, cewd: CEWD_VERSION + 1 };
+  const { canonicalStringify } = await import("../src/digest/digest.ts");
+  const bumpedJson = canonicalStringify(bumped);
+  if (bumpedJson === a.canonicalJson) {
+    throw new Error("expected canonical JSON to differ after a cewd bump");
+  }
+  const bumpedDigestBytes = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(bumpedJson),
+  );
+  const bumpedDigest = "sha256:" +
+    Array.from(new Uint8Array(bumpedDigestBytes)).map((b) =>
+      b.toString(16).padStart(2, "0")
+    ).join("");
+  if (bumpedDigest === a.digest) {
+    throw new Error("expected sha256 to differ after a cewd bump");
+  }
+});
