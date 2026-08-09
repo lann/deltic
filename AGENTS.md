@@ -32,6 +32,7 @@ cargo test -p translator-shim -p bindgen -p testgen
 (cd harness && deno task conformance)        # official CM suite, Deno lane
 (cd wasi-shims && deno task test)
 (cd ct-runner && deno task test)
+deno test -A tools/release-bundle/bundle_test.ts  # embedder-bundle release asset
 (cd ports/websocket && deno task test)       # + deno task conformance (spawns their echod)
 deno run --allow-read tools/smoke-tls/run.ts --exec  # polymorph-tls suite (issue #18)
 (cd ports/webcrypto && deno test --allow-read tests/)

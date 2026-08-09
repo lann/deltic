@@ -30,6 +30,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: "2.9.5"
 
       - name: compute tag
         id: tag
@@ -63,8 +66,14 @@ jobs:
             --config 'profile.release.strip=true'
           cp target/wasm32-unknown-unknown/release/translator_shim.wasm deltic-translator-shim-min.wasm
 
+      - name: build embedder bundle
+        # The consumer-facing platform-neutral ES module (browser pages/
+        # workers + plain Node): tools/release-bundle/entry.ts, gated by
+        # tools/release-bundle/bundle_test.ts in the core matrix.
+        run: deno run -A tools/release-bundle/build.ts --out deltic-embedder.mjs
+
       - name: checksums
-        run: sha256sum deltic-translator-shim.wasm deltic-translator-shim-min.wasm > SHA256SUMS
+        run: sha256sum deltic-translator-shim.wasm deltic-translator-shim-min.wasm deltic-embedder.mjs > SHA256SUMS
 
       - name: create prerelease
         run: |
@@ -72,9 +81,12 @@ jobs:
             echo "Prerelease \`${TAG}\` at ${GITHUB_SHA}."
             echo
             echo "Artifacts: the prebuilt translator shim wasm (standard release"
-            echo "build — what the test suites run against) and the size-tuned"
-            echo "variant per crates/translator-shim/README.md. Consumers need no"
-            echo "Rust toolchain; see README.md for status and usage."
+            echo "build — what the test suites run against), the size-tuned"
+            echo "variant per crates/translator-shim/README.md, and the embedder"
+            echo "bundle deltic-embedder.mjs (one platform-neutral ES module:"
+            echo "embedder API + Translator + ct-runner + wasi-shims — browsers"
+            echo "and plain Node, no flags). Consumers need no Rust toolchain;"
+            echo "see README.md for status and usage."
             echo
             echo '```'
             cat SHA256SUMS
@@ -86,7 +98,8 @@ jobs:
             --prerelease \
             --title "deltic $TAG" \
             --notes-file notes.md \
-            deltic-translator-shim.wasm deltic-translator-shim-min.wasm SHA256SUMS
+            deltic-translator-shim.wasm deltic-translator-shim-min.wasm \
+            deltic-embedder.mjs SHA256SUMS
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.tag.outputs.tag }}

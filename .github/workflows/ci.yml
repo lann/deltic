@@ -92,6 +92,8 @@ jobs:
       - name: ct-runner
         working-directory: ct-runner
         run: deno task test
+      - name: release bundle (embedder artifact gate)
+        run: deno test -A tools/release-bundle/bundle_test.ts
       - name: conformance (official CM suite, Deno lane)
         working-directory: harness
         run: deno task conformance
