@@ -1,3 +1,3 @@
 {
-  "workspace": ["./runtime", "./harness"]
+  "workspace": ["./runtime", "./harness", "./wasi-shims", "./ct-runner"]
 }

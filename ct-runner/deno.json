@@ -1,0 +1,14 @@
+{
+  "name": "@component-engine/ct-runner",
+  "version": "0.1.0",
+  "exports": {
+    ".": "./src/mod.ts",
+    "./context": "./src/context.ts",
+    "./imports": "./src/import-analysis.ts",
+    "./run": "./src/run-suite.ts"
+  },
+  "tasks": {
+    "test": "deno test --allow-read=..",
+    "check": "deno check src tests"
+  }
+}
