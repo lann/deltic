@@ -532,6 +532,39 @@ async function driveAsync(
     // before our continuation) is still covered for the thread that actually
     // resumed, without falsely claiming the ambient for threads that did not.
     if (store.awaiting.size > 0) {
+      // Is this actually progress, or a deadlock wearing its clothes?
+      //
+      // Everything in `store.awaiting` is an INTERNAL promise: a
+      // promising-wrapped wasm activation. Such a promise settles either on
+      // its own (the activation ran to completion -- which happens within one
+      // macrotask turn, since the work is already done and only the microtask
+      // hop remains) or because WE resume a suspension point it is waiting
+      // behind. If no thread is ready, no host call is outstanding, and a full
+      // macrotask turn passes with nothing settling, then nobody can move: the
+      // awaited promises need us and we need them. That is the deadlock trap
+      // (definitions.py `canon_lift`'s empty-candidate-set `trap_if`), and
+      // without this check it presents as a silent stall instead -- which is
+      // exactly what `tests/jspi/deadlock_test.ts` caught the moment site 2
+      // was lit.
+      if (store.pendingHostCalls.size === 0 && !hasResumingThread()) {
+        const parked = [...store.awaiting] as AwaitWinner["t"][];
+        const progressed = await Promise.race([
+          ...parked.map((t) => tagAwait(t).then(() => true)),
+          new Promise<boolean>((r) => setTimeout(() => r(false), 0)),
+        ]);
+        if (!progressed && store.readyCandidates().length === 0) {
+          trapIf(
+            true,
+            `deadlock: ${what} cannot make progress (every suspended ` +
+              `activation is waiting on a suspension only this scheduler ` +
+              `could resume, and none is ready)`,
+          );
+        }
+        // Progress IS possible: fall through to the normal servicing below,
+        // which resumes the settled thread. Returning to the top instead would
+        // spin -- the memoized tag is already settled, so the race would win
+        // instantly, forever, without anyone being resumed.
+      }
       // Claim the ambient for ONE parked thread and await its promise -- as
       // before, so pin (i)'s window is covered exactly as it was -- but race
       // that promise against every other outstanding promise so this loop can

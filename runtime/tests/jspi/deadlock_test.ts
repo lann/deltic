@@ -69,19 +69,13 @@ Deno.test({
     } catch (e) {
       message = e instanceof Error ? e.message : String(e);
     }
-    // CONTRACT: the verdict this test ultimately wants is the deadlock TRAP.
-    // Today the callee bails earlier, at `waitable-set.wait`, because site 2
-    // is not yet lit -- so the message is the precise `NeedsJspi` capability
-    // signal rather than the trap. Both are acceptable *settlements*; a STALL
-    // is not, and a stall is the regression this test exists to catch (it
-    // fails here as a never-resolving promise, not as an assertion).
-    //
-    // When site 2 is lit, tighten this to require "deadlock" alone: the callee
-    // will then genuinely park on the unsignalable set and the driver must
-    // reach the empty-candidate-set trap.
+    // Site 2 (`waitable-set.wait`) is now lit, so the callee genuinely parks
+    // on the unsignalable set and the driver must reach the deadlock trap.
+    // Tightened from the earlier "trap OR capability signal" form, which was
+    // only ever a placeholder for this.
     assert(
-      message!.includes("deadlock") || message!.includes("needs JSPI"),
-      `expected a deadlock trap or an explicit capability signal, got: ${message}`,
+      message!.includes("deadlock"),
+      `expected a deadlock trap, got: ${message}`,
     );
   },
 });

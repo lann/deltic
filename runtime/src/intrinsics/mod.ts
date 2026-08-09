@@ -562,6 +562,7 @@ function createTrampolineBody(
         decl as unknown as { options: number },
         ctx as AsyncTrampolineContext,
         declaredInstance(decl, ctx),
+        ctx.suspensionMode,
       );
     case "waitable-set-poll":
       return createWaitableSetPoll(
@@ -579,9 +580,13 @@ function createTrampolineBody(
       return createSubtaskCancel(
         decl as unknown as { async?: boolean },
         declaredInstance(decl, ctx),
+        ctx.suspensionMode,
       );
     case "thread-yield":
-      return createThreadYield(decl as unknown as { cancellable?: boolean });
+      return createThreadYield(
+        decl as unknown as { cancellable?: boolean },
+        ctx.suspensionMode,
+      );
 
     // --- FACT cross-component calls (see ./fact_calls.ts) -----------------
     case "prepare-call":

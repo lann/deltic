@@ -300,14 +300,17 @@ class Executor {
     // avoid -- and hung the handshake resume path. It has been reverted; a
     // detection-on run now completes.
     //
-    // The 28, measured in one captured run (UNCHANGED by the per-callee
-    // suspendability feature below -- see `suspendableFuncs`):
-    //   big-interleaving-test.wast  20  (10 RuntimeError, 6 empty-stack,
-    //                                    3 NeedsJspi = unlit sites 2/3/5, 1)
-    //   cross-abi-calls.wast         6  (blocked: instance granularity is too
-    //                                    coarse -- see suspendableFuncs)
+    // 26 now, measured in one captured run (was 28; sites 2/3/5 lit):
+    //   big-interleaving-test.wast  18  (11 RuntimeError, 4 NeedsJspi = the
+    //                                    still-unlit stream copy sites,
+    //                                    2 empty-stack, 1)
+    //   cross-abi-calls.wast         6  (blocked on per-FUNCTION reachability
+    //                                    -- see `suspendableFuncs`)
     //   dont-block-start             1  (start-section singleton)
     //   builtin-trap-poisons-instance 1
+    // NOTE: with detection ON the async command COUNT drops 291 -> 288, i.e.
+    // three commands stop being executed at all. Unexplained; check before
+    // trusting any detection-on delta as complete.
     this.suspensionMode = chooseMode(input.jspi);
   }
 

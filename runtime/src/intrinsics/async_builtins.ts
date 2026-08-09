@@ -42,6 +42,9 @@
 // legitimately return without blocking when `ready_func()` already holds, so
 // taking that branch is a conforming schedule.
 
+import { blockCurrentActivation } from "../jspi/mod.ts";
+import type { SuspensionMode } from "../jspi/mod.ts";
+import type { Cancelled } from "../task/mod.ts";
 import { assert_, trap, trapIf } from "../cabi/trap.ts";
 import {
   CoreValueIter,
@@ -252,6 +255,7 @@ export function createWaitableSetWait(
   decl: { options: number },
   ctx: AsyncTrampolineContext,
   inst: ComponentInstanceState,
+  mode: SuspensionMode = "plain",
 ): CoreFn {
   const opts = ctx.options(decl.options);
   // `cancellable` is a *canonical option*, not a trampoline field: wasmtime's
@@ -281,6 +285,29 @@ export function createWaitableSetWait(
       // to observe a non-zero value. Incrementing and immediately decrementing
       // would be pure ceremony.
       event = wset.getPendingEvent();
+    } else if (mode === "jspi") {
+      // SITE 2 (lit). definitions.py `WaitableSet.wait_for_event_and`
+      // (line 829): block until the set has an event, then take it.
+      //
+      // The `num_waiting` bracket is real now. Skipping it was justified only
+      // while this path could not actually yield; a genuine block CAN be
+      // observed, because `WaitableSet.drop` traps on `num_waiting > 0`
+      // (line 852). Incremented before blocking and decremented in `produce`,
+      // which runs exactly once whether we resume normally or cancelled.
+      wset.numWaiting += 1;
+      return blockCurrentActivation({
+        store: inst.store,
+        task,
+        readyFunc: () => wset.hasPendingEvent(),
+        cancellable,
+        produce: (cancelled: Cancelled) => {
+          wset.numWaiting -= 1;
+          const ev: EventTuple = cancelled
+            ? [EventCode.TASK_CANCELLED, 0, 0]
+            : wset.getPendingEvent();
+          return unpackEvent(opts, inst, ptr ?? 0, ev);
+        },
+      }) as unknown as number;
     } else {
       needsJspi(
         "waitable-set.wait with no pending event (the calling wasm frame " +
@@ -363,9 +390,34 @@ export function createSubtaskDrop(inst: ComponentInstanceState): CoreFn {
  * territory. The async form returns `BLOCKED` instead of blocking, and is
  * fully supported.
  */
+/**
+ * The tail shared by `subtask.cancel`'s blocking and non-blocking exits:
+ * take the delivered SUBTASK event, check it is the one we expect, and report
+ * the resolved state. Factored out so the blocking form can run it at RESUME
+ * time inside `produce`.
+ */
+function finishSubtaskCancel(
+  i: number | undefined,
+  st: Subtask,
+): () => number {
+  return (): number => {
+    const [code, index, payload] = st.getPendingEvent();
+    assert_(
+      code === EventCode.SUBTASK && index === (i ?? 0) && payload === st.state,
+      "unexpected event delivered by subtask.cancel",
+    );
+    assert_(
+      st.resolveDelivered(),
+      "subtask.cancel did not deliver the resolution",
+    );
+    return st.state;
+  };
+}
+
 export function createSubtaskCancel(
   decl: { async?: boolean },
   inst: ComponentInstanceState,
+  mode: SuspensionMode = "plain",
 ): CoreFn {
   const async_ = decl.async === true;
   return (i?: number) => {
@@ -389,6 +441,7 @@ export function createSubtaskCancel(
       "subtask.cancel: handle is not a subtask",
     );
     const st = subtask as Subtask;
+    const finish = finishSubtaskCancel(i, st);
     trapIf(
       st.resolveDelivered(),
       "subtask.cancel on a subtask whose resolution was already delivered",
@@ -415,6 +468,19 @@ export function createSubtaskCancel(
       st.onCancel!(inst);
       if (!st.resolved()) {
         if (!async_) {
+          if (mode === "jspi") {
+            // SITE 5 (lit): a sync `subtask.cancel` blocks until the callee
+            // actually resolves (definitions.py `canon_subtask_cancel`), then
+            // reports the resolved state through the same tail as the
+            // non-blocking path.
+            return blockCurrentActivation({
+              store: inst.store,
+              task: currentTask(),
+              readyFunc: () => st.resolved(),
+              cancellable: false,
+              produce: () => finish(),
+            }) as unknown as number;
+          }
           needsJspi(
             "synchronous subtask.cancel whose callee did not resolve " +
               "immediately (the calling wasm frame must block)",
@@ -423,16 +489,7 @@ export function createSubtaskCancel(
         return BLOCKED;
       }
     }
-    const [code, index, payload] = st.getPendingEvent();
-    assert_(
-      code === EventCode.SUBTASK && index === (i ?? 0) && payload === st.state,
-      "unexpected event delivered by subtask.cancel",
-    );
-    assert_(
-      st.resolveDelivered(),
-      "subtask.cancel did not deliver the resolution",
-    );
-    return st.state;
+    return finish();
   };
 }
 
@@ -448,7 +505,10 @@ export function createSubtaskCancel(
  * callback code, which this runtime implements fully (exec/boundary.ts); the
  * *built-in* form needs a suspendable stack.
  */
-export function createThreadYield(decl: { cancellable?: boolean }): CoreFn {
+export function createThreadYield(
+  decl: { cancellable?: boolean },
+  mode: SuspensionMode = "plain",
+): CoreFn {
   const cancellable = decl.cancellable === true;
   return () => {
     const thread = currentThread<Thread>();
@@ -459,6 +519,20 @@ export function createThreadYield(decl: { cancellable?: boolean }): CoreFn {
     // A pending cancellation is deliverable without suspending at all
     // (definitions.py `Thread.yield_` -> `wait_until` -> `deliver_pending_cancel`).
     if (thread.task.deliverPendingCancel(cancellable)) return 1;
+    if (mode === "jspi") {
+      // SITE 3 (lit). definitions.py `Thread.yield_` is
+      // `wait_until(lambda: True, cancellable)`: immediately ready, but it
+      // goes through the scheduler, so other threads get a turn first. A
+      // suspension point with an always-true `readyFunc` is exactly that --
+      // `Store.tick` will resume it, after whatever else is already ready.
+      return blockCurrentActivation({
+        store: thread.task.inst.store,
+        task: thread.task,
+        readyFunc: () => true,
+        cancellable,
+        produce: (cancelled: Cancelled) => (cancelled ? 1 : 0),
+      }) as unknown as number;
+    }
     needsJspi(
       "thread.yield (the calling wasm frame must block; a callback-ABI " +
         "guest should return the YIELD code instead)",
