@@ -63,13 +63,22 @@ the collision near-certain on any host that interleaves there.
 The endpoint's pump does its `block_on(sign)` **after** `bind` resolved,
 inside that admitted window, with the `RefCell` borrow live.
 
-**Why the wasmtime leg is green anyway — deterministic schedule, not a
-guarantee:** wasmtime admits the same interleaving (its own suite asserts
-it); its particular deterministic scheduler simply never chooses the
-parked poller inside the signing window on this workload. deltic's
-deterministic scheduler does, ~90% of the time. Same semantics, different
-schedules — "works on wasmtime" is survivorship, and any scheduler change
-(wasmtime's included) can flip it.
+**Why the wasmtime leg is green anyway — timing stability, not a
+guarantee (and not even determinism):** wasmtime admits the same
+interleaving (its own suite asserts it, deterministically — but only
+because those tests are closed systems with no clocks or I/O). For real
+programs the runnable set during a block window is fed by wall-clock
+inputs, and the iroh row is green because the window is ~zero: the
+host's sign is native and effectively instantaneous, so the poller's
+5 ms timer essentially never lands inside it. Under deltic the same sign
+is a `crypto.subtle` Promise — a mandatory microtask hop plus real
+latency — and the cadence lands in the widened window ~90% of the time.
+Same semantics, different host timing. Note the shelter erodes under the
+project's own roadmap: non-extractable platform-backed identity keys
+mean slower, genuinely-async signers on every host. Falsifiable
+prediction (suggested repro for this filing): add ~1 ms of latency to
+the wasmtime host's `sign` and the collision should reproduce there
+too.
 
 **Proposed fix (guest-side):** scope the borrow inside `drain`'s inner
 steps, or move signing out of the borrowed region (take what `sign`
