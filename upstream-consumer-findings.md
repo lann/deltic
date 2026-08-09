@@ -9,7 +9,7 @@ filing is the operator's (foreign repos).
 
 ---
 
-## IROH-1 — endpoint holds a `RefCell` borrow across a `block_on` yield (DRAFT)
+## IROH-1 — endpoint holds a `RefCell` borrow across a post-resolution `block_on` (DRAFT)
 
 **Repo:** polymorph-iroh. **Where:** `endpoint/src/endpoint_impl.rs:13`
 (claim: "the `RefCell` borrows never cross an await") vs the actual path:
@@ -21,9 +21,10 @@ State::drain()                      # under shared.borrow_mut()
       -> wit_bindgen::block_on(polymorph:webcrypto/signature#signing-key.sign)
 ```
 
-`block_on` on an async import is a yield point (callback-ABI activation
-returns to the host and resumes later), so other tasks run while the
-borrow is live. Every other endpoint task parks in `wait_until`
+`block_on` on an async import blocks the thread mid-frame (sync
+`waitable-set.wait` under the callback ABI); whether other same-instance
+tasks may run during that window is the load-bearing question — see the
+sharpened semantics below. Every other endpoint task parks in `wait_until`
 (`endpoint_impl.rs:939`) whose first act is `shared.borrow_mut()` →
 `RefCell already borrowed` → `unreachable` trap.
 
@@ -36,16 +37,45 @@ handshake. The 5 ms bounded-polling cadence (their jco workaround)
 re-arms `wait_until` on the same timescale as the signing window, making
 the collision near-certain on any host that interleaves there.
 
-**Why jco/wasmtime legs didn't surface it:** scheduling luck, not
-absence — holding a `RefCell` borrow across a yield is illegal on any
-conforming host. wasmtime's interleaving choices happen not to run the
-poller inside that window (their matrix row is green); deltic's
-do (see https://github.com/lann/deltic/issues/5 open question on the `bridge.ts` exclusivity
-divergence, which widens — but does not create — the window).
+**The precise semantics (sharpened 2026-08-09; see
+`upstream-component-model-repo-findings.md` CM-4 and
+`exams/wasmtime-exclusivity/RESULTS.md`):** the boundary is
+**resolution**.
+
+- *Before* `task.return`, a callback task's instance-entry gate holds
+  across mid-frame blocks on every implementation surveyed (deltic,
+  wasmtime, and `definitions.py` alike) — borrows held across a
+  pre-resolution `block_on` are safe.
+- *After* `task.return`, the semantics the official suite pins
+  (`test/async/sync-streams.wast:208` — the interloper task is admitted,
+  its body runs, and it touches shared instance memory while the resolved
+  task sits parked mid-frame; wasmtime runs this suite in CI via its
+  `tests/component-model` submodule and passes it **deterministically**,
+  50/50 measured on wasmtime 49.0.0-dev) **admit other same-instance
+  tasks running while the resolved task's thread is blocked mid-frame**.
+  wasmtime's own gate (`ConcurrentInstanceState.do_not_enter`) ends at
+  resolution. `definitions.py` as written disagrees (its
+  `exclusive_thread` is held for the whole activation) — that
+  contradiction is CM-4, a separate filing against the spec repo; the
+  suite + wasmtime are the operative semantics today, and deltic
+  implements them.
+
+The endpoint's pump does its `block_on(sign)` **after** `bind` resolved,
+inside that admitted window, with the `RefCell` borrow live.
+
+**Why the wasmtime leg is green anyway — deterministic schedule, not a
+guarantee:** wasmtime admits the same interleaving (its own suite asserts
+it); its particular deterministic scheduler simply never chooses the
+parked poller inside the signing window on this workload. deltic's
+deterministic scheduler does, ~90% of the time. Same semantics, different
+schedules — "works on wasmtime" is survivorship, and any scheduler change
+(wasmtime's included) can flip it.
 
 **Proposed fix (guest-side):** scope the borrow inside `drain`'s inner
 steps, or move signing out of the borrowed region (take what `sign`
-needs, release, sign, re-borrow).
+needs, release, sign, re-borrow). General rule: treat every
+**post-resolution** mid-frame block as a potential same-instance
+interleaving point.
 
 **Workaround in-tree:** the exam retries scenarios 2–4 (observed 8/20
 attempts trip it); residual all-attempts-fail probability < 1%.

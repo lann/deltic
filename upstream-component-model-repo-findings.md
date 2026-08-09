@@ -212,6 +212,48 @@ Scope the reference's entry gate to the sync-call-in-progress span (release
 on resolution + block), or document the divergence and mark the suite test
 as the normative source.
 
+### 2026-08-09 review: not a recent-spec-change lag, and structurally invisible upstream
+
+Reviewed on operator prompt (3-month spec-history window + wasmtime CI
+provenance + determinism check; full transcripts in
+`exams/wasmtime-exclusivity/RESULTS.md`):
+
+- **Both sides are ancient.** The exclusivity model (`exclusive`, then
+  `exclusive_thread`) with the hold-for-the-activation lifetime dates to
+  ≥ 2025-08-20 (#553); `sync-streams.wast`'s contrary assertion dates to
+  the file's birth, 2025-09-05 (9b5aa62). The in-window commits — #650
+  (2026-05-21, `exclusive: Task` → `exclusive_thread: Thread` + the
+  entering-set reentrance definition) and #656 (2026-05-29, cooperative
+  thread built-ins) — refined granularity without touching the release
+  points. This is a ~11-month-old inconsistency, not wasmtime lagging a
+  recent change (nor the reverse).
+- **No CI cross-checks the two.** The spec repo's CI runs only
+  `run_tests.py` (definitions.py's own unit tests); the wast suite is
+  never executed against the reference. wasmtime runs the suite via a
+  `tests/component-model` submodule (currently e8d8005, bumped 2026-07-24)
+  with an explicit exception ledger for known misalignments (e.g.
+  `post-return.wast` pending #680 alignment) — `sync-streams.wast` is not
+  on it. So: wasmtime CI green, spec CI green, and the reference↔suite
+  contradiction has no detector by construction.
+- **wasmtime's pass is deterministic, not scheduling accident.**
+  Structurally: `$D.run` never yields between the first rendezvous and the
+  `$C.set` call, so the entry-gate check occurs at a fully deterministic
+  machine state — the STARTED-vs-gated outcome is a pure function of the
+  gating rule. Empirically: 50/50 identical passes under wasmtime
+  49.0.0-dev (3ebfbe5af, 2026-08-07) with
+  `-W component-model-async=y -W component-model-more-async-builtins=y`.
+  (Vintage note: the wasmtime 47.0.1 *release* CLI cannot even parse the
+  current suite text — its bundled wast crate predates the 2026-07 #655
+  syntax adherence pass — so any 47-era corroboration must use the crate
+  APIs or a dev build.)
+
+Net: the filing should present this as an internal spec-repo inconsistency
+(reference vs its own test corpus) that only external implementations can
+currently observe, propose the gate-scoping fix (or normative-source
+ruling), and suggest the structural fix — run the wast suite against the
+reference (or at least flag reference-affecting suite assertions) in the
+spec repo's own CI.
+
 ---
 
 ## NOTE-1: several official async tests assume the deterministic profile
