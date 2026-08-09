@@ -4,7 +4,8 @@
 //   deno run -A ct-runner/src/main.ts <suite.wasm> --out results.jsonl \
 //     [--translator <translator_shim.wasm>] [--imports <module.ts>] \
 //     [--target NAME] [--suite-name NAME] \
-//     [--only SUBSTRING] [--case-timeout-ms N] [--no-fresh-cases] [--jspi]
+//     [--only SUBSTRING] [--missing f1,f2,...] [--case-timeout-ms N] \
+//     [--no-fresh-cases] [--jspi]
 //
 // `--imports <module.ts>` convention (contracts/embedder-api.md §"Module
 // wiring and instantiation"): a TS module whose default export is either
@@ -30,7 +31,8 @@ function usageError(msg: string): never {
     "usage: deno run -A ct-runner/src/main.ts <suite.wasm> --out <results.jsonl> " +
       "[--translator <translator_shim.wasm>] [--imports <module.ts>] " +
       "[--target NAME] [--suite-name NAME] " +
-      "[--only SUBSTRING] [--case-timeout-ms N] [--no-fresh-cases] [--jspi]",
+      "[--only SUBSTRING] [--missing f1,f2,...] [--case-timeout-ms N] " +
+      "[--no-fresh-cases] [--jspi]",
   );
   Deno.exit(2);
 }
@@ -43,6 +45,7 @@ interface Cli {
   target: string;
   suiteName?: string;
   only?: string;
+  missing?: string[];
   caseTimeoutMs?: number;
   freshCases: boolean;
   jspi: boolean;
@@ -56,6 +59,7 @@ function parseArgs(argv: string[]): Cli {
   let target = "deltic/host";
   let suiteName: string | undefined;
   let only: string | undefined;
+  let missing: string[] | undefined;
   let caseTimeoutMs: number | undefined;
   let freshCases = true;
   let jspi = false;
@@ -81,6 +85,11 @@ function parseArgs(argv: string[]): Cli {
       case "--only":
         only = argv[++i];
         break;
+      case "--missing":
+        // Comma-separated missing-feature list (upstream ct-runner's
+        // --missing f1,f2,...); tag gating per src/tags.ts.
+        missing = argv[++i].split(",").filter((f) => f !== "");
+        break;
       case "--case-timeout-ms":
         caseTimeoutMs = Number(argv[++i]);
         break;
@@ -105,6 +114,7 @@ function parseArgs(argv: string[]): Cli {
     target,
     suiteName,
     only,
+    missing,
     caseTimeoutMs,
     freshCases,
     jspi,
@@ -192,6 +202,7 @@ async function main() {
       target: cli.target,
       suiteName: cli.suiteName ?? suiteNameFrom(cli.suitePath),
       only: cli.only,
+      missing: cli.missing,
       caseTimeoutMs: cli.caseTimeoutMs,
       freshCases: cli.freshCases,
       jspi: cli.jspi,
@@ -200,8 +211,8 @@ async function main() {
     });
     await Deno.writeTextFile(cli.out, lines.join("\n") + "\n");
     console.error(
-      `${counts.passed} passed | ${counts.failed} failed | ${counts.skipped} skipped ` +
-        `(${counts.total} total) -> ${cli.out}`,
+      `${counts.passed} passed | ${counts.failed} failed | ${counts.skipped} skipped | ` +
+        `${counts.na} n/a (${counts.total} total) -> ${cli.out}`,
     );
     if (counts.failed > 0) Deno.exit(1);
   } catch (e) {

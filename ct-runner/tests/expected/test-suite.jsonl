@@ -1,8 +1,8 @@
 {"component-test-results":"0.1","target":"wasmtime/deltic","suite":{"name":"test_suite","artifact-sha256":"<sha256>"},"run":{"segment":0,"scheduling":"none"}}
-{"case":"suite/basic/pass","status":"pass","provenance":"returned"}
-{"case":"suite/basic/fail","status":"fail","provenance":"returned","detail":"expected 2 + 2 = 4, got 5"}
-{"case":"suite/basic/skip","status":"skipped","provenance":"returned","detail":"declared hardware token unavailable at run time"}
-{"case":"suite/diag/chatty","status":"pass","provenance":"returned","diagnostics":["starting the chatty case","midpoint observation: ok","finishing up"]}
-{"case":"suite/diag/slow","status":"pass","provenance":"returned","diagnostics":["sleeping briefly"]}
-{"case":"suite/nested/deep/leaf","status":"pass","provenance":"returned"}
+{"case":"suite/basic/pass","status":"pass","provenance":"returned","diagnostics-complete":true}
+{"case":"suite/basic/fail","status":"fail","provenance":"returned","detail":"expected 2 + 2 = 4, got 5","diagnostics-complete":true}
+{"case":"suite/basic/skip","status":"skipped","provenance":"returned","detail":"declared hardware token unavailable at run time","diagnostics-complete":true}
+{"case":"suite/diag/chatty","status":"pass","provenance":"returned","diagnostics-complete":true,"diagnostics":["starting the chatty case","midpoint observation: ok","finishing up"]}
+{"case":"suite/diag/slow","status":"pass","provenance":"returned","diagnostics-complete":true,"diagnostics":["sleeping briefly"]}
+{"case":"suite/nested/deep/leaf","status":"pass","provenance":"returned","diagnostics-complete":true}
 {"segment-end":true}

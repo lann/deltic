@@ -13,11 +13,12 @@
 // READ-ONLY; nothing here writes to the polymorph trees.
 //
 // Named residues (conformance discipline: no unnamed absorption):
-//   TAG-GATING (#25) — their harness marks cases N/A per target via the L0
-//     tags section (`missing`/`tagsOf`, run-node.mjs); ct-runner has no tag
-//     gating yet. Affected: `delegated/decline` (tagged !delegated-signer)
-//     fails on delegated compositions, and the plain composition fails its
-//     delegated-* cases.
+//   TAG-GATING (#25) — FIXED (ct-runner reads the suites' own
+//     `component-test:tags@0.1` inventory, ct-runner/src/tags.ts; the
+//     sections survive wac composition, verified on these artifacts). Each
+//     target below declares its missing-features and the previously
+//     xfailed cases schedule out as `not-applicable`, exactly like their
+//     harness legs; the xfail entries were pruned.
 //   CALLBACK-NULL-CONTEXT (#24) — FIXED (continuation-chunk attribution
 //     sentinels, jspi/bridge.ts); the entry below was pruned. The
 //     webcrypto-composed target is the only corpus that reaches the
@@ -36,7 +37,6 @@ import {
 import type { ComponentArtifacts } from "../../runtime/src/embedder/mod.ts";
 import { runSuite } from "../../ct-runner/src/mod.ts";
 import { wasiShims } from "../../wasi-shims/src/mod.ts";
-import { webcryptoImports } from "../../ports/webcrypto/src/mod.ts";
 
 const CONF = `${POLYMORPH}/polymorph-tls/target/conformance`;
 
@@ -58,22 +58,19 @@ const TRANSLATE_TARGETS: Array<[string, string]> = [
   ],
 ];
 
-/** The executable smoke matrix: [target-key, artifact, xfails].
- * All compositions are self-contained (surfaces are pure WASI — phase 1),
- * so no extra host modules are wired. Each xfail names its class + issue. */
-const EXEC_TARGETS: Array<[string, string, Record<string, string>]> = [
-  ["deltic-delegated", `${CONF}/suite-delegated.wasm`, {
-    "delegated/decline": "TAG-GATING #25 (!delegated-signer, N/A here)",
-  }],
-  ["deltic-delegated-webcrypto", `${CONF}/suite-delegated-webcrypto.wasm`, {
-    "delegated/decline": "TAG-GATING #25 (!delegated-signer, N/A here)",
-  }],
-  // Plain composition: `delegated/decline` PASSES here (it asserts exactly
-  // the no-signer refusal) and coexist-in-guest-ed25519 needs no signer;
-  // only `delegated/handshake` is genuinely signer-gated.
-  ["deltic-plain", `${CONF}/suite-plain.wasm`, {
-    "delegated/handshake": "TAG-GATING #25 (delegated-signer, N/A on plain)",
-  }],
+/** The executable smoke matrix: [target-key, artifact, missing-features,
+ * xfails]. All compositions are self-contained (surfaces are pure WASI —
+ * phase 1), so no extra host modules are wired. `missing` mirrors what
+ * their harness legs pass per target (run-node.mjs); tag gating turns the
+ * per-target inapplicable cases into `not-applicable` rows. Any future
+ * xfail must name its class + issue. */
+const EXEC_TARGETS: Array<[string, string, string[], Record<string, string>]> = [
+  ["deltic-delegated", `${CONF}/suite-delegated.wasm`, [], {}],
+  ["deltic-delegated-webcrypto", `${CONF}/suite-delegated-webcrypto.wasm`, [], {}],
+  // Plain composition: no signer is wired, so the signer-gated case
+  // schedules out; `delegated/decline` (!delegated-signer) APPLIES here and
+  // passes (it asserts exactly the no-signer refusal).
+  ["deltic-plain", `${CONF}/suite-plain.wasm`, ["delegated-signer"], {}],
 ];
 
 const CASE_TIMEOUT_MS = 60_000; // run-node.mjs's per-case wall bound.
@@ -122,7 +119,7 @@ async function execPhase(only?: string): Promise<number> {
   console.log("\n=== phase 2: execute the suites (ct-runner + wasi-shims) ===\n");
   const t = await loadTranslator();
   let failures = 0;
-  for (const [target, path, xfails] of EXEC_TARGETS) {
+  for (const [target, path, missing, xfails] of EXEC_TARGETS) {
     console.log(`--- ${target}: ${path}`);
     let componentBytes: Uint8Array;
     try {
@@ -139,6 +136,7 @@ async function execPhase(only?: string): Promise<number> {
         imports: wasiShims(),
         target,
         suiteName: path.split("/").pop()!.replace(/\.wasm$/, ""),
+        missing,
         only,
         caseTimeoutMs: CASE_TIMEOUT_MS,
         emit: (line) => lines.push(line),
@@ -146,7 +144,7 @@ async function execPhase(only?: string): Promise<number> {
       });
       console.log(
         `    ${counts.passed} passed | ${counts.failed} failed | ` +
-          `${counts.skipped} skipped (${counts.total} total)`,
+          `${counts.skipped} skipped | ${counts.na} n/a (${counts.total} total)`,
       );
       // deltic-plain: delegated-* failures are the KNOWN tag-gating delta
       // (header comment); anything else counts.
