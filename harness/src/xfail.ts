@@ -235,25 +235,6 @@ export const XFAIL: XfailEntry[] = [
   // below still fails — pinned by
   // runtime/tests/integration/e2e_suite_test.ts ("async-lifted exports
   // instantiate and run"). ---
-  {
-    file: "values/variants.json",
-    line: 186,
-    reason:
-      "needs JSPI (M2 phase 3): `ret-f32` (variants.wast:156) is an " +
-      "**async-lowered** caller — `sync-start-call` is not on this path at " +
-      "all — invoking `mix-ret`, which is lifted `async` with **no callback** " +
-      "(variants.wast:116, `(canon lift (core func $m \"mix-ret\") async)`). " +
-      "A no-callback async lift is stackful: the callee blocks inside its own " +
-      "wasm frame with no return-to-host in between (definitions.py " +
-      "`canon_lift` line 2179), so there is nothing a stackless runtime can " +
-      "drive. Reported at that precise point by intrinsics/fact_calls.ts " +
-      "(`FACT call into a stackful async-lifted export`), never faked. " +
-      "This command ALSO depended on the `[async-return]` return-pointer fix " +
-      "landed in M2 phase 2b review: it passes retptr 16 and then loads the " +
-      "f32 result from address 16+8, so before that fix it would have " +
-      "silently read address 8 instead — it is the corpus's only non-zero " +
-      "retptr, and the reason the bug hid.",
-  },
 
   // =====================================================================
   // async/ — triage as of M2 phase 2c (streams/futures/error-context).
@@ -305,38 +286,6 @@ export const XFAIL: XfailEntry[] = [
       "activation (the caller's wasm frame must block)",
   },
   // --- async/big-interleaving-test.json: root cause: STREAMS ---
-  {
-    file: "async/big-interleaving-test.json",
-    line: 873,
-    reason:
-      "needs JSPI (M2 phase 3): FACT call into a stackful " +
-      "async-lifted export (async canonical options without a " +
-      "callback)",
-  },
-  {
-    file: "async/big-interleaving-test.json",
-    line: 934,
-    reason:
-      "needs JSPI (M2 phase 3): FACT call into a stackful " +
-      "async-lifted export (async canonical options without a " +
-      "callback)",
-  },
-  {
-    file: "async/big-interleaving-test.json",
-    line: 1256,
-    reason:
-      "needs JSPI (M2 phase 3): FACT call into a stackful " +
-      "async-lifted export (async canonical options without a " +
-      "callback)",
-  },
-  {
-    file: "async/big-interleaving-test.json",
-    line: 1469,
-    reason:
-      "needs JSPI (M2 phase 3): FACT call into a stackful " +
-      "async-lifted export (async canonical options without a " +
-      "callback)",
-  },
   {
     file: "async/big-interleaving-test.json",
     line: 1603,

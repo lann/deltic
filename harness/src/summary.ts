@@ -28,6 +28,12 @@ function emptyStats(): DirStats {
 
 export class Summary {
   readonly dirs: Map<string, DirStats> = new Map();
+  /** Commands marked xfail that PASSED — stale entries in xfail.ts.
+   * `{file, line}` pairs, populated by the runner via `add`'s isXfail
+   * classifier being consulted for passing commands too. A non-empty list
+   * fails the audit gate (see conformance_test.ts): a stale xfail is a
+   * capability we gained without noticing, or a mask over a flake. */
+  readonly staleXfails: { file: string; line: number }[] = [];
 
   /** `dir` is the test-suite subdirectory, e.g. "binary" or "validation".
    * `isXfail(r)` classifies an otherwise-failed command as a known,
@@ -48,6 +54,11 @@ export class Summary {
         case "passed":
           stats.executed++;
           stats.passed++;
+          // Stale-xfail detection (G7, now a real gate): an entry whose
+          // command passes is stale and must be pruned.
+          if (isXfail(r)) {
+            this.staleXfails.push({ file: file.source, line: r.line });
+          }
           break;
         case "failed":
           stats.executed++;

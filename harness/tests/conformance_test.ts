@@ -123,5 +123,18 @@ Deno.test("conformance summary", () => {
   if (total.commands === 0) {
     throw new Error("no commands ran - is harness/generated populated?");
   }
+  // G7, now a REAL gate: xfail entries whose commands pass are stale and
+  // must be pruned (a stale entry is a capability gained without noticing,
+  // or a mask over a flake).
+  if (summary.staleXfails.length > 0) {
+    const lines = summary.staleXfails.map((s) => `  ${s.file}:${s.line}`);
+    throw new Error(
+      `${summary.staleXfails.length} stale xfail entr${
+        summary.staleXfails.length === 1 ? "y" : "ies"
+      } (marked xfail but PASSING - prune from xfail.ts):\n${
+        lines.join("\n")
+      }`,
+    );
+  }
 });
 
