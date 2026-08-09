@@ -86,6 +86,10 @@ register the **track key itself** (`…/monotonic-clock@0.2`) as an
 explicitly canonical provider serving the whole track. Registering both
 a track key and full-versioned keys on the same track is refused at
 registration (ambiguity is an error, not a precedence rule).
+**Unversioned interface ids** (C2 amendment) are legal exact-match keys —
+unversioned WIT interfaces exist — but an unversioned key never serves a
+versioned import nor vice versa; only *folding* (treating an unversioned
+key as a cross-track wildcard) is banned.
 
 **What this resolves from C0:** D-2 (p2 at `0.2.6`/`0.2.9`/`0.2.12`) —
 one `@0.2` provider serves all three, as WASI intends. D-1
@@ -115,12 +119,13 @@ without interference).
 | `list<u8>` | `Uint8Array` | always a copy; never a view into guest memory |
 | `list<T>` (T ≠ u8) | `T[]` | plain arrays; no typed-array widening (a future perf opt-in, never a silent shape change) |
 | `tuple<A, B, …>` | `[A, B, …]` | real TS tuple |
-| `record` | plain object, camelCase fields | fields of option type are optional properties (`field?: T`) |
+| `record` | plain object, camelCase fields | fields of option type are optional properties: lift emits **absent** (not `undefined`-valued) for none; lower accepts either spelling (C2 amendment) |
 | `enum` | string literal union of kebab-case case names | `"offer" \| "answer" \| …` |
 | `variant` | `{ tag: "case" }` \| `{ tag: "case", val: T }` | `val` **absent** (not `undefined`) for payloadless cases |
 | `option<T>` | `T \| undefined`; **nested** options box | see rule below |
-| `result<T, E>` **as a value** (nested in other types) | `{ tag: "ok", val: T } \| { tag: "err", val: E }` | `val` absent for empty sides — same family as `variant` |
-| `result<T, E>` **as a function result** | return `T` / throw `WitError<E>` | see "Error model" |
+| `result<T, E>` **as a value** (nested in other types, or in parameter position) | `{ tag: "ok", val: T } \| { tag: "err", val: E }` | `val` absent for empty sides — same family as `variant` |
+| `result<T, E>` **as a function result** (return position only) | return `T` / throw `WitError<E>` | empty sides: resolves `undefined` / `WitError.payload === undefined`; see "Error model" |
+| `map<K, V>` | its despecialization `list<tuple<K, V>>` → `[K, V][]` | C2 amendment |
 | `flags` | object of camelCase booleans | lift: every flag present; lower: absent = `false` |
 | `own<R>` / `borrow<R>` | the resource class instance | see "Resources" |
 | `stream<T>` / `future<T>` / `error-context` | `Stream<T>` / `Future<T>` / `ErrorContext` | see "Streams and futures" |
@@ -202,7 +207,10 @@ class Trap extends Error { … }  // existing; component-fatal, never a value
 
 - **Exports are uniformly Promise-shaped**: bindgen types every export as
   returning `Promise<T>`, sync-typed or not (a sync completion resolves
-  immediately). One calling convention; async-first per PLAN §1.
+  immediately). One calling convention; async-first per PLAN §1. Exactly
+  two exceptions (C2 amendments): resource constructors (synchronous —
+  see Resources) and `future<T>`-typed results (eager handles — see
+  Streams and futures).
 - **Imports match their WIT type**: an `async func` import may be a plain
   `async` JS function (or return a value synchronously); a sync `func`
   import is typed to return `T` synchronously. Returning a Promise from a
@@ -234,6 +242,13 @@ runtime owns the instance↔rep mapping. When the guest drops its last own
 handle, the runtime calls `instance[Symbol.dispose]?.()` (dtor). Method
 `self` is the instance — no reps, no side tables.
 
+**Constructors are synchronous** (C2 amendment): a JS class constructor
+cannot await, so `new R(...)` is the one exception to Promise-shaped
+exports. A guest constructor that does not complete synchronously raises
+a named error rather than half-constructing; if a consumer ever needs a
+suspending constructor, the escape hatch is a generated async static
+factory — deferred until demanded.
+
 Ownership at the boundary, both directions:
 
 | WIT position | guest-implemented R | host-implemented R |
@@ -241,7 +256,7 @@ Ownership at the boundary, both directions:
 | host receives `own<R>` | new class instance (host now owns; drop/`using` it) | the host's own instance back; the guest's handle is gone; no dispose call |
 | host receives `borrow<R>` | instance valid **only during the call** (retention throws) | the host's own instance; borrow scoping is guest-side bookkeeping |
 | host passes `own<R>` | wrapper invalidated (transferred) | instance registered; guest owns its handle |
-| host passes `borrow<R>` | wrapper stays valid | guest must not retain past the call (runtime-enforced per CABI) |
+| host passes `borrow<R>` | wrapper stays valid | guest must not retain past the call (runtime-enforced per CABI); a never-registered instance gets a rep allocated for the call's duration (C2 amendment) |
 
 ## Streams and futures
 
@@ -259,10 +274,17 @@ interface Stream<T> {
 interface Future<T> extends PromiseLike<T> {  // await it directly
   drop(): void; cancel(): void;
 }
-class ErrorContext { readonly message: string }
+class ErrorContext { readonly message: string }  // lift-only: no host constructor (C2 amendment); lowering accepts only lifted instances
 class DroppedError extends Error { … }    // awaiting a dropped future rejects with this
 ```
 
+- **Future results are eager handles** (C2 amendment): an export whose WIT
+  result is `future<T>` returns `Future<T>` **directly**, not
+  `Promise<Future<T>>` — JS promise resolution unconditionally adopts
+  thenables, so a Promise can never resolve *to* a PromiseLike handle;
+  wrapping would make `drop`/`cancel` unreachable. `await exportFn()`
+  still yields `T` (the handle is thenable); call without awaiting to
+  hold the handle. Streams are unaffected (`Stream` is not thenable).
 - **Lifted** `stream<T>`/`future<T>` values arrive as `Stream<T>`/
   `Future<T>`. Awaiting a future whose write end dropped without a value
   rejects with `DroppedError` (discriminated — R-fix review note 4).

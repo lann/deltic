@@ -272,3 +272,16 @@ Additions/corrections from the M0 integration, normative as of v0.1:
    silently mis-routes) but is structurally the wrong index space. A v3
    should add `errorContextTables` and the `TypeTupleIndex` mapping
    together.
+
+## Documentation amendments (C2)
+
+1. **Type exports index into `resourceTables`, not the `ResourceIndex`
+   space.** An export/import entry `{"kind": "type", "resource": n}`
+   carries a *resource-table* index (`TypeResourceTableIndex`, the same
+   space as descriptor-IR `own`/`borrow`), **not** a `ResourceIndex`.
+   Consequence (bit the C2-A embedder work): one resource type can be
+   reachable through several distinct table indices — e.g. the `resources`
+   fixture's type export points at table 1 while its functions' handles
+   use table 0, both resolving to `ResourceIndex` 0 via
+   `resourceTables[n].resource`. Consumers keying per-resource state must
+   key by the resolved `ResourceIndex`, treating table indices as aliases.
