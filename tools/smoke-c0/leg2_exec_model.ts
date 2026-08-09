@@ -41,23 +41,14 @@ import {
 import type { ComponentValue } from "../../runtime/src/cabi/types.ts";
 
 const failures: string[] = [];
-const xfails: string[] = [];
 function check(cond: boolean, msg: string) {
   console.log(`  ${cond ? "PASS" : "FAIL"}  ${msg}`);
   if (!cond) failures.push(msg);
 }
-/**
- * A failure with a named, filed cause. C0 exists to *find* these; an xfail
- * keeps the leg's verdict honest without pretending the step passed.
- */
-function xfail(cond: boolean, id: string, msg: string) {
-  if (cond) {
-    console.log(`  PASS  ${msg}  [${id} appears FIXED — retighten this leg]`);
-    return;
-  }
-  console.log(`  XFAIL ${msg}  [known finding ${id}]`);
-  xfails.push(`${id}: ${msg}`);
-}
+// Retightened after the R-fix round: probes 4a/4b originally carried
+// `xfail(...)` wrappers against findings R-1/R-2 (see REPORT.md); both are
+// fixed (runtime/tests/host_pump_test.ts pins them), so every probe is now a
+// hard assertion and a regression fails this leg.
 function note(msg: string) {
   console.log(`  ....  ${msg}`);
 }
@@ -340,22 +331,20 @@ try {
   } catch (e) {
     stalled = classify(e);
   }
-  xfail(
+  check(
     count === 5000,
-    "R-1",
     `host read ${count}/5000 bytes in ${reads} reads` +
       (stalled ? ` then stalled (${stalled})` : ""),
   );
-  note(`first chunk DID arrive (${reads > 0 ? "yes" : "no"}) — the stream ` +
-    `plumbing itself works; the defect is the missing re-pump`);
+  note(`guest writer parked on an async host import with no export call in ` +
+    `flight — the R-1 shape; the host pump drives it (host_pump_test.ts)`);
 } catch (e) {
   check(false, `open-stream (complete) threw — ${classify(e)}`);
 }
 
 // ---------------------------------------------------------------------------
 // Probe 4b — reader dropped mid-stream: the guest writer must observe
-// resolution ("reader stopped after N bytes"), not trap. Blocked behind R-1 —
-// the host cannot reach 2500 bytes to drop at.
+// resolution ("reader stopped after N bytes"), not trap.
 // ---------------------------------------------------------------------------
 console.log(`\n--- probe 4b: open-stream(100000, 1000), drop reader mid-stream`);
 try {
@@ -372,18 +361,13 @@ try {
   } catch (e) {
     stalled = classify(e);
   }
-  xfail(count >= 2500, "R-1", `host read ${count}/2500 bytes before dropping` +
+  check(count >= 2500, `host read ${count}/2500 bytes before dropping` +
     (stalled ? ` (${stalled})` : ""));
-  // Drop anyway and see what the writer observed — this part is the actual
-  // semantics under test, and it is reachable even from a short read.
+  // Drop and see what the writer observed — the actual semantics under test.
   try {
     s.readable.drop();
   } catch (e) {
-    // FINDING R-2: `drop()` pumps, `pump()` spawns `#drainAsync`, and
-    // `#drainAsync` re-indexes `store.awaiting` after an `await` without
-    // re-checking that it is still non-empty
-    // (runtime/src/exec/host_streams.ts:193-198).
-    xfail(false, "R-2", `readable.drop() threw — ${classify(e)}`);
+    check(false, `readable.drop() threw — ${classify(e)}`);
   }
   try {
     const out = unwrapOk(
@@ -395,15 +379,10 @@ try {
       `writer observed resolution, not a trap: ${out}`,
     );
   } catch (e) {
-    xfail(false, "R-1", `stream-outcome after reader drop — ${classify(e)}`);
+    check(false, `stream-outcome after reader drop — ${classify(e)}`);
   }
 } catch (e) {
-  // Observed: this rejects at the very first call — `open-stream` surfaces the
-  // `store.hostFailure` that probe 4a's abandoned `#drainAsync` parked. That
-  // failure is finding R-2, and it reaching a *later, unrelated* export call
-  // is itself the report-worthy part: one stalled host stream poisons the
-  // instance for everything after it.
-  xfail(false, "R-2", `probe 4b unreachable — ${classify(e)}`);
+  check(false, `probe 4b unreachable — ${classify(e)}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -436,14 +415,9 @@ if (stdioLog.length > 0) {
 }
 
 console.log(
-  `\nleg2 verdict: ${
-    failures.length === 0
-      ? `PASS with ${xfails.length} named xfail(s)`
-      : `FAIL (${failures.length})`
-  }`,
+  `\nleg2 verdict: ${failures.length === 0 ? "PASS" : `FAIL (${failures.length})`}`,
 );
 for (const f of failures) console.log(`  FAIL  - ${f}`);
-for (const x of xfails) console.log(`  XFAIL - ${x}`);
 // Deno keeps the process alive on the pending `wait-for` timers of the guest's
 // abandoned detached tasks; the verdict is printed, so leave deliberately.
 Deno.exit(failures.length > 0 ? 1 : 0);

@@ -12,6 +12,14 @@ changed by this track. Everything below is reproducible from
 - component-engine commit: `5f7868c`
 - wasm-tools CLI 1.247.0 (cross-check only)
 
+> **Post-C0 addendum (same day):** findings R-1 and R-2 were fixed and
+> review-approved in commit `5cacde1` (regression tests:
+> `runtime/tests/host_pump_test.ts`). `leg2_exec_model.ts` has been
+> retightened accordingly — probes 4a/4b are hard assertions now, and the
+> leg verdict is a plain `PASS`. The R-1/R-2 sections below are preserved
+> as the point-in-time diagnosis; `repro_stream_pump.ts` remains the
+> standalone reproducer (now expected to report both defects fixed).
+
 ## Headline
 
 | Leg | Subject | Verdict |
