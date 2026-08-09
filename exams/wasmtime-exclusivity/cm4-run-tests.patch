@@ -1,0 +1,126 @@
+--- a/design/mvp/canonical-abi/run_tests.py
++++ b/design/mvp/canonical-abi/run_tests.py
+@@ -1254,6 +1254,115 @@
+   assert(got[0] == 84)
+ 
+ 
++def test_resolved_task_gates_entry():
++  # Mirrors test/async/sync-streams.wast: there, $C.get resolves via
++  # task.return and then parks MID-FRAME in a synchronous stream.write; $D.run
++  # — which never yields in between — then calls $C.set, and the guest asserts
++  # (line 145, driving the assert_return at line 208) that this same-instance
++  # call is admitted, not gated at entry. Wasmtime passes that test
++  # deterministically: its entry gate (ConcurrentInstanceState.do_not_enter)
++  # ends at RESOLUTION. Under definitions.py as written,
++  # inst.exclusive_thread is held for the implicit thread's whole life —
++  # including post-resolution mid-frame blocks — so here `poke` parks
++  # waiting-to-enter (STARTING) and the assertions at the bottom fail.
++  #
++  # `shared` stands in for guest state the parked frame holds across its
++  # block (e.g. a Rust RefCell borrow): if the interloper is admitted (the
++  # sync-streams semantics), it reads and mutates that state under the parked
++  # frame, which the parked frame observes on resume — the interleaving that
++  # definitions.py's exclusive_thread lifetime makes impossible.
++  #
++  # All contested assertions run after quiescence (pump unblocked and done,
++  # poke drained) so the failure is a clean AssertionError, never a hang.
++  store = Store()
++  root_inst = ComponentInstance(store)
++  inst = ComponentInstance(store, root_inst)
++
++  shared = {'locked': 0, 'poke_saw': None, 'pump_observed': None, 'pump_done': False}
++  fut = RacyBool(False)
++
++  def never_called_back(args):
++    assert(False)
++
++  pump_ft = FuncType([], [], async_ = True)
++  pump_opts = mk_opts()
++  pump_opts.async_ = True
++  pump_opts.callback = never_called_back
++  def pump_core(args):
++    assert(len(args) == 0)
++    canon_task_return([], pump_opts, [])       # RESOLVED; the task keeps running
++    shared['locked'] = 1                       # "borrow" taken...
++    current_thread().wait_until(fut.is_set)    # ...held across a mid-frame block
++    shared['pump_observed'] = shared['locked']
++    shared['locked'] = 0
++    shared['pump_done'] = True
++    return [CallbackCode.EXIT]
++  pump = store.lift(pump_core, pump_ft, pump_opts, inst)
++
++  poke_ft = FuncType([], [], async_ = True)
++  poke_opts = mk_opts()
++  poke_opts.async_ = True
++  poke_opts.callback = never_called_back
++  def poke_core(args):
++    assert(len(args) == 0)
++    shared['poke_saw'] = shared['locked']
++    shared['locked'] = 2
++    canon_task_return([], poke_opts, [])
++    return [CallbackCode.EXIT]
++  poke = store.lift(poke_core, poke_ft, poke_opts, inst)
++
++  consumer_heap = Heap(16)
++  consumer_inst = ComponentInstance(store, root_inst)
++  consumer_ft = FuncType([], [U32Type()], async_ = True)
++  consumer_opts = mk_opts(MemInst(consumer_heap.memory, 'i32'), async_ = True)
++  def consumer(args):
++    assert(len(args) == 0)
++
++    [ret] = store.lower(pump, pump_ft, consumer_opts, consumer_inst)([])
++    pump_state,pump_subi = unpack_result(ret)
++    assert(pump_state == Subtask.State.RETURNED)  # resolved during the call...
++    assert(pump_subi == 0)
++    assert(shared['locked'] == 1)                 # ...its thread parked mid-frame
++
++    # sync-streams.wast semantics: admitted and run to completion
++    # (RETURNED, no handle). definitions.py as written: gated at entry
++    # (STARTING, with a handle). Captured here, asserted after quiescence.
++    [ret] = store.lower(poke, poke_ft, consumer_opts, consumer_inst)([])
++    poke_state,poke_subi = unpack_result(ret)
++    poke_saw_when_lowered = shared['poke_saw']
++
++    # Unblock the pump and reach quiescence on both subtasks so a failing
++    # assertion below cannot strand parked threads.
++    fut.set()
++    current_thread().wait_until(lambda: shared['pump_done'])
++    if poke_subi != 0:
++      [seti] = canon_waitable_set_new()
++      [] = canon_waitable_join(poke_subi, seti)
++      [event] = canon_waitable_set_wait(True, MemInst(consumer_heap.memory, 'i32'), seti, 0)
++      assert(event == EventCode.SUBTASK)
++      canon_subtask_drop(poke_subi)
++      [] = canon_waitable_set_drop(seti)
++
++    # The sync-streams.wast:145/:208 expectations:
++    assert(poke_state == Subtask.State.RETURNED)  # admitted, not gated
++    assert(poke_subi == 0)
++    assert(poke_saw_when_lowered == 1)            # its body read state under the parked frame
++    assert(shared['pump_observed'] == 2)          # the parked frame saw poke's mutation
++
++    canon_task_return([U32Type()], consumer_opts, [42])
++    return []
++
++  def on_start(): return []
++
++  got = None
++  def on_resolve(results):
++    nonlocal got
++    got = results
++
++  lift_and_run(consumer_opts, consumer_inst, consumer_ft, consumer, on_start, on_resolve)
++  assert(got[0] == 42)
++
++
+ def test_sync_using_wait():
+   store = Store()
+   root_inst = ComponentInstance(store)
+@@ -3027,6 +3136,7 @@
+ test_async_callback()
+ test_callback_interleaving()
+ test_sync_ignores_backpressure()
++test_resolved_task_gates_entry()
+ test_async_to_sync()
+ test_async_backpressure()
+ test_sync_using_wait()

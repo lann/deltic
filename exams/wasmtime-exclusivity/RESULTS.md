@@ -76,3 +76,31 @@ a *colliding* point (polymorph-iroh's `RefCell` window, IROH-1) is a
 scheduler choice — deterministic per host, guaranteed by nothing. wasmtime's
 endpoint-matrix green and deltic's ~90% trap rate are the same semantics
 under different deterministic schedules.
+
+## Addendum (2026-08-09): the filing test-diff, and a second contradiction
+
+`cm4-run-tests.patch` adds `test_resolved_task_gates_entry` to the
+reference's own `run_tests.py` — the sync-streams.wast shape in the file's
+own idiom (callback-lifted `pump` resolves then parks mid-frame holding a
+shared "borrow" flag; same-instance `poke` reads and mutates it; the
+suite-pinned expectations are asserted after quiescence). Against pristine
+`definitions.py` it fails at
+`assert(poke_state == Subtask.State.RETURNED)` — STARTING observed, the
+interloper never admitted: CM-4, demonstrated inside the reference's own
+harness by `python3 run_tests.py`.
+
+`cm4-reference-fix.patch` transplants the wasmtime/deltic resolution-scoped
+gate into `definitions.py` (3 hunks). With it, the new test passes — and
+**exactly one stock test fails**: `test_callback_interleaving`'s second
+progress-free poll window, which turns out to *encode the hold-semantics*
+(the gated producer is admitted and completes inside the window once the
+resolved producer's post-resolution sync read stops holding the slot).
+Full trace in `root-cause.md`. So the spec repo's unit tests and its wast
+suite pin **contradictory semantics**, invisible upstream because no CI
+runs the wast corpus against the reference.
+
+`verify-cm4.sh` reproduces all four legs from the pristine submodule
+copies (stock-pass / test-fails-pristine / test-passes-fixed /
+fix-breaks-interleaving). Harness note: the reference hangs after any
+failing assertion (non-daemon threads) — legs run under `timeout` and are
+judged by traceback text.

@@ -254,6 +254,37 @@ ruling), and suggest the structural fix — run the wast suite against the
 reference (or at least flag reference-affecting suite assertions) in the
 spec repo's own CI.
 
+### 2026-08-09 filing artifacts (ready to paste)
+
+- **`exams/wasmtime-exclusivity/cm4-run-tests.patch`** — adds
+  `test_resolved_task_gates_entry` to the reference's own `run_tests.py`
+  (sync-streams.wast's shape in the file's idiom); fails against pristine
+  `definitions.py` at the suite-pinned expectation (STARTING observed
+  where the wast suite demands admission). THE demonstration diff.
+- **`exams/wasmtime-exclusivity/cm4-reference-fix.patch`** — the
+  resolution-scoped gate transplanted into `definitions.py` (3 hunks:
+  release at block for resolved holders; only-if-holder releases;
+  held-guarded callback-loop release/retake). Verdict: makes the new test
+  pass, and reveals the **second contradiction** — the reference's own
+  `test_callback_interleaving` fails, because its second progress-free
+  poll window *encodes* the hold-semantics (the gated producer is
+  admitted and completes inside the window once the resolved producer's
+  post-resolution sync `future_read` stops holding the slot; full trace
+  in `exams/wasmtime-exclusivity/root-cause.md`). Any spec-side fix must
+  also rewrite that window. Shipped as a demonstration, not
+  ready-to-merge.
+- **`exams/wasmtime-exclusivity/verify-cm4.sh`** — reproduces all four
+  legs from pristine copies. Note the reference harness hangs after any
+  failing assertion (non-daemon threads; pre-existing, reproducible by
+  injecting `assert(False)` into stock `test_async_backpressure`) — run
+  under `timeout`, judge by traceback.
+
+Net-net for the filing: definitions.py's unit tests and the repo's wast
+suite pin **opposite** entry-gating semantics for resolved tasks;
+wasmtime implements (and its CI deterministically validates) the wast
+side; nothing validates the other; the two patches above make both facts
+reproducible inside the spec repo itself.
+
 ---
 
 ## NOTE-1: several official async tests assume the deterministic profile
