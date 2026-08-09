@@ -22,7 +22,18 @@ already made (with rationale), and the open questions.
 - Component Model feature parity with wasmtime, tracked against the official
   spec ([WebAssembly/component-model]).
 - Compatibility with wasmtime-built and wit-bindgen-built guest components,
-  sync and async alike, made executable via imported conformance/test suites.
+  sync and async alike, made executable via imported conformance/test
+  suites. componentize-go output is a named second guest toolchain
+  (consumer-driven, §17): callback-ABI async lifts + async-lowered imports
+  from Go's patched runtime — a differently-shaped exerciser of the same
+  ABI, which wasmtime runs correctly and jco does not.
+- **Adoption target: replace jco as the JS host for the polymorph
+  component family and experiment-mosh** (§17). Their JS-host legs are
+  blocked on structural jco defects in exactly this project's core
+  territory (0.3 concurrency). They have no external dependents, so
+  embedder conventions co-evolve with them — designed against real
+  consumers, not in the abstract. Success = their conformance matrices
+  green on this host and the jco fork pins deleted.
 - **"Parity" means functional parity, not behavioral identity.** The bar is:
   the same feature set, spec-conforming behavior, and wasmtime/wit-bindgen
   guests running correctly. Where the spec sanctions a range of behaviors,
@@ -43,12 +54,25 @@ already made (with rationale), and the open questions.
 
 ## 2. Non-goals
 
-- **WASI implementations.** `wasi:*` host packages are out of scope; the
-  finish line is Component Model support, demonstrated with custom WIT worlds.
+- **WASI implementations in the core.** `wasi:*` host packages are out of
+  scope for the runtime itself; the finish line is Component Model support,
+  demonstrated with custom WIT worlds. Two sanctioned carve-outs, both
+  outside the core: WASI interface *shapes* are first-class design inputs
+  to the embedder conventions (§17 / C1) — they are the ecosystem's most
+  important interfaces and the conventions must serve them well — and a
+  minimal WASI shim *package* (separate deliverable; consumer-driven scope:
+  p2 cli/io/clocks/random baseline + p3 clocks) ships with the consumer
+  track (C2).
 - **Componentizing JS/TS.** Guests are components built by external toolchains
   (Rust + wit-bindgen is the reference). No embedded-JS-engine work.
-- **jco compatibility or reuse.** Ignored entirely; where we need prior art we
-  take it from wasmtime.
+- **jco compatibility or reuse.** Ignored entirely — including at the
+  embedder-API level: we do not emulate jco's host conventions (thrown
+  bare `{tag, val}` payloads, its `Stream` objects, transpile-time async
+  enumerations); consumers port to our conventions (§17). Where we need
+  prior art we take it from wasmtime; where jco's conventions have known
+  footguns (documented defensively by the polymorph host modules
+  themselves), we fix rather than inherit. Replacing jco for the named
+  consumers is a goal (§1); *being* jco is not.
 - **Pre-JSPI engines.** No fallback path for engines without JSPI.
 
 ## 3. Compatibility targets
@@ -349,6 +373,14 @@ Requirement: not critical now; must become fast **without rearchitecting**.
 - Output: TypeScript — typed world/interface APIs, `.d.ts`, resource classes
   (`using`-compatible), JSDoc from WIT doc comments, honoring
   `@since`/`@unstable` gates.
+- Host-facing value conventions (error model, stream/future wrappers,
+  variant/option/result shapes, resource classes, module-per-interface
+  authoring) are governed by the embedder conventions design
+  (`contracts/embedder-api.md`, C1 in §13), which supersedes
+  descriptor-ir.md's interim "target table". Bindgen also emits host-side
+  types for **import worlds** (what an embedder must provide), not only
+  export-side facades — the consumers' host modules (§17) are the
+  reference consumers of that surface.
 - **Skew protection, the wasmtime way**: the generator embeds a canonical
   structural digest of the expected world into the bindings;
   `instantiate()` verifies it against the loaded component's types (already
@@ -398,6 +430,8 @@ There is no single official conformance suite; the corpus is assembled:
 | same repo, `design/mvp/canonical-abi/definitions.py` + `run_tests.py` | executable CABI reference | port lift/lower edge-case tests to TS unit tests |
 | wit-bindgen runtime tests | guest programs exercising bindings | build Rust guests, sync and async, (wit-bindgen + `wasm-tools component new`); run against our host = the executable wit-bindgen-compat claim |
 | wasmtime `tests/misc_testsuite/component-model/` | engine-grade wast corpus | supplementary coverage |
+| polymorph conformance matrices (webcrypto/websocket/webrtc/tls, driven by polymorph-test) | per-interface implementation×environment conformance suites over real WIT surfaces | consumer lane (§17): a component-engine L3 runner executes them; release gate once C2 lands |
+| experiment-mosh gates + minimized repros (`compose-async-tdz`) | composed 3-component client: mixed sync/async exports, background pumps, resources re-exported across interfaces, componentize-go guest | strongest known real-workload exercisers — this family surfaced ≥5 distinct jco defect classes no WAST corpus expresses |
 
 Harness pipeline: an offline Rust step (`crates/testgen`) converts `.wast`
 into JSON commands + `.wasm` binaries — the core-spec `wast2json` model. It
@@ -426,6 +460,7 @@ component-engine/
     plan-format.md           #   shim -> runtime artifact schema
     descriptor-ir.md         #   host-boundary lift/lower IR (one IR, two executors)
     intrinsics.md            #   FACT imports + host trampolines the runtime provides
+    embedder-api.md          #   host-facing conventions (C1): errors, streams, resources, value shapes
   crates/                    # cargo workspace
     translator-shim/         # wasmtime-environ + FACT → plan + artifacts (wasm32 target)
     bindgen/                 # wit-bindgen-core TS backend (CLI)
@@ -450,7 +485,20 @@ a built artifact per release of the shim (reproducible from source).
 | M1 | Canonical ABI core | **DONE** (2026-08-08). Official suite green on Deno across all five sync directories — binary 119/122 (3 xfail: wasmtime-pin drift ×2, module-exports plan gap), validation 446/448 (+2 same-drift xfails), linking 272/272, resources 36/36, values 155/191 (+36 xfails, all M2-task-core-shaped) — zero unexpected failures; sync + async wit-bindgen guest fixtures roundtrip; transcoder trampoline (all 12 ops); imported resources; live component imports; structured verdicts; canonical world digest handshake (contracts/digest.md); typed TS facades for fixture worlds. Multi-agent per §15: 3 parallel tracks, 2 reviewer rounds (5 blocking findings fixed), interrupted mid-flight by a driver restart and recovered via task_id resumes. |
 | M2 | **Concurrency complete on Deno** | **DONE** (2026-08-08, exit review APPROVE-WITH-NITS at 652c1dc). JSPI auto-detection ON by default; **1250/1349 executing suite commands pass, zero failures, every one of the 99 xfails in a named class** (47 wasmparser pin-drift → exits on wasmtime bump; 41 🧵-deferred cascades; 5 shim gaps; 6 small named residues). Delivered: the 0.3 task core, callback ABI, FACT cross-component calls (all four ABI combos), streams/futures/error-context with full rendezvous, host-side ends, cross-component cancellation, JSPI stackful+blocking paths with per-declaration suspendability, instance poisoning, deadlock detection with wasmtime-exact wording. wit-bindgen async roundtrip trio + producer guests green. Empirical engine pins (a)–(j) incl. "the fast path still suspends"; five JSPI host constraints recorded in contracts/intrinsics.md; two wasmtime-supersedes-reference findings (CM-3, CM-4) + NOTE-1 tracked upstream. Plain path pinned zero-cost for sync-only components. |
 | M3 | Cross-engine | browser CI matrix (Chrome, Firefox+pref, WebKit best-effort); artifact cache; full suite green on all lanes; code-cache empirical check |
+| C0 | **Consumer smoke test** (§17; the next gate) | Real consumer artifacts run under component-engine on Deno with throwaway glue, in order: experiment-mosh's `compose-async-tdz` repro (two tiny components, no shims — pins the lann/jco#51 shape semantically), iroh's `exec-model` probe (+ a p3-clock stub), the websocket conformance suite (first shim contact). Exit: discrepancy list triaged into {toolchain drift, missing shims, conventions gaps}; translator throughput measured on multi-MB componentize-go artifacts (largest translated to date: 94 KB; consumers ship 2–10.5 MB); wasmtime pin-bump decision made on the drift evidence (the bump also retires the 47-xfail pin-drift class from M2). Deno capability audit for the consumer host modules: WebRTC pre-answered empirically (`tools/probes/webrtc-deno/` — node-datachannel as a Node-API addon and pure-TS werift both pass a full data-channel loopback under Deno 2.9.5); remaining dgram/net-compat checks ride the smoke test under the real harnesses. |
+| C1 | Embedder conventions design — `contracts/embedder-api.md` | Error model (branded error values vs jco's bare-payload-throw footgun), stream/future wrappers (web ReadableStream/AsyncIterable over the HostStream seam), resource classes, variant/option/result/enum shapes, module-per-interface authoring, import-world host types. Reference consumers: the polymorph host modules (webrtc/webcrypto/websocket). **WASI p2+p3 interface shapes examined as first-class design inputs** — p2 pollables/io-streams/error-code enums under the task core, p3 stream-and-future-bearing signatures and async resource methods — with idiomatic paper signatures for a representative slice (wasi:clocks p3 `wait-for`, wasi:io p2 pollable+stream, a wasi:http p3 handler sketch, webrtc `data-channel`). Supersedes descriptor-ir.md's interim host-value table. |
+| C2 | Conventions implemented + WASI shim package + L3 runner | Runtime boundary implements C1; bindgen emits import-world types; minimal WASI shims as a **separate package** (p2 baseline + p3 clocks; sockets only if a Deno-native leg wants them); polymorph-test gains a component-engine L3 runner (Deno lane; browser lane rides M3). Consumer suites join CI as a release gate. |
+| C3 | Consumer cutover exams | Host modules ported (websocket → webcrypto → webrtc → tls legs); **iroh endpoint green** — the workload jco structurally cannot run (detached pump + multi-export concurrency + cross-task wakeups) — with the ~5× bounded-polling workaround deleted; **experiment-mosh composed client** browser legs green (its jco-blocked M5/M6/M7 surfaces). Perf measured against the jco legs during cutover. |
 | P1 | Perf track (post-success) | generated-JS host-boundary executor (differential-tested vs interpreter); deploy-time unbundled layout |
+
+Consumer-track ordering: C0–C3 interleave with M3 — browser packaging
+(M3's first half) is on the consumer critical path and is pulled forward
+accordingly; the 🧵 and pin-drift residues are not. Every consumer guest is
+callback-ABI (wit-bindgen Rust and componentize-go alike) — the path that
+needs no JSPI — so the effective engine floor for consumer workloads
+relaxes to "any modern engine" (JSPI remains required only for
+sync-blocking forms), which is what opens Firefox/Safari-stable legs their
+JSPI-only jco path cannot reach.
 
 JSPI engine-variance smoke tests (Firefox pref build, WebKit STP) start
 during M2, not M3 — engine bugs in the newest JSPI implementations are a
@@ -471,6 +519,9 @@ written, not after it is declared done.
 | Testing wasmtime-with-wasmtime blind spots | medium | official suite + definitions.py ports as independent checks |
 | Testing-toolchain format skew: testgen assembles with `wast` 255 while the shim validates with wasmparser 0.252 (wasmtime-47 pin) — the 0.253–0.255 window re-arited 🧵 thread opcodes (byte-level desync, see `trap-if-block-and-sync` xfail) | low, bounded | known 5-entry xfail set; exits on the next wasmtime bump; testgen cannot downgrade (suite text syntax needs `wast` ≥255) |
 | CSP variance in embedders | low | baseline needs only `wasm-unsafe-eval`; JS codegen is optional |
+| Consumer coupling churn: 7+ downstream repos tracking pre-1.0 plan/contract formats | medium | versioned releases from the start of the consumer track; strict formatVersion equality already fails loud; consumer matrices as release gate (the wasmtime↔embedder relationship); both sides already practice exact pinning |
+| Consumer scope creep pulling WASI implementations into the core | medium | shim package is a separate deliverable with consumer-driven scope; §2 non-goal stands; the L3 runner lives in polymorph-test, not here |
+| Host-boundary perf vs jco's generated JS (v1 interpreter); translator throughput on multi-MB components | low-medium | measured at C0 (translation) and C3 (cutover benches: webcrypto call-heavy, webrtc stream-heavy); §8's generated-JS executor is the designed escape hatch; iroh's polling-workaround removal dominates first-consumer numbers regardless |
 
 ## 15. Development protocol (multi-agent)
 
@@ -548,10 +599,79 @@ orchestrator's own aborted turns; that layer belongs to the human/driver.
   written policy before M1).
 - memory64 components, shared-everything threads (🧵), and other gated
   features: explicitly deferred; revisit when wasmtime ships them by default.
-- Node as an officially supported target: nearly free, but adds a CI lane —
-  decide at M2.
+- Node as an officially supported target: **not a consumer requirement.**
+  Deno functionally substitutes across the consumer capability surface —
+  WebRTC verified empirically (2026-08-08, Deno 2.9.5/linux-arm64,
+  `tools/probes/webrtc-deno/`): `node-datachannel` (the polymorph Node
+  legs' exact dependency) loads as a Node-API addon under Deno and passes
+  a full data-channel loopback, and `werift` (pure TS) passes the same
+  probe as the no-native-code fallback; WebSocket/WebCrypto are built-ins;
+  UDP/TCP via `Deno.listenDatagram`/node compat. Node stays a nearly-free
+  *distribution* target via npm (the callback-ABI path needs no JSPI
+  flag), not a CI lane, until someone needs it.
+- Embedder conventions (C1) open sub-questions, tracked in
+  `contracts/embedder-api.md` once drafted: error model; stream wrapper
+  surface; p2 pollable representation under the task core; option-nesting
+  shape; whether host modules are wired per-interface (the consumers'
+  `--map`-era layout) or per-world.
 
-## 17. References
+## 17. Adoption: the polymorph consumer track
+
+The first production consumers are the [polymorph-components] family —
+`polymorph-{webcrypto,websocket,webrtc-datachannels,tls,test,iroh}` — and
+experiment-mosh (a mosh client/proxy tunneled over the iroh endpoint
+component). All run the same triangle {wasmtime host, JS host, in-guest
+provider}; the JS host is jco (a pinned fork), and the jco legs are where
+their plans are blocked. Replacing jco there is this project's adoption
+target (§1); jco-convention compatibility is explicitly not part of it
+(§2) — the consumers have no external dependents and port to conventions
+designed fresh (C1).
+
+Their jco blockers map one-for-one onto this project's proven strengths:
+
+| Their blocker | Class | Our status |
+|---|---|---|
+| lann/jco#11 (= polymorph-iroh#10): execution-slot queue serializes task lifetimes — a detached pump task deadlocks every later export call; fix blocked behind further scheduler rearchitecting (jco #30, #31); costs iroh a ~5× handshake-latency polling workaround meanwhile | scheduler | task admission is the reference's `enter_implicit_thread` gate; parked callback-ABI tasks release exclusivity — the tested path |
+| lann/jco#13: guest-internal stream wakeups never delivered | scheduler | same-component streams/futures fully green |
+| lann/jco#14: composed async cross-component calls fail (`_asyncStartCall` param count) | fused adapters | FACT start-calls green across all four ABI pairings incl. spilled params |
+| lann/jco#6/#7: subtask/future cancellation traps | cancellation | cross-component cancellation per reference (and upstream finding CM-3) |
+| lann/jco#51: TDZ at import time — emitted trampoline references a resource class above its declaration (trigger: async cross-component call returning `own<resource>` + that resource re-exported in an exported interface) | codegen emission | the defect *class* cannot exist in a runtime linker — nothing is emitted; the minimized `compose-async-tdz` shape joins the corpus as a semantics fixture anyway (C0) |
+| componentize-go `[async-lower]` imports: "Missing subtask" / hangs (wasmtime runs the same guests correctly — spec-valid guest, host at fault) | subtask bookkeeping | async-lower per the reference; componentize-go fixtures join the corpus to make the claim executable |
+
+Standing consequences:
+
+- **Co-evolution, not compatibility.** Conventions are designed against
+  the consumers' host modules as reference implementations (C1); they
+  port; both sides pin exactly and upgrade deliberately.
+- **WASI interfaces are design inputs even though implementations stay
+  out of core.** The conventions must make wasi p2 idioms (pollables, io
+  streams, error-code enums, resource-heavy surfaces) and p3 idioms
+  (stream/future-bearing signatures, async resource methods,
+  error-context) natural to implement in JS — whoever adopts this host
+  writes shims against these conventions, and the broader ecosystem's
+  most important interfaces are exactly these. C1 exits with paper
+  signatures for a representative WASI slice; the C2 shim package is the
+  executable check.
+- **Their suites become our gates.** This family surfaced at least five
+  distinct jco defect classes that no WAST corpus expresses (long-lived
+  composed workloads, background pumps, cross-task wakeups, codegen-shape
+  triggers). The polymorph matrices and experiment-mosh gates run as
+  release gates once C2 lands — necessary-not-sufficient discipline
+  applied to ourselves.
+- **What replacing jco does not replace**: componentize-js/-go (guest
+  production — out of scope per §2; their output components are ordinary
+  inputs to us) and the wasmtime host legs (the native story).
+- **Unlocks on their side, recorded for the cutover argument**: no
+  transpile step, generated trees, flag-verification scripts, or fork
+  pins; the Node 24 + JSPI-flag lane replaced by a flagless Deno lane
+  (WebRTC included — verified, §16) and, at M3, browser legs beyond
+  Chromium; fresh-instance-per-case without re-transpile (their runners
+  re-instantiate after poisoning); waker-based cross-task wakeups
+  restoring the polling-workaround latency.
+
+[polymorph-components]: https://github.com/polymorph-components
+
+## 18. References
 
 Canonical links future contributors (human or agent) are likely to need.
 Versioned links are pinned to the versions this repo pins; re-pin them

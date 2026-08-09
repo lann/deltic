@@ -55,15 +55,23 @@ options' `coreType` is an instantiate-time assertion. (Precomputed lanes can
 be added later as a pure optimization without changing this contract's
 semantics.)
 
-## Host value mapping (target — normative at M1)
+## Host value mapping (interim — superseded by embedder-api.md)
 
-**Status note (v0.1):** this table is the *bindgen-era target*, normative
+**Status note (post-M2):** this table is **superseded as the destination by
+`contracts/embedder-api.md`** (PLAN §17/C1 — the embedder conventions
+designed against the polymorph consumers, with WASI p2+p3 interface shapes
+as first-class design inputs). It remains current-truth *only* as a
+description of what the aspirational shapes were before C1; do not converge
+toward it.
+
+**Status note (v0.1, retained for history):** this table was the
+*bindgen-era target*, normative
 once the M1 boundary layer lands. The v1 interpreter currently produces the
 `definitions.py` shapes (variant as single-key `{label: payload}`, enum as
 `{label: null}`, option as `{none: null} / {some: v}`, result error key
 `"error"`, tuple as despecialized record) and the M0 e2e tests lock those.
-Convergence is scheduled with bindgen; until then the interpreter shapes are
-the implementation truth and this table is the destination.
+The interpreter shapes are
+the implementation truth; the destination is now embedder-api.md's.
 
 | Component type | JS value |
 |---|---|
