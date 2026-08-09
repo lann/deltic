@@ -143,9 +143,32 @@ export function loadPlan(wire: WirePlan): LoadedPlan {
     }
   }
 
-  const resourceTokens = wire.resourceTables.map(() =>
-    new ResourceTypeInfo(null, null)
-  );
+  // Identity tokens: one per RESOURCE, aliased through every table that
+  // names it — NOT one per table. plan-format.md C2 amendment #1: "one
+  // resource type can be reachable through several distinct table indices …
+  // Consumers keying per-resource state must key by `resourceTables[n]
+  // .resource`, treating table indices as aliases." Minting per-table broke
+  // exactly the way that warning predicts (found by the #18 polymorph-tls
+  // smoke): in a wac-composed component the source and destination future
+  // tables of a FACT transfer resolve `own<R>` through different table
+  // indices, and `valTypeEqual`'s documented reference-identity comparison
+  // (cabi/types.ts) saw two tokens for one resource — "future: destination
+  // element mismatch" on every resource-bearing element type. wasmtime
+  // interns identity at the `ResourceIndex` level and its transfer libcall
+  // never re-compares element types at runtime (47.0.3
+  // futures_and_streams.rs `guest_transfer`); unifying here restores parity
+  // for every structural-equality site at once. Abstract tables keep
+  // per-table tokens (no `resource` to key by; none in the current corpus).
+  const tokenByResource = new Map<number, ResourceTypeInfo>();
+  const resourceTokens = wire.resourceTables.map((table) => {
+    if (table.kind !== "concrete") return new ResourceTypeInfo(null, null);
+    let token = tokenByResource.get(table.resource);
+    if (token === undefined) {
+      token = new ResourceTypeInfo(null, null);
+      tokenByResource.set(table.resource, token);
+    }
+    return token;
+  });
   const types = wire.types.map((t, i) =>
     loadTypeDecl(t, resourceTokens, `types[${i}]`)
   );

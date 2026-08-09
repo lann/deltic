@@ -25,7 +25,7 @@
 import { assert_, trapIf } from "./trap.ts";
 import type { LiftLowerContext } from "./context.ts";
 import type { BorrowType, OwnType, ValType } from "./types.ts";
-import { contains } from "./types.ts";
+import { contains, fmtValType } from "./types.ts";
 import {
   CopyState,
   ErrorContext,
@@ -123,13 +123,18 @@ export function lowerStream(
   // `ValType` (typed derivation is bindgen's job), so this is the first point
   // at which a mismatch against the guest's declared `stream<T>` can be
   // caught — and a silent mismatch would corrupt every copy, since the
-  // element type is what sizes and lifts the buffer.
+  // element type is what sizes and lifts the buffer. `fmtValType`, not
+  // `JSON.stringify`: the latter throws on resource-bearing element types
+  // (cabi/types.ts `valTypeEqual` contract note) — and as a template-literal
+  // argument it was evaluated even when the assertion PASSED.
   const declared = (t as { element?: ValType | null }).element ?? null;
-  assert_(
-    sameElemType(v.t, declared),
-    `stream element type mismatch: host end carries ` +
-      `${JSON.stringify(v.t)}, callee expects ${JSON.stringify(declared)}`,
-  );
+  if (!sameElemType(v.t, declared)) {
+    assert_(
+      false,
+      `stream element type mismatch: host end carries ` +
+        `${fmtValType(v.t)}, callee expects ${fmtValType(declared)}`,
+    );
+  }
   const inst = cx.inst;
   assert_(inst !== null, "stream lower requires a component instance");
   (v as { boundStore?: unknown }).boundStore ??=
@@ -150,11 +155,13 @@ export function lowerFuture(
   );
   assert_(!containsBorrow(t), "future may not contain a borrow");
   const declared = (t as { element?: ValType | null }).element ?? null;
-  assert_(
-    sameElemType(v.t, declared),
-    `future element type mismatch: host end carries ` +
-      `${JSON.stringify(v.t)}, callee expects ${JSON.stringify(declared)}`,
-  );
+  if (!sameElemType(v.t, declared)) {
+    assert_(
+      false,
+      `future element type mismatch: host end carries ` +
+        `${fmtValType(v.t)}, callee expects ${fmtValType(declared)}`,
+    );
+  }
   const inst = cx.inst;
   assert_(inst !== null, "future lower requires a component instance");
   (v as { boundStore?: unknown }).boundStore ??=

@@ -23,7 +23,7 @@
 // RESULT (2026-08-09, seed run — this host is aarch64; the release-153
 // jsshell ships an aarch64 build, sha256-verified via pins.json):
 // **the lane runs the full corpus, EXACT Deno-lane parity.** All 59 files,
-// 1395 commands, 1349 executed, 1250 passed, 0 failed, 99 xfail, 41
+// 1395 commands, 1349 executed, 1254 passed, 0 failed, 95 xfail, 41
 // pending-runtime, 0 pending-capability, 5 unsupported-directive. Zero
 // deltas, zero stale xfails, zero unexpected failures. Capability matrix:
 // jspi = {suspending: true, promising: true, roundTrip: true}, multiMemory
@@ -51,9 +51,9 @@ export const smPinned: ShellLaneExpectation = {
   totals: {
     commands: 1395,
     executed: 1349,
-    passed: 1250,
+    passed: 1254,
     failed: 0,
-    xfail: 99,
+    xfail: 95,
     pendingRuntime: 41,
     pendingCapability: 0,
     unsupportedDirective: 5,
