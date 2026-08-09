@@ -18,6 +18,8 @@ WASI imports** — so componentization needs no wasip1 adapter.
 | `backpressure-probe.component.wasm` | [`guests/backpressure-probe/wit/world.wit`](guests/backpressure-probe/wit/world.wit) | `toggle-around-yield: async func(x: u32) -> u32` (asserts backpressure, yields, clears backpressure) | ~40 KB |
 | `stream-echo.component.wasm` | [`guests/stream-echo/wit/world.wit`](guests/stream-echo/wit/world.wit) | `echo-doubled: async func(input: stream<u32>) -> stream<u32>` — consumes AND produces a stream in one export | ~60 KB |
 | `future-user.component.wasm` | [`guests/future-user/wit/world.wit`](guests/future-user/wit/world.wit) | `double-future: async func(f: future<u32>) -> u32` (awaits an imported future); `make-future: async func(x: u32) -> future<u32>` (resolves an exported one) | ~64 KB |
+| `test-suite.component.wasm` | [`guests/test-suite/wit/tests.wit`](guests/test-suite/wit/tests.wit) (vendored verbatim from polymorph-test's `polymorph:test@0.1.0`, TRACK C2-D) | Implements the `suite` world: imports `test-context`, exports `tests` (`all: async func() -> list<test-case>`). Six deterministic cases exercising pass/fail/skip, multi-message diagnostics, and a measurable-time case for budget plumbing — the ct-runner's (`../../ct-runner/`) fixture. | ~61 KB |
+
 
 Every `echo-*` function returns its input unchanged: the host asserts
 roundtrip equality for arbitrary vectors (lift/lower tests). The `resources`
