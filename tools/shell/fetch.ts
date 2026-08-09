@@ -25,17 +25,30 @@ export function defaultShellPaths(
   }
   if (lane === "jsc") {
     const dir = join(cacheRoot, "jsc");
-    return { bin: join(dir, "jsc"), libPath: join(dir, "lib") };
+    // `<dir>/jsc` is the bundle's own compiled wrapper (NOT the real
+    // binary, which sits at `<dir>/bin/jsc` with a relative PT_INTERP) —
+    // see fetchJsc below. No LD_LIBRARY_PATH: the wrapper sets its own,
+    // overwriting anything we pass.
+    return { bin: join(dir, "jsc"), libPath: null };
   }
   throw new Error(`unknown lane: ${lane}`);
 }
 
 async function extractZip(zipPath: string, destDir: string): Promise<void> {
   await Deno.mkdir(destDir, { recursive: true });
+  // extractall() does not restore file modes; the second loop reapplies them
+  // from each entry's external_attr. Load-bearing for the JSC bundle, whose
+  // wrapper and bin/jsc must be executable (SpiderMonkey's `js` gets a
+  // belt-and-braces chmod at its call site too).
   const cmd = new Deno.Command("python3", {
     args: [
       "-c",
-      "import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])",
+      "import sys, os, zipfile\n" +
+      "z = zipfile.ZipFile(sys.argv[1])\n" +
+      "z.extractall(sys.argv[2])\n" +
+      "for i in z.infolist():\n" +
+      "    m = (i.external_attr >> 16) & 0o7777\n" +
+      "    if m: os.chmod(os.path.join(sys.argv[2], i.filename), m)\n",
       zipPath,
       destDir,
     ],
@@ -44,22 +57,6 @@ async function extractZip(zipPath: string, destDir: string): Promise<void> {
   });
   const { code } = await cmd.output();
   if (code !== 0) throw new Error(`python3 zipfile extraction failed (${zipPath})`);
-}
-
-/** Recursively find a file by name under `root`; returns its containing dir. */
-async function findFile(
-  root: string,
-  name: string,
-): Promise<string | null> {
-  for await (const entry of Deno.readDir(root)) {
-    const p = join(root, entry.name);
-    if (entry.isFile && entry.name === name) return root;
-    if (entry.isDirectory) {
-      const found = await findFile(p, name);
-      if (found) return found;
-    }
-  }
-  return null;
 }
 
 function smArch(): string {
@@ -125,55 +122,47 @@ async function fetchJsc(): Promise<void> {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`fetch ${url}: ${res.status} ${res.statusText}`);
   const zipPath = join(cacheRoot, "jsc.zip");
-  const extractedRoot = join(cacheRoot, "jsc-extracted");
   await Deno.mkdir(cacheRoot, { recursive: true });
   await Deno.writeFile(zipPath, new Uint8Array(await res.arrayBuffer()));
-  await extractZip(zipPath, extractedRoot);
+  // The archive is a SELF-CONTAINED bundle (built on the WebKit buildbots'
+  // OS, newer than any runner) and must be kept intact and executed via its
+  // own top-level `jsc` WRAPPER — a compiled C program (source ships as
+  // jsc.c in the bundle) that chdir()s into the bundle directory, sets
+  // LD_LIBRARY_PATH to the bundled `lib/` (which includes its own
+  // ld-linux-x86-64.so.2 and ICU), and exec()s `bin/jsc`. The real binary
+  // is NOT relocatable: its PT_INTERP is the *relative* path
+  // `lib/ld-linux-x86-64.so.2` (verified with readelf), so executing it
+  // outside the bundle root fails with ENOENT — the exact failure of this
+  // lane's first CI run. The bundle's README.txt says the same in prose.
+  // The wrapper absolutizes relative argv paths against the caller's CWD
+  // before the chdir, so callers may pass paths freely.
+  await extractZip(zipPath, dir);
   await Deno.remove(zipPath);
 
-  // Layout unknown ahead of time (never executed anywhere per issue #22) —
-  // find the `jsc` executable and infer its lib directory by searching for
-  // libJavaScriptCore alongside it.
-  const jscDir = await findFile(extractedRoot, "jsc");
-  if (!jscDir) {
-    throw new Error(
-      `could not find a 'jsc' executable anywhere under ${extractedRoot} ` +
-        `— zip layout changed; inspect it manually`,
-    );
-  }
-  console.log(`[fetch] found jsc executable in ${jscDir}`);
-  await Deno.mkdir(dir, { recursive: true });
-  await Deno.copyFile(join(jscDir, "jsc"), binPath);
-  await Deno.chmod(binPath, 0o755);
-
-  // Search the whole extracted tree for JavaScriptCore shared libs; copy
-  // every directory that has one into dir/lib so LD_LIBRARY_PATH is a
-  // single flat answer.
-  const libDir = join(dir, "lib");
-  await Deno.mkdir(libDir, { recursive: true });
-  let foundLibs = false;
-  async function walk(d: string) {
-    for await (const entry of Deno.readDir(d)) {
-      const p = join(d, entry.name);
-      if (entry.isDirectory) await walk(p);
-      else if (/libjavascriptcore|libwebkit|libwtf|libbmalloc/i.test(entry.name)) {
-        await Deno.copyFile(p, join(libDir, entry.name));
-        foundLibs = true;
-      }
+  // Layout sanity check — loud if upstream's generate-bundle output changes.
+  for (const p of ["jsc", "bin/jsc", "lib/ld-linux-x86-64.so.2"]) {
+    try {
+      await Deno.stat(join(dir, p));
+    } catch {
+      throw new Error(
+        `jsc bundle layout changed: expected '${p}' under ${dir} — read ` +
+          `${join(dir, "README.txt")} (shipped in the bundle) and update ` +
+          `fetchJsc to match`,
+      );
     }
   }
-  await walk(extractedRoot);
-  if (!foundLibs) {
-    console.warn(
-      `[fetch] WARNING: no JavaScriptCore/WTF/bmalloc shared libs found under ` +
-        `${extractedRoot} — jsc may fail to start; inspect the archive layout`,
-    );
-  }
+  // Belt and braces on top of extractZip's mode restoration.
+  await Deno.chmod(binPath, 0o755);
+  await Deno.chmod(join(dir, "bin", "jsc"), 0o755);
+
   await Deno.writeTextFile(
     join(dir, "BUILD_IDENTITY"),
     `LAST-IS: ${lastIs}\nfetched: ${new Date().toISOString()}\n`,
   );
-  console.log(`[fetch] jsc ready: ${binPath} (rev ${lastIs}), libs -> ${libDir}`);
+  console.log(
+    `[fetch] jsc ready: ${binPath} (rev ${lastIs}; self-contained bundle, ` +
+      `executed via its wrapper — details in ${join(dir, "README.txt")})`,
+  );
 }
 
 async function main() {

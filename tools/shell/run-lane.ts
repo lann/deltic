@@ -115,10 +115,17 @@ type Header = any;
  * Runs the bundled entry under the shell binary. SpiderMonkey needs
  * `--module=<path>` (verified: bare positional args after `--module=<path>`
  * are consumed as additional scripts to run, NOT bound as `scriptArgs` — so
- * this driver passes no positional args at all and the entry reads
- * everything off fixed repo-relative paths with CWD=repoRoot); JSC accepts
- * `-m <path>` (verified: works even with a non-`.mjs` extension). Neither
- * shell needs `scriptArgs`/`arguments` here — see entry.ts's header.
+ * this driver passes no positional args at all and the entry derives the
+ * repo root from `import.meta.url`); JSC accepts `-m <path>` (verified:
+ * works even with a non-`.mjs` extension). Neither shell needs
+ * `scriptArgs`/`arguments` here — see entry.ts's header.
+ *
+ * The CWD is set to the repo root but the entry does NOT rely on it: JSC
+ * trunk bundles run through their shipped wrapper, which chdir()s into the
+ * bundle directory before exec'ing `bin/jsc` (whose PT_INTERP is the
+ * *relative* path `lib/ld-linux-x86-64.so.2`) — see fetchJsc in fetch.ts.
+ * The wrapper absolutizes relative argv paths against our CWD first, so the
+ * bundle path argument works either way.
  */
 async function runShell(
   lane: string,
@@ -138,7 +145,19 @@ async function runShell(
     stdout: "piped",
     stderr: "piped",
   });
-  const { code, stdout, stderr } = await cmd.output();
+  let out;
+  try {
+    out = await cmd.output();
+  } catch (e) {
+    // Exit-2 policy: a shell that cannot even be spawned is an
+    // infrastructure failure, not a lane finding.
+    fail(
+      `could not spawn ${shellBin}: ${
+        e instanceof Error ? e.message : String(e)
+      }\n  fetch it first: deno run -A tools/shell/fetch.ts ${lane}`,
+    );
+  }
+  const { code, stdout, stderr } = out;
   return {
     code,
     stdout: new TextDecoder().decode(stdout),

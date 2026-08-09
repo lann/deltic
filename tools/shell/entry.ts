@@ -3,8 +3,10 @@
 // Deno-lane-shaped, not browser-lane-shaped: this file is bundled
 // (`tools/shell/bundle.ts`) and executed directly by a JS shell (SpiderMonkey
 // `js` nightly or JSC `jsc` trunk) as a module. There is no HTTP server and
-// no page: the corpus is read straight off disk (relative to the shell's
-// CWD, which `tools/shell/run-lane.ts` sets to the repo root) and results are
+// no page: the corpus is read straight off disk — at absolute paths derived
+// from `import.meta.url` (the repo root is three directories above the
+// bundle), because the shell's CWD is not trustworthy: JSC trunk bundles
+// chdir into their own directory (see `readBinary` below) — and results are
 // streamed as `@deltic:`-prefixed JSON lines on stdout via `print()`, which
 // both target shells provide. `tools/shell/run-lane.ts` parses these lines
 // and classifies with the exact same `harness/src/xfail.ts` + `Summary` +
@@ -44,17 +46,34 @@ const engine = detectEngine();
 declare function print(s: string): void;
 
 function readBinary(path: string): Uint8Array {
+  const abs = path.startsWith("/") ? path : `${repoRoot}/${path}`;
   switch (engine) {
     case "spidermonkey":
-      return g.os.file.readFile(path, "binary");
+      return g.os.file.readFile(abs, "binary");
     case "jsc":
-      return g.readFile(path, "binary");
+      return g.readFile(abs, "binary");
     default:
       throw new Error(
         `readBinary: unrecognized shell (no os.file.readFile, no readFile)`,
       );
   }
 }
+
+// Repo root, derived from this bundle's own location rather than the CWD.
+// The CWD is NOT reliable: JSC trunk bundles are executed through their
+// shipped wrapper (see the README inside the bundle), which chdir()s into
+// the bundle directory before exec'ing bin/jsc — its real binary carries a
+// *relative* PT_INTERP (`lib/ld-linux-x86-64.so.2`) that only resolves from
+// there. The bundle lives at <repo>/tools/shell/dist/entry.js, so the root
+// is three directories up. `import.meta.url` shapes differ per shell
+// (verified): SpiderMonkey yields a bare absolute path, JSC a file:// URL.
+const repoRoot = (() => {
+  let p = import.meta.url;
+  if (p.startsWith("file://")) p = p.slice("file://".length);
+  const parts = p.split("/");
+  parts.splice(-4); // strip tools/shell/dist/entry.js
+  return parts.join("/") || "/";
+})();
 
 function readText(path: string): string {
   const bytes = readBinary(path);
