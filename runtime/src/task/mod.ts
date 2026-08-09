@@ -318,11 +318,18 @@ export class Task {
     assert_(thread === this.implicitThread, "exit of a non-implicit thread");
     this.unregisterThread(thread);
     if (this.ft.async === true && this.needsExclusive()) {
-      assert_(
-        this.inst.exclusiveThread === thread,
-        "exit_implicit_thread without holding the exclusive thread",
-      );
-      this.inst.exclusiveThread = null;
+      // Release-if-held rather than assert-held: RESOLUTION already released
+      // it (see `#releaseExclusiveOnResolve` — the wasmtime-superseding
+      // "exclusivity follows the call" rule), and every resolved task passes
+      // through here afterwards.
+      if (this.inst.exclusiveThread === thread) {
+        this.inst.exclusiveThread = null;
+      } else {
+        assert_(
+          this.state === "resolved",
+          "exit_implicit_thread without holding the exclusive thread",
+        );
+      }
     }
   }
 
@@ -359,13 +366,47 @@ export class Task {
       this.state === "started",
       `request_cancellation in state ${this.state}`,
     );
-    let candidates = this.threads.filter((t) => t.cancellable);
-    if (
-      this.ft.async === true && this.needsExclusive() &&
+    // Candidates are CANCELLABLE BLOCK POINTS of this task. The reference
+    // only ever finds them among `self.threads`, because its threads block
+    // *in place* (`wait_until` marks the thread itself cancellable). Under
+    // jspi the same block point is a `SuspensionPoint` parked in
+    // `store.waiting` — the wasm frame is suspended mid-built-in and the
+    // Thread that owns the activation sits non-cancellably on its
+    // `awaitValue` — so a scan of `threads` alone finds nothing and a
+    // cancellation the reference delivers synchronously was silently
+    // deferred to `pending-cancel` (cancellable.wast:322, test 1: a
+    // cancellable `waitable-set.wait` must observe TASK_CANCELLED).
+    // A resumed SuspensionPoint hands `cancelled` to its `produce`, which
+    // every cancellable built-in already translates (TASK_CANCELLED for
+    // waits, 1 for thread.yield), so delivery works unchanged once the
+    // point is simply *found*.
+    type Cancellable = {
+      cancellable: boolean;
+      resume(cancelled?: boolean): void;
+    };
+    let candidates: Cancellable[] = this.threads.filter((t) => t.cancellable);
+    const excludeImplicit = this.ft.async === true && this.needsExclusive() &&
       this.inst.exclusiveThread !== null &&
-      this.inst.exclusiveThread !== this.implicitThread
-    ) {
+      this.inst.exclusiveThread !== this.implicitThread;
+    if (excludeImplicit) {
       candidates = candidates.filter((t) => t !== this.implicitThread);
+    }
+    // Suspension points of this task's activation are frames OF the implicit
+    // thread, so they obey the same exclusion (definitions.py line 526: with
+    // another thread holding the exclusive slot, the implicit thread may not
+    // run).
+    if (!excludeImplicit) {
+      const store = this.inst.store as unknown as {
+        waiting: ({ task?: unknown } & Cancellable)[];
+      };
+      for (const w of store.waiting) {
+        if (
+          w.task === this && w.cancellable === true &&
+          !candidates.includes(w)
+        ) {
+          candidates.push(w);
+        }
+      }
     }
     if (candidates.length > 0 && this.inst.mayEnterFrom(caller)) {
       this.state = "cancel-delivered";

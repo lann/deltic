@@ -265,88 +265,26 @@ export const XFAIL: XfailEntry[] = [
   //     fidelity, instance poisoning, instantiation-time task context, and one
   //     shim decoder gap).
   // =====================================================================
-  // --- async/async-calls-sync.json: root cause: FACT-SYNC ---
-  {
-    file: "async/async-calls-sync.json",
-    line: 250,
-    reason:
-      "needs JSPI (M2 phase 3): sync-start-call whose " +
-      "async-lifted callee did not resolve in its first " +
-      "activation (the caller's wasm frame must block). " +
-      "Streams/futures themselves are implemented as of M2 phase " +
-      "2c; what remains here is the synchronous form of a copy or " +
-      "wait, which blocks the calling wasm frame",
-  },
-  {
-    file: "async/async-calls-sync.json",
-    line: 251,
-    reason:
-      "needs JSPI (M2 phase 3): sync-start-call whose " +
-      "async-lifted callee did not resolve in its first " +
-      "activation (the caller's wasm frame must block)",
-  },
-  // --- async/big-interleaving-test.json: root cause: STREAMS ---
-  {
-    file: "async/big-interleaving-test.json",
-    line: 1603,
-    reason:
-      "needs JSPI (M2 phase 3): waitable-set.wait with no pending " +
-      "event (the calling wasm frame must block; a callback-ABI " +
-      "guest should return the WAIT code instead)",
-  },
+  // --- async/async-calls-sync.json: GREEN under jspi auto-detection (M2
+  // flip); entries pruned. ---
+  // --- async/big-interleaving-test.json: GREEN under jspi auto-detection
+  // (M2 flip); entry pruned. ---
   // --- async/builtin-trap-poisons-instance.json: root cause: STREAMS ---
   // --- async/cancel-stream.json: root cause: STREAMS ---
-  // --- async/cancel-subtask.json: root cause: FACT-ASYNC ---
-  {
-    file: "async/cancel-subtask.json",
-    line: 201,
-    reason:
-      "observed: NeedsJspi: needs JSPI (M2 phase 3): " +
-      "waitable-set.wait with no pending event (the calling wasm " +
-      "frame must block; a callback-ABI guest should return the " +
-      "WAIT code instead)",
-  },
-  // --- async/cancellable.json: root cause: FACT-ASYNC ---
-  {
-    file: "async/cancellable.json",
-    line: 322,
-    reason:
-      "needs JSPI (M2 phase 3): waitable-set.wait with no pending " +
-      "event (the calling wasm frame must block; a callback-ABI " +
-      "guest should return the WAIT code instead). " +
-      "Streams/futures themselves are implemented as of M2 phase " +
-      "2c; what remains here is the synchronous form of a copy or " +
-      "wait, which blocks the calling wasm frame",
-  },
+  // --- async/cancel-subtask.json: GREEN under jspi auto-detection (M2
+  // flip); entry pruned. ---
+  // --- async/cancellable.json: GREEN under jspi auto-detection (M2 flip:
+  // request_cancellation now finds cancellable SuspensionPoints, and the
+  // async subtask.cancel waits for callee determinacy); entry pruned. ---
   // --- async/closed-stream.json: root cause: STREAMS ---
   // --- async/cross-abi-calls.json: root cause: FACT-ASYNC ---
   // --- async/cross-task-future.json: root cause: STREAMS ---
-  // --- async/deadlock.json: root cause: FACT-ASYNC ---
-  {
-    file: "async/deadlock.json",
-    line: 73,
-    reason:
-      "needs JSPI (M2 phase 3): waitable-set.wait with no pending " +
-      "event (the calling wasm frame must block; a callback-ABI " +
-      "guest should return the WAIT code instead). " +
-      "Streams/futures themselves are implemented as of M2 phase " +
-      "2c; what remains here is the synchronous form of a copy or " +
-      "wait, which blocks the calling wasm frame",
-  },
-  // --- async/dont-block-start.json: root cause: FACT-SYNC ---
-  {
-    file: "async/dont-block-start.json",
-    line: 3,
-    reason:
-      "PendingCapability: pending-capability: instantiation-time task " +
-      "context — a core start function calls a *task*-scoped built-in " +
-      "(not merely an instance-scoped one) during instantiation, where " +
-      "no task exists. definitions.py reads `current_task()` (line 309) " +
-      "and has no model for instantiation-time calls; instance-scoped " +
-      "built-ins already avoid this by taking their instance from the " +
-      "trampoline decl. Needs the instantiation-time task context the " +
-      "spec implies but does not spell out",
-  },
+  // --- async/deadlock.json: GREEN under jspi auto-detection (M2 flip: the
+  // driver's deadlock verdict now fires with wasmtime's trap text); entry
+  // pruned. ---
+  // --- async/dont-block-start.json: GREEN under jspi auto-detection (M2
+  // flip: a start-function SuspendError maps to "cannot block a synchronous
+  // task before returning"); entry pruned. ---
   // --- async/drop-cross-task-borrow.json: root cause: FACT-ASYNC ---
   {
     file: "async/drop-cross-task-borrow.json",
@@ -377,44 +315,14 @@ export const XFAIL: XfailEntry[] = [
       "observed: Error: expected trap \"cannot remove busy " +
       "stream\", got \"cannot drop busy stream\"",
   },
-  // --- async/drop-subtask.json: root cause: FACT-ASYNC ---
-  {
-    file: "async/drop-subtask.json",
-    line: 139,
-    reason:
-      "needs JSPI (M2 phase 3): waitable-set.wait with no pending " +
-      "event (the calling wasm frame must block; a callback-ABI " +
-      "guest should return the WAIT code instead). " +
-      "Streams/futures themselves are implemented as of M2 phase " +
-      "2c; what remains here is the synchronous form of a copy or " +
-      "wait, which blocks the calling wasm frame",
-  },
+  // --- async/drop-subtask.json: GREEN under jspi auto-detection (M2 flip);
+  // entry pruned. ---
   // --- async/drop-waitable-set.json: root cause: FACT-ASYNC ---
-  // --- async/empty-wait.json: root cause: FACT-ASYNC ---
-  {
-    file: "async/empty-wait.json",
-    line: 199,
-    reason:
-      "needs JSPI (M2 phase 3): waitable-set.wait with no pending " +
-      "event (the calling wasm frame must block; a callback-ABI " +
-      "guest should return the WAIT code instead). " +
-      "Streams/futures themselves are implemented as of M2 phase " +
-      "2c; what remains here is the synchronous form of a copy or " +
-      "wait, which blocks the calling wasm frame",
-  },
+  // --- async/empty-wait.json: GREEN under jspi auto-detection (M2 flip);
+  // entry pruned. ---
   // --- async/futures-must-write.json: root cause: STREAMS ---
-  // --- async/partial-stream-copies.json: root cause: STREAMS ---
-  {
-    file: "async/partial-stream-copies.json",
-    line: 238,
-    reason:
-      "needs JSPI (M2 phase 3): waitable-set.wait with no pending " +
-      "event (the calling wasm frame must block; a callback-ABI " +
-      "guest should return the WAIT code instead). " +
-      "Streams/futures themselves are implemented as of M2 phase " +
-      "2c; what remains here is the synchronous form of a copy or " +
-      "wait, which blocks the calling wasm frame",
-  },
+  // --- async/partial-stream-copies.json: GREEN under jspi auto-detection
+  // (M2 flip); entry pruned. ---
   // --- async/passing-resources.json: root cause: STREAMS ---
   {
     file: "async/passing-resources.json",
@@ -433,30 +341,13 @@ export const XFAIL: XfailEntry[] = [
       "got \"wasm trap: wasm `unreachable` instruction executed\"",
   },
   // --- async/same-component-stream-future.json: root cause: STREAMS ---
-  // --- async/sync-barges-in.json: root cause: FACT-ASYNC ---
-  {
-    file: "async/sync-barges-in.json",
-    line: 311,
-    reason:
-      "needs JSPI (M2 phase 3): waitable-set.wait with no pending " +
-      "event (the calling wasm frame must block; a callback-ABI " +
-      "guest should return the WAIT code instead). " +
-      "Streams/futures themselves are implemented as of M2 phase " +
-      "2c; what remains here is the synchronous form of a copy or " +
-      "wait, which blocks the calling wasm frame",
-  },
-  // --- async/sync-streams.json: root cause: STREAMS ---
-  {
-    file: "async/sync-streams.json",
-    line: 208,
-    reason:
-      "needs JSPI (M2 phase 3): synchronous stream copy with no " +
-      "counterpart ready (the calling wasm frame must block until " +
-      "the other end arrives). Streams/futures themselves are " +
-      "implemented as of M2 phase 2c; what remains here is the " +
-      "synchronous form of a copy or wait, which blocks the " +
-      "calling wasm frame",
-  },
+  // --- async/sync-barges-in.json: GREEN under jspi auto-detection (M2
+  // flip); entry pruned. ---
+  // --- async/sync-streams.json: GREEN under jspi auto-detection (M2 flip:
+  // exclusivity now follows the call, not the activation — a resolved
+  // producer blocked mid-sync-write no longer gates the next task's entry;
+  // see Task.#releaseExclusiveOnResolve, wasmtime-supersedes-reference);
+  // entry pruned. ---
   // --- async/trap-if-block-and-sync.json: see entries ---
   {
     file: "async/trap-if-block-and-sync.json",
@@ -957,18 +848,8 @@ export const XFAIL: XfailEntry[] = [
   },
   // --- async/trap-if-transfer-in-waitable-set.json: root cause: STREAMS ---
   // --- async/wait-during-callback.json: root cause: STREAMS ---
-  // --- async/zero-length.json: root cause: STREAMS ---
-  {
-    file: "async/zero-length.json",
-    line: 223,
-    reason:
-      "needs JSPI (M2 phase 3): sync-start-call whose " +
-      "async-lifted callee did not resolve in its first " +
-      "activation (the caller's wasm frame must block). " +
-      "Streams/futures themselves are implemented as of M2 phase " +
-      "2c; what remains here is the synchronous form of a copy or " +
-      "wait, which blocks the calling wasm frame",
-  },
+  // --- async/zero-length.json: GREEN under jspi auto-detection (M2 flip);
+  // entry pruned. ---
 ];
 
 export function isXfail(file: string, line: number): boolean {

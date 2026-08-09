@@ -35,6 +35,18 @@ export class Subtask extends Waitable {
   flatResults: CoreValue[] = [];
 
   /**
+   * The callee TASK behind this subtask, when there is one (FACT
+   * cross-component calls; host-import subtasks have none). `subtask.cancel`
+   * needs it under jspi: a cancellation delivered to a suspended activation
+   * resumes it on a MICROTASK (the engine's, not ours), so the async form
+   * must wait until the callee's state is determinate before choosing
+   * between BLOCKED and the resolved state — the same determinacy question
+   * `async-start-call` answers, and it needs the same object to ask it of.
+   */
+  // deno-lint-ignore no-explicit-any
+  calleeTask: any = null;
+
+  /**
    * Handles lent to the callee for the duration of the call. `null` once
    * `deliverResolve` has run — the reference uses exactly this
    * `lenders is None` sentinel to mean "resolve delivered" (line 908), so the

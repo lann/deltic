@@ -159,7 +159,14 @@ class HostActivity {
   pump(): void {
     const store = this.#store;
     if (store === null) return;
-    while (store.tick());
+    // Settled activation tails gate `tick` (Store.settled); a driver that
+    // never services them wedges the store — this loop runs BETWEEN export
+    // calls, when no driveAsync exists to do it.
+    for (;;) {
+      const serviced = store.serviceSettled();
+      const ticked = store.tick();
+      if (!serviced && !ticked) break;
+    }
     // In jspi mode a guest can be parked on a Promise rather than on a
     // scheduler condition, and `tick` cannot move those — only awaiting them
     // can. Kick off an asynchronous drain; the host operation the caller is
@@ -171,6 +178,18 @@ class HostActivity {
   async #drainAsync(store: Store): Promise<void> {
     try {
       while (store.awaiting.size > 0) {
+        // Give settle-lagged tails a microtask to land, then service them
+        // (they gate `tick`, and their bookkeeping is reference-atomic with
+        // the activation — see Store.settled).
+        await Promise.resolve();
+        if (store.serviceSettled()) {
+          for (;;) {
+            const serviced = store.serviceSettled();
+            const ticked = store.tick();
+            if (!serviced && !ticked) break;
+          }
+          continue;
+        }
         const t = [...store.awaiting][0] as {
           awaiting: Promise<unknown> | null;
           resumeWith(v: unknown, f?: { error: unknown }): void;
@@ -187,13 +206,27 @@ class HostActivity {
         }
         clearResumingThread();
         t.resumeWith(value, failure);
-        while (store.tick());
+        for (;;) {
+          const serviced = store.serviceSettled();
+          const ticked = store.tick();
+          if (!serviced && !ticked) break;
+        }
       }
     } catch (e) {
       // Nothing is awaiting this drain, so park the failure where the next
       // driving loop will surface it (same channel as a host-import rejection).
       store.hostFailure ??= e;
     }
+    // The drain advanced the guest OUTSIDE any driving loop. A `driveAsync`
+    // parked on `Promise.race([...pendingHostCalls])` re-evaluates its `done`
+    // predicate only when something it raced settles — and everything the
+    // drain just did (resume the callback task, deliver the event, watch the
+    // guest `task.return`) settled nothing that race can see. Re-arm through
+    // `notify()` so the parked driver wakes and re-checks; without this the
+    // lifted call's Promise never resolves even though the task resolved
+    // (observed: future-user's `double-future` under jspi auto-detection —
+    // the guest finished, the embedder's await hung forever).
+    this.notify();
   }
 
   /** No further host activity is possible on this stream. */

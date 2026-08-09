@@ -93,6 +93,7 @@ import {
   normalizeCoreValues,
   runCallbackLoop,
 } from "../exec/boundary.ts";
+import { traceCopy } from "./stream_builtins.ts";
 
 /** `PREPARE_ASYNC_NO_RESULT` (wasmtime-environ `component.rs:39`). */
 const PREPARE_ASYNC_NO_RESULT = 0xffff_ffff;
@@ -427,6 +428,7 @@ function mkCalleeTask(input: {
   ): Generator<BlockRequest, void, Cancelled> {
     if (!(yield* task.enterImplicitThread(thread))) return;
     const calleeArgs = task.start();
+    traceCopy(`mkCalleeTask callee canBlock=${canBlock} mode=${mode}`);
     // WASM ENTRY (3 of 3 that can reach a blocking built-in).
     //
     // The other two — a lifted export's core function and a callback export —
@@ -737,6 +739,7 @@ export function createAsyncStartCall(
     // that is its WAIT/YIELD, so the guest observes the cancellation and calls
     // `task.cancel`, resolving this subtask CANCELLED_BEFORE_RETURNED.
     subtask.onCancel = (callerInst) => task.requestCancellation(callerInst);
+    subtask.calleeTask = task;
 
     trapIf(
       !prepared.calleeInst.mayEnterFrom(prepared.callerInst),
@@ -744,8 +747,9 @@ export function createAsyncStartCall(
     );
     prepared.calleeInst.enterFrom(prepared.callerInst);
     let ok = false;
+    let thread: Thread;
     try {
-      const thread = spawn(task, body);
+      thread = spawn(task, body);
       thread.resume();
       ok = true;
     } catch (e) {
@@ -761,27 +765,67 @@ export function createAsyncStartCall(
       if (subtask.resolved()) {
         // Eager completion: no handle, no event (definitions.py line 2293).
         subtask.deliverResolve();
+        traceCopy(`async-start-call -> RETURNED (eager)`);
         return SubtaskState.RETURNED;
       }
       const subtaski = prepared.callerInst.handles.add(subtask);
       onProgress = () => subtask.setSubtaskPendingEvent(subtaski);
-      return packSubtaskResult(subtask.state, subtaski);
+      const packed = packSubtaskResult(subtask.state, subtaski);
+      traceCopy(
+        `async-start-call -> state=${subtask.state} i=${subtaski} ` +
+          `packed=0x${(packed as number).toString(16)}`,
+      );
+      return packed;
     };
 
-    // NO WAIT HERE, deliberately. An async-lowered caller must not block on
-    // its callee -- that is the entire point of async lowering: it takes a
-    // subtask handle and learns of completion through events. An earlier
-    // attempt (M2 "Fix 1") parked the caller here until the callee resolved.
-    // It made cross-abi-calls agree in both modes, and it broke the thing it
-    // had no business touching: the caller's activation was now suspended, so
-    // the sync-lowered parked caller of `handshake_test.ts` was never resumed
-    // and the run hung. Correct-looking, semantically wrong.
+    // NO WAIT FOR RESOLUTION HERE, deliberately. An async-lowered caller must
+    // not block on its callee's *completion* -- that is the entire point of
+    // async lowering: it takes a subtask handle and learns of completion
+    // through events. An earlier attempt (M2 "Fix 1") parked the caller here
+    // until the callee resolved. It made cross-abi-calls agree in both modes,
+    // and it broke the thing it had no business touching: the caller's
+    // activation was now suspended, so the sync-lowered parked caller of
+    // `handshake_test.ts` was never resumed and the run hung. Correct-looking,
+    // semantically wrong.
     //
-    // The residual defect this leaves is recorded in `mkCalleeTask`: a callee
-    // that would complete eagerly is `promising`-wrapped and so reports
-    // STARTED where an unwrapped run reports RETURNED. Fixing that needs the
-    // callee NOT to be wrapped when it cannot block -- a per-callee property,
-    // not a per-call one. See the report.
+    // What jspi mode DOES need is a wait for **determinacy** (jspi pin (j),
+    // `fastpath_hop_test.ts`): the engine defers a promising callee's
+    // continuation to a microtask at EVERY Suspending call -- even one whose
+    // value was available synchronously -- so a callee the reference would
+    // run to completion inside this call (`canon_lift` drives the thread to
+    // its first real block point before `canon_lower` returns) is still
+    // mid-hop when `report()` runs. Reporting then is reporting a state the
+    // reference can never observe: STARTED for a call that eagerly RETURNED
+    // (big-interleaving's `call-import` scripts), or a missed synchronous
+    // cancellation (its `subtask-cancel` scripts).
+    //
+    // "Determinate" is exactly one of:
+    //   * the subtask resolved (task.return ran mid-activation), or
+    //   * the callee's thread finished (results flow through the body), or
+    //   * the callee genuinely parked on a scheduler condition -- its
+    //     SuspensionPoint (or its body's own wait) sits in `store.waiting`.
+    // A genuinely-blocking callee reaches its first real block point without
+    // anything from the caller, so unlike Fix 1 this wait cannot deadlock:
+    // it is the reference's atomic run-to-first-block, reconstructed across
+    // the engine's microtask hops.
+    if (ctx.suspensionMode === "jspi") {
+      const store = prepared.callerInst.store as unknown as {
+        waiting: { task?: unknown }[];
+      };
+      const determinate = (): boolean =>
+        subtask.resolved() ||
+        thread.done() ||
+        store.waiting.some((w) => w.task === task);
+      if (!determinate()) {
+        return blockCurrentActivation({
+          store: prepared.callerInst.store,
+          task: currentTask(),
+          readyFunc: determinate,
+          cancellable: false,
+          produce: () => report(),
+        });
+      }
+    }
     return report();
   };
 }

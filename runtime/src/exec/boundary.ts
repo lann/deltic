@@ -262,19 +262,42 @@ export function callCore(fn: CoreFn, args: CoreValue[]): CoreValue[] {
   try {
     raw = fn(...args);
   } catch (e) {
-    if (e instanceof WebAssembly.RuntimeError) {
-      const mapped = CORE_TRAP_MESSAGES[e.message];
+    throw mapCoreException(e);
+  }
+  if (raw === undefined) return [];
+  if (Array.isArray(raw)) return raw as CoreValue[];
+  return [raw as CoreValue];
+}
+
+/**
+ * The `call_and_trap_on_throw` translation, factored so BOTH routes a core
+ * trap can take reach it:
+ *
+ *   * a synchronous throw out of `fn(...args)` (`callCore` above — the plain
+ *     path, and jspi pre-suspension);
+ *   * a **rejection of a `promising` entry's Promise** (jspi pin (e): a trap
+ *     after a resumption arrives as an ordinary rejection). That rejection
+ *     carries the raw `WebAssembly.RuntimeError`, and before this helper was
+ *     applied on the awaited path (`awaitCore` below), a post-suspension
+ *     guest trap escaped to the embedder as `RuntimeError: unreachable`
+ *     instead of the wasmtime-worded `Trap` — every deliberate guest trap
+ *     under detection scored as a harness failure
+ *     (big-interleaving-test.wast:836's assert_trap "unreachable").
+ */
+function mapCoreException(e: unknown): unknown {
+  if (e instanceof WebAssembly.RuntimeError) {
+    const mapped = CORE_TRAP_MESSAGES[e.message];
+    try {
       trap(
         mapped === undefined
           ? `guest trapped: ${e.message}`
           : `wasm trap: ${mapped}`,
       );
+    } catch (t) {
+      return t;
     }
-    throw e;
   }
-  if (raw === undefined) return [];
-  if (Array.isArray(raw)) return raw as CoreValue[];
-  return [raw as CoreValue];
+  return e;
 }
 
 /**
@@ -430,7 +453,17 @@ function drive(
 ): void | Promise<void> {
   for (;;) {
     traceDrive("drive", store, done, "top");
-    while (store.tick()) {
+    // The synchronous drain must not run while a thread is parked on a
+    // Promise: `tick` cannot see those, so a thread that re-parks READY on
+    // every resume (a callback-ABI guest spinning YIELD) would hold this
+    // loop forever while the promise-parked thread that would stop the spin
+    // never gets serviced (drop-subtask.wast:139 under detection: the
+    // Looper spins YIELD until `return` runs, and `return`'s caller sat
+    // parked on its activation promise). In jspi mode the lifted export
+    // returns a Promise anyway, so handing off to `driveAsync` — whose
+    // drain interleaves fairly — costs nothing; in plain mode `awaiting`
+    // is always empty and this loop is bit-for-bit what it was.
+    while (store.awaiting.size === 0 && store.tick()) {
       traceDrive("drive", store, done, "ticked");
       if (store.hostFailure !== undefined) throw takeHostFailure(store);
     }
@@ -451,8 +484,9 @@ function drive(
       traceDrive("drive", store, done, "DEADLOCK-TRAP");
       trapIf(
         true,
-        `deadlock: ${what} cannot make progress (no thread is ready and no ` +
-          `host call is outstanding)`,
+        `wasm trap: deadlock detected: event loop cannot make further ` +
+          `progress (${what}: no thread is ready and no host call is ` +
+          `outstanding)`,
       );
     }
     traceDrive("drive", store, done, "->async(hostcalls)");
@@ -492,24 +526,70 @@ async function driveAsync(
   done: () => boolean,
   what: string,
 ): Promise<void> {
+  let claimHops = 0;
   for (;;) {
     traceDrive("driveAsync", store, done, "top");
-    // We are executing our own code again, so no engine-driven resumption is
-    // in flight; drop any ambient claim before doing anything else.
-    clearResumingThread();
+    // FIRST: service every settled-but-unserviced activation tail, in settle
+    // order (`Store.settled` — armed eagerly at park time). A settled
+    // `awaitValue` is the rest of an activation that already finished its
+    // wasm; the reference runs that bookkeeping atomically inside
+    // `Thread.resume`, so nothing may be scheduled past it (`Store.tick`
+    // refuses while the queue is non-empty). Servicing after ticking let a
+    // freshly-resumed caller race into an entry gate while a finished
+    // callee's body had yet to release the exclusive slot — cancellable.wast
+    // then reported STARTING for an entry the reference admits.
+    store.serviceSettled();
+    if (store.hostFailure !== undefined) throw takeHostFailure(store);
+    // A live claim is an engine-driven resumption in flight: its activation
+    // has not yet parked again or finished. It will die on its own — parking
+    // consumes it (`blockCurrentActivation`), finishing releases it
+    // (`Store.noteAwaiting`'s settle continuation) — so yield microtasks
+    // until it does. The driver must NOT blanket-clear here: the claim may
+    // have been taken by a guest built-in settling another activation's
+    // suspension (`subtask.cancel` delivering a cancellation), and clearing
+    // it before that activation runs re-opens the mis-attribution window the
+    // claim exists to close.
+    if (hasResumingThread()) {
+      traceDrive("driveAsync", store, done, "yield-claim");
+      // Bounded: a claim that never dies is an internal bug (every path out
+      // of a resumed activation releases it — park, finish, trap), and a
+      // pure-microtask wait would otherwise starve the event loop and every
+      // stall timer with it. Interleave macrotask hops so timers stay alive,
+      // and fail loudly rather than spin forever.
+      claimHops++;
+      assert_(
+        claimHops < 10_000,
+        "driveAsync: a resumed-activation claim was never released " +
+          "(the activation neither parked, finished, nor trapped)",
+      );
+      if (claimHops % 100 === 0) {
+        await new Promise((r) => setTimeout(r, 0));
+      } else {
+        await Promise.resolve();
+      }
+      continue;
+    }
+    claimHops = 0;
     while (store.tick()) {
       if (store.hostFailure !== undefined) throw takeHostFailure(store);
+      // FAIRNESS between tick-able threads and promise-parked ones. A thread
+      // that is READY again on every resume (the callback-ABI YIELD spin)
+      // would otherwise monopolize this drain while a parked thread's
+      // settled promise waits (the starvation that hung
+      // drop-subtask.wast:139), and the engine's own continuations (jspi
+      // pin (j)) only ever land on microtask turns. One hop per tick; bail
+      // to the top the moment an activation tail lands.
+      if (store.awaiting.size > 0) {
+        await Promise.resolve();
+        if (store.settled.length > 0) break;
+      }
     }
     if (store.hostFailure !== undefined) throw takeHostFailure(store);
     if (done()) {
       traceDrive("driveAsync", store, done, "EXIT-done");
       return;
     }
-    // Let a settled-but-not-yet-run activation take its turn before we do
-    // anything else (`Store.tick` refuses to progress while a claim is live).
-    if (hasResumingThread()) {
-      traceDrive("driveAsync", store, done, "yield-claim");
-      await Promise.resolve();
+    if (store.settled.length > 0 || hasResumingThread()) {
       continue;
     }
     // Service promise-parked threads (jspi).
@@ -560,12 +640,23 @@ async function driveAsync(
           `deadlock-probe:progressed=${progressed}`,
         );
         if (!progressed) {
+          // The race covered a SNAPSHOT of the awaiting set. A thread that
+          // parked during the macrotask turn (a promising callee's body
+          // yielding its awaitValue mid-hop — jspi pin (j) makes this
+          // routine) was not raced, and its promise may already be settled;
+          // trapping now would declare a deadlock one iteration before the
+          // loop would have serviced it. Membership change ⇒ re-probe.
+          const fresh = [...store.awaiting] as AwaitWinner["t"][];
+          const changed = fresh.length !== parked.length ||
+            fresh.some((t, i) => t !== parked[i]);
+          if (changed) continue;
           if (store.readyCandidates().length === 0) {
             trapIf(
               true,
-              `deadlock: ${what} cannot make progress (every suspended ` +
-                `activation is waiting on a suspension only this scheduler ` +
-                `could resume, and none is ready)`,
+              `wasm trap: deadlock detected: event loop cannot make ` +
+                `further progress (${what}: every suspended activation is ` +
+                `waiting on a suspension only this scheduler could resume, ` +
+                `and none is ready)`,
             );
           }
           // No promise settled, but a thread became READY while we waited --
@@ -619,8 +710,9 @@ async function driveAsync(
       traceDrive("driveAsync", store, done, "DEADLOCK-TRAP");
       trapIf(
         true,
-        `deadlock: ${what} cannot make progress (no thread is ready and no ` +
-          `host call is outstanding)`,
+        `wasm trap: deadlock detected: event loop cannot make further ` +
+          `progress (${what}: no thread is ready and no host call is ` +
+          `outstanding)`,
       );
     }
     traceDrive("driveAsync", store, done, "await-race");
@@ -1034,7 +1126,16 @@ export function* awaitCore(
     const settled = yield {
       readyFunc: null,
       cancellable: false,
-      awaitValue: Promise.resolve(raw[0] as unknown as Promise<unknown>),
+      // A rejection of the promising Promise is a core trap by another route
+      // (jspi pin (e)); translate it exactly as `callCore` translates a
+      // synchronous throw, so the embedder sees one `Trap` vocabulary in both
+      // modes (see `mapCoreException`).
+      awaitValue: Promise.resolve(raw[0] as unknown as Promise<unknown>).then(
+        undefined,
+        (e) => {
+          throw mapCoreException(e);
+        },
+      ),
     };
     if (settled === undefined) return [];
     return Array.isArray(settled) ? settled as CoreValue[] : [settled as CoreValue];
@@ -1379,19 +1480,34 @@ export function* runCallbackLoop(input: {
   let [code, si] = unpackCallbackResult(input.packed);
 
   while (code !== CallbackCode.EXIT) {
-    assert_(
-      task.needsExclusive() && inst.exclusiveThread === task.implicitThread,
-      "callback loop without holding the exclusive thread",
-    );
-    // Releasing the exclusive thread across the wait is what lets *another*
-    // task of the same instance enter and run while this one waits — the
-    // whole point of the callback ABI (definitions.py line 2186).
-    inst.exclusiveThread = null;
+    // Per-iteration holder check rather than a blanket assert: a RESOLVED
+    // task that blocked mid-frame had its slot released at the suspension
+    // point (`blockCurrentActivation`, the wasmtime-superseding entry-gate
+    // rule) and runs the rest of its loop OUTSIDE the exclusivity protocol —
+    // it neither requires the slot to be free nor retakes it. Every
+    // unresolved task holds the slot here exactly as the reference asserts
+    // (definitions.py line 2187), and its release/retake cycle is unchanged.
+    const holding = inst.exclusiveThread === task.implicitThread;
+    if (holding) {
+      assert_(
+        task.needsExclusive(),
+        "callback loop holding the exclusive thread without needing it",
+      );
+      // Releasing the exclusive thread across the wait is what lets *another*
+      // task of the same instance enter and run while this one waits — the
+      // whole point of the callback ABI (definitions.py line 2186).
+      inst.exclusiveThread = null;
+    } else {
+      assert_(
+        task.state === "resolved",
+        "callback loop without holding the exclusive thread",
+      );
+    }
     let event: EventTuple;
     switch (code) {
       case CallbackCode.YIELD: {
         const cancelled = yield* thread.waitUntil(
-          () => inst.exclusiveThread === null,
+          () => !holding || inst.exclusiveThread === null,
           true,
         );
         event = cancelled
@@ -1407,7 +1523,7 @@ export function* runCallbackLoop(input: {
         );
         event = yield* (wset as WaitableSet).waitForEventAnd(
           thread,
-          () => inst.exclusiveThread === null,
+          () => !holding || inst.exclusiveThread === null,
           true,
         );
         break;
@@ -1415,11 +1531,13 @@ export function* runCallbackLoop(input: {
       default:
         trap(`invalid callback code ${code}`);
     }
-    assert_(
-      inst.exclusiveThread === null,
-      "exclusive thread taken while this task was waiting",
-    );
-    inst.exclusiveThread = task.implicitThread;
+    if (holding) {
+      assert_(
+        inst.exclusiveThread === null,
+        "exclusive thread taken while this task was waiting",
+      );
+      inst.exclusiveThread = task.implicitThread;
+    }
     stats.callbackInvocations++;
     const [next] = normalizeCoreValues(
       yield* awaitCore(callback, [event[0], event[1], event[2]], thread),

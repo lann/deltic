@@ -25,8 +25,23 @@
 //                                       holds handles across the call)
 //
 // What remains ignored is blocked on a *capability*, not on the scheduler:
-// stream/future copy machinery (M2 phase 2) and genuine wasm-stack suspension
-// (JSPI, M2 phase 3). Each entry names which.
+// a host-API addition, the component instance tree, and 🧵 threads. The two
+// JSPI-blocked entries retired at the M2 flip:
+//
+//   test_sync_using_wait            -> a sync task's blocking waitable-set.wait
+//                                      is lit (jspi site 2) and exercised green
+//                                      under auto-detection by
+//                                      test/async/sync-streams.wast (sync copies
+//                                      blocking mid-frame) and
+//                                      big-interleaving-test.wast's stackful
+//                                      `await` exports
+//   test_thread_cancel_callback     -> cancellation delivered to a thread
+//                                      parked inside a blocking built-in is
+//                                      exercised green by
+//                                      test/async/cancellable.wast (cancellable
+//                                      wait/yield + pending-cancel delivery;
+//                                      requestCancellation finds
+//                                      SuspensionPoints since the flip)
 
 const deferred: [name: string, reason: string][] = [
   [
@@ -45,17 +60,6 @@ const deferred: [name: string, reason: string][] = [
     "no wire form for instance nesting (see the CONTRACT note on " +
     "ComponentInstanceState.enteringSet) — v0.3 contract friction, not a " +
     "scheduler gap",
-  ],
-  [
-    "test_sync_using_wait",
-    "needs JSPI (M2 phase 3): a *sync* task calling waitable-set.wait blocks " +
-    "its wasm frame; the task core implements the non-blocking branch " +
-    "(an already-pending event) and fails loudly otherwise",
-  ],
-  [
-    "test_thread_cancel_callback",
-    "needs JSPI (M2 phase 3): the reference cancels a thread parked inside a " +
-    "blocking built-in; from a stackless guest there is no such parked frame",
   ],
   [
     "threads: test_threads, test_sync_threads (thread.* built-ins)",

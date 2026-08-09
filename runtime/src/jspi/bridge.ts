@@ -45,6 +45,7 @@ import { assert_ } from "../cabi/trap.ts";
 import { isSupported, makePromising, makeSuspending } from "./mechanics.ts";
 import {
   clearResumingThread,
+  consumeClaimIfRunning,
   setResumingThread,
 } from "../task/mod.ts";
 import type { Cancelled, SchedulableThread, Store } from "../task/mod.ts";
@@ -70,6 +71,89 @@ export function chooseMode(
 }
 
 /**
+ * Does a call through this trampoline declaration genuinely block — i.e. is
+ * it a reason a component NEEDS suspension support at all?
+ *
+ * Sharper than a kind list, and it must be: the async *form* of every copy /
+ * cancel built-in NEVER blocks — it returns `BLOCKED` and delivers the result
+ * through an event (definitions.py `stream_copy` line 2537 / `cancel_copy`
+ * 2643 / `canon_subtask_cancel` 2476, each `if not async_: ... else return
+ * BLOCKED`). Classifying by kind alone marked every instance that imports an
+ * async-form built-in as suspension-capable, which promising-wrapped its
+ * eagerly-completing FACT callees — and a wrapped eager callee reports
+ * STARTED where the reference reports RETURNED, and parks on a
+ * non-cancellable `awaitValue` where the reference delivers a synchronous
+ * cancellation (both asserted by big-interleaving-test.wast's expect-codes).
+ *
+ * Where the async-ness lives varies by kind, following wasmtime's trampoline
+ * layout (component/info.rs): copy built-ins carry an options index (the
+ * flag is `canonicalOptions[i].async`); the cancel forms and `subtask.cancel`
+ * carry `async` on the declaration itself; `waitable-set.wait`,
+ * `thread.yield` and `sync-start-call` are unconditionally block-capable
+ * (their non-blocking counterparts are separate kinds: poll, the YIELD
+ * callback code, async-start-call).
+ */
+export function trampolineNeedsSuspension(
+  t: { kind: string; async?: unknown; options?: unknown },
+  optionsAsync: (index: number) => boolean,
+): boolean {
+  switch (t.kind) {
+    case "sync-start-call":
+    case "waitable-set-wait":
+    case "thread-yield":
+      return true;
+    case "subtask-cancel":
+    case "stream-cancel-read":
+    case "stream-cancel-write":
+    case "future-cancel-read":
+    case "future-cancel-write":
+      return t.async !== true;
+    case "stream-read":
+    case "stream-write":
+    case "future-read":
+    case "future-write":
+      return typeof t.options === "number" ? !optionsAsync(t.options) : true;
+    default:
+      return false;
+  }
+}
+
+/**
+ * Must the executor hand this trampoline to wasm as a `Suspending` import in
+ * jspi mode?
+ *
+ * A superset of `trampolineNeedsSuspension` by exactly two kinds, both for
+ * the same reason: they never block in the reference or in plain mode, but
+ * under jspi they may park the CALLER until a callee's state is determinate,
+ * because the engine defers a resumed activation's continuation to a
+ * microtask (jspi pin (j), `fastpath_hop_test.ts`):
+ *
+ *   * `async-start-call` — parks until the freshly-started callee reaches
+ *     resolution / completion / a genuine block (fact_calls.ts);
+ *   * the async form of `subtask.cancel` — parks until a cancellation
+ *     delivered by settling the callee's suspension has actually landed
+ *     (async_builtins.ts; cancellable.wast asserts the reference's
+ *     synchronous-delivery answers).
+ *
+ * Neither is a *reason* to choose jspi mode, and neither marks its importer
+ * suspendable (`Executor.suspendableFuncs`): their parks only ever trigger
+ * when the nested callee is itself promising-wrapped, i.e. when a genuine
+ * blocker has already contaminated the adapter through the transitive import
+ * rule. Marking on these kinds is not only unnecessary — it is wrong: the
+ * FACT adapter's `[adapter-callee]*` pass-through exports are what get
+ * passed to `*-start-call` as lift callees, and marking the whole adapter
+ * instance promoted every eagerly-completing callee to promising, recreating
+ * the STARTED-vs-RETURNED divergence one level up.
+ */
+export function trampolineCanBlock(
+  t: { kind: string; async?: unknown; options?: unknown },
+  optionsAsync: (index: number) => boolean,
+): boolean {
+  return t.kind === "async-start-call" || t.kind === "subtask-cancel" ||
+    trampolineNeedsSuspension(t, optionsAsync);
+}
+
+/**
  * Does this component contain anything that can block a wasm frame?
  *
  * Computed from the plan, on the runtime side, so embedders (and the
@@ -84,33 +168,19 @@ export function chooseMode(
  *
  *   * a **stackful async lift** — async canonical options with no callback
  *     (`canon_lift` line 2179 runs the callee to completion on its own stack);
- *   * a **blocking built-in** reached synchronously — the `sync` form of
- *     `waitable-set.wait`, a stream/future copy or cancel, `subtask.cancel`,
- *     `thread.yield`, or a `sync-start-call` into an async-lifted callee.
+ *   * a **blocking built-in** reached synchronously — see
+ *     `trampolineNeedsSuspension`.
  */
 export function planNeedsSuspension(plan: {
   canonicalOptions: { async: boolean; callback: number | null }[];
-  trampolines: { kind: string }[];
+  trampolines: { kind: string; async?: unknown; options?: unknown }[];
 }): boolean {
   for (const o of plan.canonicalOptions) {
     if (o.async && o.callback === null) return true;
   }
+  const optionsAsync = (i: number) => plan.canonicalOptions[i]?.async === true;
   for (const t of plan.trampolines) {
-    switch (t.kind) {
-      case "sync-start-call":
-      case "waitable-set-wait":
-      case "thread-yield":
-      case "subtask-cancel":
-      case "stream-read":
-      case "stream-write":
-      case "future-read":
-      case "future-write":
-      case "stream-cancel-read":
-      case "stream-cancel-write":
-      case "future-cancel-read":
-      case "future-cancel-write":
-        return true;
-    }
+    if (trampolineNeedsSuspension(t, optionsAsync)) return true;
   }
   return false;
 }
@@ -144,16 +214,39 @@ export function suspendingImport<T extends (...a: never[]) => unknown>(
   return makeSuspending(fn as unknown as (...a: unknown[]) => unknown);
 }
 
-/** Fail loudly at instantiate time if the two wrapping sites disagree. */
+/**
+ * Fail loudly at instantiate time if the two wrapping sites disagree.
+ *
+ * The dangerous direction, per jspi pin (c), is a `Suspending` import
+ * reachable from a non-`promising` activation — that traps unconditionally,
+ * even on the plain-value path. Entry wrapping in jspi mode is unconditional
+ * (every lifted export, callback, and block-capable FACT callee), so the
+ * structural invariant is `importsWrapped ⇒ entriesWrapped`, per mode.
+ *
+ * Entries-without-imports is legitimate: per-declaration classification
+ * (`trampolineNeedsSuspension`) wraps no imports in a component whose
+ * built-ins are all non-blocking async forms, while the mode can still be
+ * jspi via the lift-shape over-approximation in `planNeedsSuspension`
+ * (canonical options carrying `async` with no callback are counted whether
+ * they belong to a lift or to a copy built-in — the plan does not say which,
+ * and the false positive only costs Promise-shaped exports).
+ */
 export function assertModeConsistent(
   mode: SuspensionMode,
   entriesWrapped: boolean,
   importsWrapped: boolean,
 ): void {
+  if (mode === "plain") {
+    assert_(
+      !entriesWrapped && !importsWrapped,
+      `plain mode with wrapped entries=${entriesWrapped} / ` +
+        `imports=${importsWrapped} — wrapping ran under the wrong mode`,
+    );
+    return;
+  }
   assert_(
-    (mode === "jspi") === entriesWrapped &&
-      (mode === "jspi") === importsWrapped,
-    `suspension mode ${mode} is not applied consistently ` +
+    entriesWrapped || !importsWrapped,
+    `suspension mode jspi wrapped imports without wrapping any entry ` +
       `(entries=${entriesWrapped}, imports=${importsWrapped}) — a ` +
       `Suspending import reached from a non-promising activation traps ` +
       `unconditionally (jspi pin (c))`,
@@ -224,6 +317,13 @@ export class SuspensionPoint<T = unknown> implements SchedulableThread {
     // Claim the ambient for this activation across the engine's resumption:
     // settling the import's Promise hands control to wasm, which will call
     // built-ins with an empty bracket stack. See `setResumingThread`.
+    //
+    // If a claim is live for the activation CURRENTLY EXECUTING (it is the
+    // code that called us — a running guest's `subtask.cancel` delivering a
+    // cancellation settles the callee's suspension from inside its own
+    // frame), that claim has served its purpose; consume it rather than
+    // false-positive the one-claimant assert. See `consumeClaimIfRunning`.
+    consumeClaimIfRunning();
     setResumingThread(this.task?.implicitThread ?? null);
     this.#settle(value);
   }
@@ -254,6 +354,50 @@ export function blockCurrentActivation<T>(input: {
   cancellable: boolean;
   produce: (cancelled: Cancelled) => T;
 }): Promise<T> {
+  // UPSTREAM DIVERGENCE (wasmtime supersedes definitions.py — the same class
+  // as the CM-3 note in intrinsics/stream_builtins.ts `takeCancelEvent`).
+  //
+  // A RESOLVED task whose implicit thread blocks mid-frame must stop gating
+  // its instance's entry. The reference holds `inst.exclusive_thread` from
+  // `enter_implicit_thread` until the callback loop's per-wait release or
+  // `exit_implicit_thread`, so a producer that calls `task.return` and then
+  // blocks in a synchronous `stream.write` (test/async/sync-streams.wast)
+  // keeps every later task gated at entry — an async-lowered call into the
+  // instance reports STARTING. wasmtime's entry gate instead tracks "a sync
+  // call in progress" (`ConcurrentInstanceState.do_not_enter`,
+  // concurrent.rs:501-503, 2023-2025), which ends at RESOLUTION, and
+  // sync-streams.wast:208 asserts wasmtime's answer: `$C.set` reports
+  // STARTED while `$C.get` sits resolved and blocked in its write.
+  //
+  // The release is deliberately AT THE BLOCK, not at resolution: releasing
+  // at `task.return` freed the slot mid-activation for tasks that resolve
+  // and then return a WAIT code (the ordinary producer shape), reordering
+  // the backpressure queue that async-calls-sync.wast's guest asserts under
+  // the deterministic profile (the handshake pins caught it). A task whose
+  // slot was released here never retakes it: `runCallbackLoop` treats a
+  // resolved non-holder as outside the exclusivity protocol, and
+  // `exit_implicit_thread` releases only if held.
+  const task = input.task as {
+    state?: string;
+    implicitThread?: unknown;
+    ft?: { async?: boolean };
+    needsExclusive?(): boolean;
+    inst?: { exclusiveThread: unknown };
+  } | null;
+  if (
+    task !== null && task?.state === "resolved" &&
+    task.ft?.async === true && task.needsExclusive?.() &&
+    task.inst !== undefined &&
+    task.inst.exclusiveThread === task.implicitThread &&
+    task.implicitThread !== null
+  ) {
+    task.inst.exclusiveThread = null;
+  }
+  // The activation is parking: if it still carried the resumed-ambient claim
+  // from the settle that resumed it, that claim's window closes here (the
+  // other closing edge — the activation FINISHING — is handled by
+  // `Store.noteAwaiting`'s settle continuation).
+  consumeClaimIfRunning();
   const point = new SuspensionPoint<T>(
     input.store,
     input.task,

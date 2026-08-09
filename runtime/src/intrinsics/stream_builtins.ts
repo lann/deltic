@@ -49,6 +49,24 @@ import {
 import { cabiOptions, type CoreFn, type ResolvedOptions } from "../exec/boundary.ts";
 import { BLOCKED } from "./async_builtins.ts";
 
+/**
+ * Standing probe (CE_COPY_TRACE=1): per-call return codes of the copy /
+ * cancel built-ins, in both modes. This is the plain-vs-jspi differential's
+ * data source — a divergence list of packed codes beats stack traces when the
+ * guest asserts exact `expect-code` values (big-interleaving-test.wast).
+ */
+const COPY_TRACE = (() => {
+  try {
+    return Deno.env.get("CE_COPY_TRACE") === "1";
+  } catch {
+    return false;
+  }
+})();
+
+export function traceCopy(msg: string): void {
+  if (COPY_TRACE) console.error(`[copy] ${msg}`);
+}
+
 /** Services the stream/future built-ins need from the executor. */
 export interface StreamTrampolineContext {
   componentInstance(index: number): ComponentInstanceState;
@@ -290,6 +308,7 @@ function finishCopy(
         // `cancel-copy` on it a trap (see `cancelCopy`). Setting it only now
         // is correct: before this point nothing was actually waiting.
         end.hasSyncWaiter = true;
+        traceCopy(`${what} sync copy i=${i} BLOCKS`);
         return blockCurrentActivation({
           store: inst.store,
           task: currentTask(),
@@ -297,7 +316,9 @@ function finishCopy(
           cancellable: false,
           produce: () => {
             end.hasSyncWaiter = false;
-            return take();
+            const p = take();
+            traceCopy(`${what} sync copy i=${i} RESUME -> 0x${p.toString(16)}`);
+            return p;
           },
         }) as unknown as number;
       }
@@ -306,9 +327,12 @@ function finishCopy(
           `wasm frame must block until the other end arrives)`,
       );
     }
+    traceCopy(`${what} async copy i=${i} -> BLOCKED`);
     return BLOCKED;
   }
-  return take();
+  const p = take();
+  traceCopy(`${what} copy(async=${async_}) i=${i} -> 0x${p.toString(16)}`);
+  return p;
 }
 
 // ---------------------------------------------------------------------------
@@ -352,8 +376,11 @@ function takeCancelEvent(
   const isStreamEvent = eventCode === EventCode.STREAM_READ ||
     eventCode === EventCode.STREAM_WRITE;
   if (isStreamEvent && (payload & 0xf) === CopyResult.COMPLETED) {
-    return ((payload & ~0xf) | CopyResult.CANCELLED) >>> 0;
+    const p = ((payload & ~0xf) | CopyResult.CANCELLED) >>> 0;
+    traceCopy(`${what} i=${i} -> 0x${p.toString(16)} (superseded COMPLETED)`);
+    return p;
   }
+  traceCopy(`${what} i=${i} -> 0x${payload.toString(16)}`);
   return payload;
 }
 

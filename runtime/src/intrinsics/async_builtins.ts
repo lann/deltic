@@ -71,6 +71,7 @@ import {
 import type { ComponentInstanceState } from "../task/mod.ts";
 import type { CoreFn, ResolvedOptions } from "../exec/boundary.ts";
 import { cabiOptions, normalizeCoreValues } from "../exec/boundary.ts";
+import { traceCopy } from "./stream_builtins.ts";
 
 /** Services these built-ins need from the executor. */
 export interface AsyncTrampolineContext {
@@ -284,8 +285,10 @@ export function createWaitableSetWait(
       // between the increment and the decrement here, no other code could run
       // to observe a non-zero value. Incrementing and immediately decrementing
       // would be pure ceremony.
+      traceCopy(`waitable-set.wait si=${si} FAST (pending event)`);
       event = wset.getPendingEvent();
     } else if (mode === "jspi") {
+      traceCopy(`waitable-set.wait si=${si} BLOCKS`);
       // SITE 2 (lit). definitions.py `WaitableSet.wait_for_event_and`
       // (line 829): block until the set has an event, then take it.
       //
@@ -485,6 +488,44 @@ export function createSubtaskCancel(
             "synchronous subtask.cancel whose callee did not resolve " +
               "immediately (the calling wasm frame must block)",
           );
+        }
+        // The ASYNC form answers "did the cancellation resolve the callee
+        // promptly?" — BLOCKED only when it genuinely did not
+        // (definitions.py line 2493). Under jspi "promptly" is invisible at
+        // this instant: `request_cancellation` delivered TASK_CANCELLED by
+        // settling the callee's suspension, and the engine runs the resumed
+        // activation (whose `task.cancel` resolves this subtask) on a LATER
+        // microtask (pin (j)). Deciding now reports BLOCKED for a callee the
+        // reference resolves synchronously (cancellable.wast tests 1-2). So:
+        // wait until the callee is DETERMINATE — resolved, finished, or
+        // re-parked on a scheduler condition — exactly `async-start-call`'s
+        // rule (fact_calls.ts). A callee with a pending (undeliverable)
+        // cancel sits parked non-cancellably, which is determinate, so the
+        // genuine BLOCKED answer is still immediate. Host-import subtasks
+        // carry no callee task: their onCancel is a no-op and their state
+        // cannot be mid-hop, so the pre-jspi immediate answer stands.
+        if (mode === "jspi" && st.calleeTask !== null) {
+          const t = st.calleeTask as {
+            threads: { done(): boolean }[];
+          };
+          const store = inst.store as unknown as {
+            waiting: { task?: unknown }[];
+          };
+          const determinate = (): boolean =>
+            st.resolved() ||
+            t.threads.every((th) => th.done()) ||
+            store.waiting.some((w) => w.task === st.calleeTask);
+          if (!determinate()) {
+            return blockCurrentActivation({
+              store: inst.store,
+              task: currentTask(),
+              readyFunc: determinate,
+              cancellable: false,
+              produce: () => (st.resolved() ? finish() : BLOCKED),
+            }) as unknown as number;
+          }
+          if (!st.resolved()) return BLOCKED;
+          return finish();
         }
         return BLOCKED;
       }

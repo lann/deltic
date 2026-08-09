@@ -276,6 +276,44 @@ export function clearResumingThread(): void {
   resumingThread = null;
 }
 
+/**
+ * Release the claim iff its activation is demonstrably RUNNING — i.e. the
+ * claim names the same thread the activation-attached ambient (ALS, pin (h))
+ * names for the code calling us. The claim exists to cover the window
+ * between settling a suspension and the resumed activation running; once
+ * that activation's own code is on the stack the window is closed, and
+ * holding the claim would falsely trip the one-claimant assert when the
+ * running activation's built-in settles ANOTHER activation's suspension —
+ * `subtask.cancel` delivering a cancellation to a parked callee
+ * (cancellable.wast) is exactly that shape. When ALS and the claim disagree
+ * (or no ALS context is present) the claim stays, and the assert keeps
+ * guarding the genuine two-unruned-claimants bug it was built for.
+ */
+export function consumeClaimIfRunning(): void {
+  if (resumingThread !== null && activationAls.getStore() === resumingThread) {
+    resumingThread = null;
+  }
+}
+
+/**
+ * Release the claim iff it names `t` — the settle-side half of the claim
+ * discipline: a claim taken when `t`'s suspension was settled dies when `t`'s
+ * activation finishes (its `awaitValue` promise settles; `Store.noteAwaiting`
+ * calls this from the eager settle continuation) or parks again
+ * (`blockCurrentActivation` consumes via `consumeClaimIfRunning`).
+ */
+// deno-lint-ignore no-explicit-any
+export function releaseClaimOf(t: any): void {
+  if (
+    resumingThread !== null &&
+    (resumingThread === t ||
+      (t as { task?: { implicitThread?: unknown } })?.task?.implicitThread ===
+        resumingThread)
+  ) {
+    resumingThread = null;
+  }
+}
+
 const AMBIENT_TRACE = (() => {
   try {
     return Deno.env.get("CE_AMBIENT_TRACE") === "1";
@@ -450,6 +488,76 @@ export class Store {
   readonly awaiting = new Set<any>();
 
   /**
+   * Settled-but-unserviced activation tails, in settle order.
+   *
+   * A settled `awaitValue` is the rest of an activation that already finished
+   * its wasm: result shaping, the callback loop, `exit_implicit_thread` (and
+   * with it the exclusive-thread release). The reference runs all of that
+   * atomically inside `Thread.resume`; under jspi it lands a few engine
+   * microtasks after the observable effects of the activation (`task.return`
+   * flips `resolved` DURING the wasm, the settle only afterwards — jspi
+   * pin (j)). Any scheduling decision taken in that window sees phantom
+   * state — a finished callee still "holding" its exclusive slot made
+   * cancellable.wast report STARTING for an entry the reference admits. So
+   * settlement is recorded EAGERLY (at park time, below), `tick` refuses to
+   * run anything while a tail is unserviced, and the driving loop services
+   * this queue first.
+   */
+  readonly settled: {
+    // deno-lint-ignore no-explicit-any
+    t: any;
+    value: unknown;
+    failure: { error: unknown } | undefined;
+  }[] = [];
+
+  /**
+   * Park `t` on `promise` (jspi `awaitValue`), with EAGER settle tracking.
+   *
+   * The `.then` here is also what closes the claim discipline for
+   * resumptions the driver did not settle itself (a guest built-in resolving
+   * another activation's suspension — `subtask.cancel` delivering a
+   * cancellation): the claim taken at settle time must survive until the
+   * resumed activation parks again or finishes, and "finished" is exactly
+   * this continuation firing. See `releaseClaimOf`.
+   */
+  // deno-lint-ignore no-explicit-any
+  noteAwaiting(t: any, promise: Promise<unknown>): void {
+    this.awaiting.add(t);
+    promise.then(
+      (value) => {
+        this.settled.push({ t, value, failure: undefined });
+        releaseClaimOf(t);
+      },
+      (e) => {
+        this.settled.push({ t, value: undefined, failure: { error: e } });
+        releaseClaimOf(t);
+      },
+    );
+  }
+
+  /**
+   * Service every settled activation tail, in settle order. Returns whether
+   * anything ran. EVERY driving loop must call this before (and interleaved
+   * with) `tick` — the queue gates `tick`, so a driver that never services
+   * it wedges the store (observed: host-stream pumping between export
+   * calls). A `resumeWith` may throw (trap unwinding); callers propagate or
+   * park it exactly as they do for `tick`.
+   */
+  serviceSettled(): boolean {
+    let did = false;
+    while (this.settled.length > 0) {
+      const s = this.settled.shift()!;
+      if (this.awaiting.has(s.t)) {
+        (s.t as {
+          resumeWith(v: unknown, f?: { error: unknown }): void;
+        }).resumeWith(s.value, s.failure);
+        did = true;
+      }
+    }
+    return did;
+  }
+
+  /**
    * definitions.py `Store.tick` (line 597): resume one ready thread, bracketed
    * by the reentrance gate for a host-initiated entry (`enter_from(None)` /
    * `leave_to(None)`).
@@ -470,6 +578,10 @@ export class Store {
     // yield to the microtask queue first, which is exactly what `driveAsync`
     // does.
     if (resumingThread !== null) return false;
+    // Same discipline, other edge: a settled-but-unserviced activation tail
+    // (see `settled`) is mid-"atomic resume" from the reference's point of
+    // view; scheduling anything before servicing it acts on phantom state.
+    if (this.settled.length > 0) return false;
     const candidates = this.readyCandidates();
     if (candidates.length === 0) return false;
     const thread = chooseCandidate(candidates);

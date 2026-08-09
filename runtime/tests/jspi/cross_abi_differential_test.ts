@@ -14,22 +14,24 @@
 // `async-calls-sync-*` exports diverged while all others matched exactly.
 // A suite run showed only "6 RuntimeError: unreachable" with no hint of shape.
 //
-// TARGET: zero divergences. CURRENT: six, all `async-calls-sync-*` -- an
-// async-lowered call into a sync-lifted callee. Cause (proven, see the M2
-// report): the FACT callee is `promising`-wrapped so that a callee which
-// blocks can suspend, but `enterWasm` returns a Promise unconditionally, so a
-// callee that would have completed eagerly reports its subtask STARTED where
-// an unwrapped run reports RETURNED. There is no per-CALL discriminator: the
-// same wrap is required by callees that do block. The fix is to not wrap a
-// callee that CANNOT block -- a per-callee-instance property derived from the
-// plan (does its code import any blocking trampoline?), which does not exist
-// yet.
+// TARGET: zero divergences — REACHED (M2 endgame). The six
+// `async-calls-sync-*` divergences (async-lowered call into a sync-lifted
+// callee reporting STARTED where an unwrapped run reports RETURNED) were
+// resolved by two changes working together:
 //
-// So this pins the exact known-divergent set rather than asserting zero. It
-// fails if any OTHER export starts diverging (the regression this guards) and
-// equally if one of these six is fixed without shrinking the list (the
-// prompt to tighten). Delete entries as they are fixed; the goal is an empty
-// list and a plain `length === 0` assertion.
+//   * per-DECLARATION blocking classification (`trampolineNeedsSuspension`,
+//     jspi/bridge.ts) keeps eagerly-completing callees out of
+//     `Executor.suspendableFuncs`, so they are not `promising`-wrapped at
+//     all; and
+//   * for callees that ARE legitimately wrapped, `async-start-call` parks the
+//     caller until the callee's state is DETERMINATE (resolved / finished /
+//     genuinely scheduler-parked) — the reference's atomic
+//     run-to-first-block, reconstructed across the engine's microtask hops
+//     (jspi pin (j): even a plain-value Suspending return defers the
+//     continuation to a microtask).
+//
+// The set below stays as the mechanism-of-record: if any export starts
+// diverging again, it fails loudly with the per-export outcome diff.
 import { assert } from "./asserts.ts";
 import { Translator } from "../../src/shim/mod.ts";
 import { instantiateComponent } from "../../src/exec/mod.ts";
@@ -103,15 +105,10 @@ Deno.test({
       }
     };
 
-    // Known-divergent, each for the single cause documented above.
-    const KNOWN_DIVERGENT = new Set([
-      "async-calls-sync-4-param",
-      "async-calls-sync-5-param",
-      "async-calls-sync-17-param",
-      "async-calls-sync-1-result",
-      "async-calls-sync-16-result",
-      "async-calls-sync-17-result",
-    ]);
+    // Known-divergent set: EMPTY, and it must stay that way. (History: the
+    // six `async-calls-sync-*` exports lived here until the determinacy park
+    // landed — see the module header.)
+    const KNOWN_DIVERGENT = new Set<string>([]);
     const divergences: string[] = [];
     const unexpectedlyAgreeing: string[] = [];
     for (const field of fields) {

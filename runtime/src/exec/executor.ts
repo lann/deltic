@@ -10,35 +10,17 @@
 //   - component hash verification against plan.component
 
 import type { ComponentValue, FuncType, ValType } from "../cabi/types.ts";
+import { Trap } from "../cabi/trap.ts";
 import { ComponentInstanceState, Store } from "../task/mod.ts";
 import {
   assertModeConsistent,
   chooseMode,
   planNeedsSuspension,
   suspendingImport,
+  trampolineCanBlock,
+  trampolineNeedsSuspension,
   type SuspensionMode,
 } from "../jspi/mod.ts";
-
-/**
- * Trampoline kinds that can block a wasm frame, and so are handed to wasm as
- * `Suspending` imports in jspi mode. Mirrors `planNeedsSuspension`'s list —
- * the two must agree, or a component could be judged "needs suspension" while
- * the built-in it needs it for is imported plainly.
- */
-const BLOCKING_TRAMPOLINES: ReadonlySet<string> = new Set([
-  "sync-start-call",
-  "waitable-set-wait",
-  "thread-yield",
-  "subtask-cancel",
-  "stream-read",
-  "stream-write",
-  "future-read",
-  "future-write",
-  "stream-cancel-read",
-  "stream-cancel-write",
-  "future-cancel-read",
-  "future-cancel-write",
-]);
 import {
   loadPlan,
   PlanError,
@@ -71,6 +53,19 @@ import {
   type SyncCallScope,
   TranscodeMemory,
 } from "../intrinsics/mod.ts";
+
+/**
+ * Standing probe (CE_COPY_TRACE): log which import made a core instance
+ * suspendable — the first question to ask whenever a FACT callee is
+ * promising-wrapped that should not be. Read once, permission-safe.
+ */
+const SUSPENDABLE_TRACE = (() => {
+  try {
+    return Deno.env.get("CE_COPY_TRACE") === "1";
+  } catch {
+    return false;
+  }
+})();
 
 /**
  * Host-provided imports: a nested record keyed by the component's *exact*
@@ -258,21 +253,28 @@ class Executor {
 
   /**
    * Core functions exported by a core instance that imports at least one
-   * blocking trampoline -- i.e. functions whose execution can reach a
-   * suspension point. FACT consults this to decide whether a callee needs its
-   * own `promising` entry; wrapping one that cannot block would force
-   * asynchrony the ABI forbids (an eagerly-completing callee must report
-   * RETURNED, not STARTED).
+   * genuinely-blocking trampoline (`trampolineNeedsSuspension`, per
+   * DECLARATION — the async form of a copy/cancel built-in never blocks and
+   * does not mark) or a function from an already-marked instance. FACT
+   * consults this to decide whether a callee needs its own `promising`
+   * entry; wrapping one that cannot block forces asynchrony the ABI forbids
+   * (an eagerly-completing callee must report RETURNED, not STARTED).
    *
-   * Correct but CONSERVATIVE, and currently inert on the official corpus:
-   * instance granularity is too coarse for it. `async/cross-abi-calls.wast`
-   * exports all four lower/lift combinations from ONE core instance, and that
-   * instance (transitively, through its FACT adapter) imports
-   * `sync-start-call`, so every function it exports is marked potentially
-   * blocking -- including the sync-lifted callee that cannot block. Sharpening
-   * this needs per-FUNCTION reachability (which exported function can reach an
-   * imported blocking trampoline), i.e. a call-graph pass over the core
-   * module, which belongs in the translator where wasmparser already is.
+   * Instance granularity is still an over-approximation — a module exporting
+   * both a blocking and a non-blocking function marks both — but with two
+   * mitigations it no longer produces wrong answers on the official corpus:
+   *
+   *   * per-declaration classification keeps async-form-only importers (and
+   *     the FACT `[adapter-callee]*` pass-through wrappers reached through
+   *     them) out of the set entirely;
+   *   * a needlessly-wrapped callee no longer changes observable state:
+   *     `async-start-call` parks the caller until the callee is determinate
+   *     (fact_calls.ts), reconstructing the reference's synchronous
+   *     run-to-first-block across the engine's microtask hops (jspi pin (j)).
+   *
+   * Per-FUNCTION reachability (a call-graph pass in the translator, where
+   * wasmparser already is) would still shrink the set — as a wrapping-cost
+   * optimization now, not a correctness need.
    */
   readonly suspendableFuncs = new WeakSet<object>();
 
@@ -290,40 +292,33 @@ class Executor {
     this.adapterBytes = input.adapters ?? new Map();
     this.hostImports = input.imports ?? {};
     this.verifyHash = input.verifyHash ?? true;
-    // AUTO-DETECTION IS DELIBERATELY OFF (jspi mode = explicit opt-in only).
+    // AUTO-DETECTION IS ON (M2 exit). `chooseMode` picks jspi when the
+    // embedder opts in OR when the plan needs suspension: a stackful async
+    // lift, or a genuinely blocking built-in — classified per DECLARATION
+    // (`trampolineNeedsSuspension`; the async form of a copy/cancel built-in
+    // never blocks and is not evidence). An explicit `jspi: false` still
+    // forces plain, and a sync-only component never detects as needing
+    // suspension, so the M1 synchronous API is untouched (pinned by
+    // bridge_test "plain mode: lifted exports still return values" and the
+    // planNeedsSuspension(hello) === false pin beside it).
     //
-    // `planNeedsSuspension(loaded.wire)` computes the right answer and the
-    // opt-in path works, but detection stays off while 28 async commands still
-    // fail under it. The Fix-1 hang described here previously is GONE: that
-    // attempt made `async-start-call` wait for callee resolution, which parked
-    // the async-lowered CALLER -- precisely what async lowering exists to
-    // avoid -- and hung the handshake resume path. It has been reverted; a
-    // detection-on run now completes.
-    //
-    // 26 now, measured in one captured run (was 28; sites 2/3/5 lit):
-    //   big-interleaving-test.wast  18  (11 RuntimeError, 4 NeedsJspi = the
-    //                                    still-unlit stream copy sites,
-    //                                    2 empty-stack, 1)
-    //   cross-abi-calls.wast         6  (blocked on per-FUNCTION reachability
-    //                                    -- see `suspendableFuncs`)
-    //   dont-block-start             1  (start-section singleton)
-    //   builtin-trap-poisons-instance 1
-    // 20 failures over the full 291-command corpus, and NO UNLIT SITES
-    // REMAIN -- every blocking built-in now blocks for real. What is left is
-    // genuine defect or named blocker:
-    //   big-interleaving-test.wast  12  11 x guest `expect-code` mismatch
-    //                                   (the .wast scripts an instruction list
-    //                                   and asserts exact return codes, so
-    //                                   these are VALUE differences under
-    //                                   jspi, not scheduling), plus 1
-    //                                   "table entry empty" trap at :1481
-    //   cross-abi-calls.wast         6  per-FUNCTION reachability (see
-    //                                   `suspendableFuncs`) -- translator-side
-    //   dont-block-start             1  start-section singleton
-    //   builtin-trap-poisons-instance 1 wrong trap text ("cannot drop busy
-    //                                   stream" vs "cannot enter component
-    //                                   instance")
-    this.suspensionMode = chooseMode(input.jspi);
+    // The detection-on failure inventory that kept this off is CLOSED — all
+    // suspension sites lit, zero failures over the full corpus. What
+    // protects each closed class:
+    //   * STARTED-vs-RETURNED / eager-callee wrapping (big-interleaving's
+    //     expect-codes, cross-abi's six): per-declaration classification +
+    //     `async-start-call`'s determinacy park — pinned by
+    //     tests/jspi/cross_abi_differential_test.ts (KNOWN_DIVERGENT is
+    //     EMPTY and asserted empty) and fastpath_hop_test.ts (pin (j): the
+    //     Suspending fast path still defers the continuation);
+    //   * park/resume of a sync-lowered caller: handshake_test.ts pins;
+    //   * stall-vs-trap verdicts (incl. the YIELD-spin starvation and the
+    //     stale-race guard in exec/boundary.ts): deadlock_test.ts pins;
+    //   * trap poisoning through rejections (`Thread.resumeWith` bracket)
+    //     and start-function suspension mapping: the conformance suite's
+    //     builtin-trap-poisons-instance / dont-block-start files, green
+    //     under detection.
+    this.suspensionMode = chooseMode(input.jspi, planNeedsSuspension(loaded.wire));
   }
 
   async verifyComponent(): Promise<void> {
@@ -445,12 +440,49 @@ class Executor {
           // potentially-blocking, and everything else is not.
           this.sawBlockingImport = false;
           declared.forEach((imp, i) => {
+            const before = this.sawBlockingImport;
             const value = this.importValue(init.args[i]);
+            // Standing probe (CE_COPY_TRACE): which import made this core
+            // instance suspendable — the first question to ask whenever a
+            // FACT callee is promising-wrapped that should not be.
+            if (!before && this.sawBlockingImport && SUSPENDABLE_TRACE) {
+              console.error(
+                `[suspendable] module ${init.module}: import ` +
+                  `${imp.module}.${imp.name} (${JSON.stringify(init.args[i])})`,
+              );
+            }
             (importObject[imp.module] ??=
               {} as WebAssembly.ModuleImports)[imp.name] =
                 value as WebAssembly.ImportValue;
           });
-          const instance = await WebAssembly.instantiate(module, importObject);
+          let instance: WebAssembly.Instance;
+          try {
+            instance = await WebAssembly.instantiate(module, importObject);
+          } catch (e) {
+            // A SuspendError out of instantiation is a START FUNCTION trying
+            // to suspend: instantiation is never a `promising` activation, so
+            // ANY suspension-capable call from a start function trips jspi
+            // pin (c) ("a Suspending import called outside a promising
+            // activation traps unconditionally"). That is precisely the
+            // condition the Component Model traps on — a start function is an
+            // implicitly synchronous context that may not block — and
+            // wasmtime words it as below (`test/async/dont-block-start.wast`
+            // asserts the text twice). Deliberately conservative in the same
+            // direction as the engine: a wait whose event is already pending
+            // still suspends under jspi (pin (j)) and so still traps here,
+            // where wasmtime might have completed it; the reference has no
+            // model for instantiation-time built-ins at all
+            // (`current_thread()` presumes a running task).
+            if (
+              (e as { constructor?: { name?: string } })?.constructor?.name ===
+                "SuspendError"
+            ) {
+              throw new Trap(
+                "cannot block a synchronous task before returning",
+              );
+            }
+            throw e;
+          }
           if (this.sawBlockingImport) {
             for (const exported of Object.values(instance.exports)) {
               if (typeof exported === "function") {
@@ -700,9 +732,25 @@ class Executor {
     ) {
       return value;
     }
-    const kind = this.wire.trampolines[def.index]?.kind ?? "";
-    if (!BLOCKING_TRAMPOLINES.has(kind)) return value;
-    this.sawBlockingImport = true;
+    const decl = this.wire.trampolines[def.index];
+    // Per-DECLARATION blocking classification (jspi/bridge.ts): the async
+    // form of a copy/cancel built-in never blocks, so importing one neither
+    // needs a `Suspending` wrap nor marks the importer suspendable. The
+    // kind-only version of this test pulled every async-form consumer into
+    // `suspendableFuncs`, promising-wrapping FACT callees that complete
+    // eagerly — the STARTED-vs-RETURNED and missed-synchronous-cancellation
+    // divergences big-interleaving-test.wast asserts against.
+    if (decl === undefined) return value;
+    const optionsAsync = (i: number) =>
+      this.wire.canonicalOptions[i]?.async === true;
+    const d = decl as { kind: string; async?: unknown; options?: unknown };
+    if (!trampolineCanBlock(d, optionsAsync)) return value;
+    // `async-start-call` is wrapped (its jspi-only determinacy park must be
+    // able to suspend the caller) but does NOT mark the importer: see
+    // `trampolineCanBlock` in jspi/bridge.ts for why marking on it is wrong.
+    if (trampolineNeedsSuspension(d, optionsAsync)) {
+      this.sawBlockingImport = true;
+    }
     this.noteImport();
     return suspendingImport(
       value as (...a: never[]) => unknown,

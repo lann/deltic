@@ -22,6 +22,8 @@ import {
   type Cancelled,
   CANCELLED_FALSE,
   CANCELLED_TRUE,
+  NeedsJspi,
+  PendingCapability,
   popCurrentThread,
   pushCurrentThread,
   type SchedulableThread,
@@ -133,7 +135,39 @@ export class Thread implements SchedulableThread {
     this.awaiting = null;
     this.#store.awaiting.delete(this);
     this.#state = "suspended";
-    this.#resumeInternal(value, failure);
+    // The reentrance bracket, exactly as `Store.tick` puts around `resume()`.
+    //
+    // Every thread resumption in the reference runs under the instance's
+    // entered lock, and a trap propagating out of the resumed thread skips
+    // `leave_to` — which is the Component Model's instance poisoning
+    // (definitions.py `Store.tick` line 597; see the matching comment in
+    // scheduler.ts). This path is a resumption too — the value arrived
+    // through a Promise instead of a ready-condition, but the thread body
+    // (and any wasm it runs) is the same — so it takes the same bracket.
+    // Without it, a trap delivered as an `awaitValue` rejection (how EVERY
+    // guest trap in a suspended activation arrives under jspi, pin (e))
+    // unwound cleanly and the instance stayed enterable: the second call of
+    // `builtin-trap-poisons-instance.wast` then re-ran the guest and
+    // reported "cannot drop busy stream" where the suite demands the
+    // poisoned-instance "cannot enter component instance".
+    //
+    // Capability signals release the lock, for the same reason as in `tick`:
+    // they mark the RUNTIME incomplete, not the component faulted.
+    const inst = this.task.inst;
+    assert_(
+      inst.mayEnterFrom(null),
+      "resumeWith: parked thread's instance is not enterable from the host",
+    );
+    inst.enterFrom(null);
+    try {
+      this.#resumeInternal(value, failure);
+    } catch (e) {
+      if (e instanceof NeedsJspi || e instanceof PendingCapability) {
+        inst.leaveTo(null);
+      }
+      throw e;
+    }
+    inst.leaveTo(null);
   }
 
   resume(cancelled: Cancelled = CANCELLED_FALSE): void {
@@ -176,10 +210,12 @@ export class Thread implements SchedulableThread {
     this.cancellable = req.cancellable;
     if (req.awaitValue !== undefined) {
       // Parked on a Promise, not on a scheduler condition. The driving loop
-      // owns it from here (exec/boundary.ts `drive`).
+      // owns it from here (exec/boundary.ts `drive`); parking through
+      // `noteAwaiting` arms the eager settle tracking the scheduler's
+      // phantom-state gate depends on (see `Store.settled`).
       this.#state = "suspended";
       this.awaiting = req.awaitValue;
-      this.#store.awaiting.add(this);
+      this.#store.noteAwaiting(this, req.awaitValue);
       return;
     }
     if (req.readyFunc === null) {

@@ -182,10 +182,16 @@ Deno.test("bridge: the invariant is checked, not hoped for", () => {
   assertModeConsistent("plain", false, false);
   // jspi mode: both sites wrapped.
   assertModeConsistent("jspi", true, true);
-  // Any mixture is rejected — this is the configuration fact (c) makes fatal.
+  // jspi mode with NO wrapped imports is legal: per-declaration
+  // classification (trampolineNeedsSuspension) wraps nothing in a component
+  // whose built-ins are all async forms, while the mode can still be jspi
+  // via planNeedsSuspension's lift-shape over-approximation.
+  assertModeConsistent("jspi", true, false);
+  // The dangerous mixtures are rejected — fact (c) makes these fatal:
+  // a Suspending import with no promising entry, and any wrapping at all
+  // in plain mode.
   for (
     const [mode, e, i] of [
-      ["jspi", true, false],
       ["jspi", false, true],
       ["plain", true, false],
       ["plain", false, true],
@@ -249,12 +255,63 @@ Deno.test("bridge: planNeedsSuspension recognises both sources of blocking", () 
       kind,
     );
   }
+  // Per-DECLARATION sharpening: the async FORM of a copy/cancel built-in
+  // never blocks (definitions.py returns BLOCKED instead), so it must not
+  // flip the mode either — kind alone is not enough.
+  for (
+    const kind of [
+      "subtask-cancel",
+      "stream-cancel-read",
+      "stream-cancel-write",
+      "future-cancel-read",
+      "future-cancel-write",
+    ]
+  ) {
+    assertEq(
+      planNeedsSuspension({
+        canonicalOptions: [],
+        trampolines: [{ kind, async: true }],
+      }),
+      false,
+      `${kind} (async form)`,
+    );
+  }
+  for (const kind of ["stream-read", "stream-write", "future-read", "future-write"]) {
+    assertEq(
+      planNeedsSuspension({
+        canonicalOptions: [{ async: true, callback: 0 }],
+        trampolines: [{ kind, options: 0 }],
+      }),
+      false,
+      `${kind} (async options)`,
+    );
+    assertEq(
+      planNeedsSuspension({
+        canonicalOptions: [{ async: false, callback: null }],
+        trampolines: [{ kind, options: 0 }],
+      }),
+      true,
+      `${kind} (sync options)`,
+    );
+  }
+  // `async-start-call` is Suspending-WRAPPED in jspi mode (the determinacy
+  // park) but is never a reason to choose jspi mode.
+  assertEq(
+    planNeedsSuspension({
+      canonicalOptions: [],
+      trampolines: [{ kind: "async-start-call" }],
+    }),
+    false,
+    "async-start-call",
+  );
 });
 
 Deno.test("plain mode: lifted exports still return values, not Promises", async () => {
-  // The stop-the-line property. M1's synchronous API must not silently become
-  // async for everyone just because JSPI exists: a component that is not in
-  // jspi mode returns `T`, not `Promise<T>`, from every lifted export.
+  // The stop-the-line property, RESTATED FOR AUTO-DETECTION (M2 flip): a
+  // sync-only component must never be wrapped. Instantiation below passes no
+  // `jspi` flag at all, so it exercises exactly the auto-detection path the
+  // executor now runs; the value-not-Promise assertion holds only if
+  // `planNeedsSuspension(hello) === false`, which is also pinned explicitly.
   const root = new URL("../../../", import.meta.url);
   let shim: Uint8Array, guest: Uint8Array;
   try {
@@ -271,6 +328,17 @@ Deno.test("plain mode: lifted exports still return values, not Promises", async 
   const { instantiateComponent } = await import("../../src/exec/mod.ts");
   const t = await Translator.create(shim);
   const { plan, adapters } = t.translate(guest);
+  // The detection predicate itself, pinned on a real sync-only plan.
+  assertEq(
+    planNeedsSuspension(
+      plan as unknown as {
+        canonicalOptions: { async: boolean; callback: number | null }[];
+        trampolines: { kind: string }[];
+      },
+    ),
+    false,
+    "a sync-only component must not detect as needing suspension",
+  );
   const c = await instantiateComponent({
     plan,
     componentBytes: guest,
@@ -293,8 +361,9 @@ Deno.test({
   name: "jspi: the ambient current-thread does not survive a suspension",
   ignore: !isSupported(),
   fn: async () => {
-    // This is the real reason `planNeedsSuspension` auto-detection is off, and
-    // it is worth pinning so the next attempt does not re-diagnose it.
+    // This is the fact that made naive auto-detection impossible until the
+    // activation-attached ambient existed (pins (h)/(i)); it stays pinned so
+    // nobody re-diagnoses it.
     //
     // `currentThread()` is ambient: `pushCurrentThread` brackets a synchronous
     // generator step. Under JSPI the engine resumes a suspended wasm

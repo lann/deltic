@@ -10,9 +10,10 @@
 // an await nothing would ever settle ("Promise resolution is still pending but
 // the event loop has already resolved").
 //
-// This pins the fix by running the component that exposed it. Note it drives
-// jspi mode EXPLICITLY (`jspi: true`) rather than relying on auto-detection,
-// which is still off for the reasons in exec/executor.ts.
+// This pins the fix by running the component that exposed it. It drives
+// jspi mode EXPLICITLY (`jspi: true`) so the pin holds even for embedders
+// that force the mode; auto-detection (on since the M2 flip) reaches the
+// same mode for this component by itself.
 import { assertEquals } from "./asserts.ts";
 import { Translator } from "../../src/shim/mod.ts";
 import { instantiateComponent } from "../../src/exec/mod.ts";
