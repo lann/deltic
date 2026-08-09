@@ -2,13 +2,21 @@
 // ct-runner CLI entry.
 //
 //   deno run -A ct-runner/src/main.ts <suite.wasm> --out results.jsonl \
-//     [--imports <module.ts>] [--target NAME] [--suite-name NAME] \
+//     [--translator <translator_shim.wasm>] [--imports <module.ts>] \
+//     [--target NAME] [--suite-name NAME] \
 //     [--only SUBSTRING] [--case-timeout-ms N] [--no-fresh-cases] [--jspi]
 //
 // `--imports <module.ts>` convention (contracts/embedder-api.md §"Module
 // wiring and instantiation"): a TS module whose default export is either
 // the imports record directly, or a factory (sync or async) producing one.
 // Never test-context — the runner supplies that itself.
+//
+// `--translator` (or DELTIC_TRANSLATOR in the environment) names the
+// translator-shim wasm explicitly — required when this CLI runs outside a
+// deltic checkout (e.g. imported by URL at a release tag, with the wasm
+// taken from that release's `deltic-translator-shim.wasm` asset; see
+// docs/consumers.md and issue #16's interim release scheme). Inside a
+// checkout it defaults to the local release build under `target/`.
 
 import { Translator } from "../../runtime/src/shim/mod.ts";
 import type { ComponentArtifacts } from "../../runtime/src/embedder/mod.ts";
@@ -20,7 +28,8 @@ function usageError(msg: string): never {
   console.error(`error: ${msg}`);
   console.error(
     "usage: deno run -A ct-runner/src/main.ts <suite.wasm> --out <results.jsonl> " +
-      "[--imports <module.ts>] [--target NAME] [--suite-name NAME] " +
+      "[--translator <translator_shim.wasm>] [--imports <module.ts>] " +
+      "[--target NAME] [--suite-name NAME] " +
       "[--only SUBSTRING] [--case-timeout-ms N] [--no-fresh-cases] [--jspi]",
   );
   Deno.exit(2);
@@ -29,6 +38,7 @@ function usageError(msg: string): never {
 interface Cli {
   suitePath: string;
   out: string;
+  translator?: string;
   importsModule?: string;
   target: string;
   suiteName?: string;
@@ -41,6 +51,7 @@ interface Cli {
 function parseArgs(argv: string[]): Cli {
   const positional: string[] = [];
   let out: string | undefined;
+  let translator: string | undefined;
   let importsModule: string | undefined;
   let target = "deltic/host";
   let suiteName: string | undefined;
@@ -54,6 +65,9 @@ function parseArgs(argv: string[]): Cli {
     switch (a) {
       case "--out":
         out = argv[++i];
+        break;
+      case "--translator":
+        translator = argv[++i];
         break;
       case "--imports":
         importsModule = argv[++i];
@@ -86,6 +100,7 @@ function parseArgs(argv: string[]): Cli {
   return {
     suitePath: positional[0],
     out,
+    translator,
     importsModule,
     target,
     suiteName,
@@ -109,7 +124,37 @@ async function loadImportsModule(path: string): Promise<Record<string, unknown>>
   return (def ?? {}) as Record<string, unknown>;
 }
 
-async function loadTranslator(): Promise<Translator> {
+/** Resolve the translator-shim wasm: explicit `--translator`, then
+ * `DELTIC_TRANSLATOR`, then the checkout-local release build. The explicit
+ * paths exist for consumers running this CLI outside a deltic checkout
+ * (URL-imported at a release tag): `import.meta.url` is then remote, so the
+ * repo-relative default cannot work — they point at the release's
+ * `deltic-translator-shim.wasm` asset instead. */
+async function loadTranslator(explicit?: string): Promise<Translator> {
+  const fromEnv = Deno.env.get("DELTIC_TRANSLATOR");
+  const path = explicit ?? (fromEnv !== undefined && fromEnv !== "" ? fromEnv : undefined);
+  if (path !== undefined) {
+    let bytes: Uint8Array;
+    try {
+      bytes = await Deno.readFile(path);
+    } catch (e) {
+      console.error(
+        `error: cannot read translator wasm at ${path}` +
+          ` (${explicit !== undefined ? "--translator" : "DELTIC_TRANSLATOR"}): ${e}`,
+      );
+      Deno.exit(1);
+    }
+    return await Translator.create(bytes);
+  }
+
+  if (REPO_ROOT.protocol !== "file:") {
+    console.error(
+      "error: running outside a deltic checkout — pass --translator " +
+        "<translator_shim.wasm> (or set DELTIC_TRANSLATOR); the wasm ships as " +
+        "a release asset (deltic-translator-shim.wasm).",
+    );
+    Deno.exit(1);
+  }
   const rel = "target/wasm32-unknown-unknown/release/translator_shim.wasm";
   let bytes: Uint8Array;
   try {
@@ -117,7 +162,7 @@ async function loadTranslator(): Promise<Translator> {
   } catch {
     console.error(
       `error: missing ${rel} — run: cargo build -p translator-shim --release ` +
-        `--target wasm32-unknown-unknown`,
+        `--target wasm32-unknown-unknown (or pass --translator)`,
     );
     Deno.exit(1);
   }
@@ -132,7 +177,7 @@ function suiteNameFrom(path: string): string {
 async function main() {
   const cli = parseArgs(Deno.args);
   const componentBytes = await Deno.readFile(cli.suitePath);
-  const translator = await loadTranslator();
+  const translator = await loadTranslator(cli.translator);
   const { plan, adapters } = translator.translate(componentBytes);
   const artifacts: ComponentArtifacts = { plan, componentBytes, adapters };
 
