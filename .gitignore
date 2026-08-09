@@ -5,4 +5,7 @@ node_modules/
 dist/
 # M3 browser lane: playwright browser downloads (PLAYWRIGHT_BROWSERS_PATH)
 .browser-cache/
+# Engine-shell canary lanes (issue #22): fetched SpiderMonkey nightly / JSC
+# trunk / Deno canary binaries.
+.shell-cache/
 *.tmp

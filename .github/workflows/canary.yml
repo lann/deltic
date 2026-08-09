@@ -1,0 +1,170 @@
+name: Canary
+
+# Weekly + on-demand only: SpiderMonkey nightly, JSC trunk, and a Deno-canary
+# probe run trunk-fresh engine builds against the conformance corpus (issue
+# #22). These are FINDINGS lanes, never gates — every driver here exits 0
+# even with recorded deviations, per each lane's `required: false` overlay
+# and the drivers' own exit policy (`tools/shell/run-lane.ts`,
+# `tools/shell/deno-canary.ts`: exit 2 is reserved for infrastructure
+# failure, e.g. a missing shell binary or a channel unreachable). Nothing
+# here feeds `ci.yml`'s release gate.
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Monday 06:00 UTC
+  workflow_dispatch:
+
+env:
+  DENO_VERSION: "2.9.5"
+  WASM_TOOLS_VERSION: "1.247.0"
+
+jobs:
+  shell-canaries:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true # third_party/component-model: testgen + conformance corpus
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-tools@${{ env.WASM_TOOLS_VERSION }}
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: ${{ env.DENO_VERSION }}
+
+      - name: build the translator shim (wasm32)
+        run: cargo build -p translator-shim --target wasm32-unknown-unknown --release
+      - name: generate the conformance corpus
+        working-directory: harness
+        run: deno task gen
+
+      - name: cache shell downloads
+        uses: actions/cache@v4
+        with:
+          path: .shell-cache
+          # No version pin in the key: nightly/trunk builds change daily by
+          # design, so this cache is a same-day rerun optimization only —
+          # fetch.ts/deno-canary.ts each check for an existing binary but a
+          # stale one just gets reused, matching a findings lane's tolerance
+          # for slight staleness between the cron tick and the job running.
+          key: shell-cache-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}
+          restore-keys: |
+            shell-cache-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: fetch SpiderMonkey nightly
+        run: deno run -A tools/shell/fetch.ts spidermonkey
+      - name: SpiderMonkey nightly lane
+        run: deno run -A tools/shell/run-lane.ts spidermonkey --json sm-results.json
+
+      - name: fetch JSC trunk (x86_64)
+        run: deno run -A tools/shell/fetch.ts jsc
+      - name: JSC trunk lane
+        run: deno run -A tools/shell/run-lane.ts jsc --json jsc-results.json
+
+      - name: Deno canary probe (V8-trailing-edge substitute for a d8 lane)
+        run: deno run -A tools/shell/deno-canary.ts --json deno-canary-results.json
+
+      - name: upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shell-canaries-x64
+          path: |
+            sm-results.json
+            jsc-results.json
+            deno-canary-results.json
+          if-no-files-found: warn
+
+      - name: append summary
+        if: always()
+        run: |
+          {
+            echo "## Engine-shell canaries (x64)"
+            echo
+            echo "SpiderMonkey nightly, JSC trunk, Deno canary — findings lanes, non-gating."
+            for f in sm-results.json jsc-results.json deno-canary-results.json; do
+              if [ -f "$f" ]; then
+                echo
+                echo "### $f"
+                echo '```json'
+                python3 -c "import json,sys; d=json.load(open('$f')); print(json.dumps(d.get('header', d), indent=2)[:4000])" || cat "$f"
+                echo '```'
+              fi
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # JSC has no arm64 build channel (jsc-built-products is x86_64-only) — this
+  # leg runs the two lanes that DO have arm64 coverage (issue #22: "SM
+  # nightlies publish aarch64 shells; JSC trunk and d8 do not").
+  shell-canaries-arm:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-tools@${{ env.WASM_TOOLS_VERSION }}
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: ${{ env.DENO_VERSION }}
+
+      - name: build the translator shim (wasm32)
+        run: cargo build -p translator-shim --target wasm32-unknown-unknown --release
+      - name: generate the conformance corpus
+        working-directory: harness
+        run: deno task gen
+
+      - name: cache shell downloads
+        uses: actions/cache@v4
+        with:
+          path: .shell-cache
+          key: shell-cache-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}
+          restore-keys: |
+            shell-cache-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: fetch SpiderMonkey nightly
+        run: deno run -A tools/shell/fetch.ts spidermonkey
+      - name: SpiderMonkey nightly lane
+        run: deno run -A tools/shell/run-lane.ts spidermonkey --json sm-results.json
+
+      - name: Deno canary probe
+        run: deno run -A tools/shell/deno-canary.ts --json deno-canary-results.json
+
+      - name: upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shell-canaries-arm
+          path: |
+            sm-results.json
+            deno-canary-results.json
+          if-no-files-found: warn
+
+      - name: append summary
+        if: always()
+        run: |
+          {
+            echo "## Engine-shell canaries (arm64)"
+            echo
+            echo "SpiderMonkey nightly + Deno canary (JSC trunk has no arm64 channel — skipped)."
+            for f in sm-results.json deno-canary-results.json; do
+              if [ -f "$f" ]; then
+                echo
+                echo "### $f"
+                echo '```json'
+                python3 -c "import json,sys; d=json.load(open('$f')); print(json.dumps(d.get('header', d), indent=2)[:4000])" || cat "$f"
+                echo '```'
+              fi
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
