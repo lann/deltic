@@ -131,6 +131,23 @@ export interface InstantiateInput {
    * today (the M3 degradation path).
    */
   jspi?: boolean;
+  /**
+   * A plan already converted by `loadPlan`, used instead of re-loading.
+   *
+   * Why this exists: the conventions layer (`src/embedder/`) must have the
+   * per-instantiation `ResourceTypeInfo` identity tokens and the converted
+   * types table *before* instantiation begins, because host imports genuinely
+   * fire DURING it — a core module's `start` function runs inside
+   * `runInitializers`, and real guests do call imports from it (Go's runtime
+   * calls `monotonic-clock.now()` from `schedinit`). Reading them off the
+   * returned `ComponentHandle.loadedPlan` is therefore too late. Handing the
+   * same `LoadedPlan` in keeps the tokens identical on both sides.
+   *
+   * Contract: one `LoadedPlan` per instantiation (tokens must be fresh per
+   * component instance), and `loadedPlan.wire` must be `plan`. Both are
+   * checked.
+   */
+  loadedPlan?: LoadedPlan;
 }
 
 /** An instantiated component: its export surface plus introspection state. */
@@ -173,7 +190,14 @@ export async function instantiateComponent(
 ): Promise<ComponentHandle> {
   // Re-load per instantiation: resource identity tokens must be fresh per
   // component instance (descriptor-ir.md open item on ResourceTypeInfo).
-  const loaded = loadPlan(input.plan);
+  // Re-load unless the caller already did (see `InstantiateInput.loadedPlan`).
+  const loaded = input.loadedPlan ?? loadPlan(input.plan);
+  if (loaded.wire !== input.plan) {
+    throw new PlanError(
+      "instantiateComponent: `loadedPlan` was converted from a different " +
+        "plan document than `plan`",
+    );
+  }
   const executor = new Executor(loaded, input);
   await executor.verifyComponent();
   await executor.compileModules();

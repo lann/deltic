@@ -12,7 +12,7 @@
 
 import type { WirePlan, WireExport } from "../plan/format.ts";
 import type { LoadedPlan } from "../plan/loader.ts";
-import { PlanError } from "../plan/loader.ts";
+import { loadPlan, PlanError } from "../plan/loader.ts";
 import type { FuncType, ResourceTypeInfo, ValType } from "../cabi/types.ts";
 import type { ComponentValue } from "../cabi/types.ts";
 import { Trap } from "../cabi/trap.ts";
@@ -114,6 +114,12 @@ export async function instantiate(
     imports: facade.rawImports,
     jspi: opts.jspi,
     verifyHash: opts.verifyHash,
+    // THE ordering fix: the facade converted this plan in its constructor and
+    // wired its import wrappers against those very `ResourceTypeInfo` tokens.
+    // Host imports fire DURING instantiation (a core module's `start`
+    // function runs inside `runInitializers`), so the facade cannot wait for
+    // the handle to learn its own types.
+    loadedPlan: facade.loaded,
   });
   facade.bind(handle);
   const instance: EmbedderInstance = {
@@ -148,7 +154,13 @@ class Facade {
   readonly #bindings = new Map<number, Binding>();
   /** ResourceTypeInfo identity -> ResourceIndex (one index, many tokens). */
   readonly #tokenIndex = new Map<ResourceTypeInfo, number>();
-  #loaded: LoadedPlan | null = null;
+  /**
+   * The converted plan — owned by the facade and handed to the executor, so
+   * both sides share one set of per-instantiation resource identity tokens.
+   * Available from construction, which is what makes import wrappers usable
+   * for the whole of instantiation.
+   */
+  readonly loaded: LoadedPlan;
   readonly #bridge: ValueBridge;
   /**
    * Releases for reps minted while lowering the CURRENT call's arguments.
@@ -159,13 +171,30 @@ class Facade {
   #lowerScope: (() => void)[] | null = null;
   /** ResourceIndex -> registry, for diagnostics (see INTERNAL_HOST_REGISTRIES). */
   readonly hostRegistries = new Map<number, HostResourceRegistry>();
+  /** True once `buildExports` has run: guest resource classes then exist. */
+  #exportsBuilt = false;
 
   constructor(
     readonly artifacts: ComponentArtifacts,
     providers: Record<string, unknown>,
   ) {
     this.#resolver = new ImportResolver(providers);
-    this.leaves = requiredImports(artifacts.plan);
+    this.loaded = loadPlan(artifacts.plan);
+    // `ResourceTypeInfo` identity -> `ResourceIndex`. Both halves are static
+    // (the tokens are ours; `resourceTables` is wire data), so this map is
+    // complete before instantiation starts — a host import that fires from a
+    // guest `start` function can resolve resource types normally.
+    //
+    // One resource TYPE can be reached through several resource TABLES
+    // (plan-format.md C2 amendment #1: a type export's index is a table
+    // index, and the executor sets impl/dtor on every table whose `resource`
+    // matches), hence index-keyed bindings with tokens as aliases.
+    artifacts.plan.resourceTables.forEach((table, i) => {
+      if (table.kind !== "concrete") return;
+      const token = this.loaded.resourceTokens[i];
+      if (token !== undefined) this.#tokenIndex.set(token, table.resource);
+    });
+    this.leaves = requiredImports(this.loaded);
     // A component that imports a resource TYPE cannot be wired without
     // `plan.importedResources`: that table is the only thing mapping the
     // import back to a `ResourceIndex` (plan-format.md v0.1 amendment #2 /
@@ -186,27 +215,29 @@ class Facade {
     }
     this.#bridge = this.#makeBridge();
     this.#buildRawImports();
+    this.#bindHostResources();
   }
 
   // -- resource-type identity ------------------------------------------------
 
   /**
-   * Bind to the executor's *own* loaded plan.
+   * Consistency check after instantiation.
    *
-   * The executor re-loads the plan per instantiation so resource identity
-   * tokens are fresh per component instance; the `own`/`borrow` types in every
-   * signature point at those tokens, so the facade must use the same objects.
-   * A resource *type* can be reached through several resource **tables** (the
-   * executor sets `impl`/`dtor` on every table whose `resource` matches), so
-   * the bridge keys bindings by `ResourceIndex` and maps tokens onto it here.
+   * The facade no longer *learns* anything here — it handed its own
+   * `LoadedPlan` to the executor precisely so that nothing about types or
+   * resource identity depends on instantiation having finished. All this does
+   * is assert the executor did not silently re-load (which would give it a
+   * second, disjoint set of `ResourceTypeInfo` tokens and make every
+   * `own`/`borrow` unresolvable).
    */
   bind(handle: ComponentHandle): void {
-    this.#loaded = handle.loadedPlan;
-    this.artifacts.plan.resourceTables.forEach((table, i) => {
-      if (table.kind !== "concrete") return;
-      const token = handle.loadedPlan.resourceTokens[i];
-      if (token !== undefined) this.#tokenIndex.set(token, table.resource);
-    });
+    if (handle.loadedPlan !== this.loaded) {
+      throw new PlanError(
+        "the executor instantiated from a different LoadedPlan than the " +
+          "facade built its import wrappers from; resource identity tokens " +
+          "would not match",
+      );
+    }
   }
 
   #indexOf(rt: ResourceTypeInfo): number {
@@ -223,8 +254,25 @@ class Facade {
     const index = this.#indexOf(rt);
     let b = this.#bindings.get(index);
     if (b === undefined) {
-      // A guest resource with no exported type and no exported leaves: still
-      // a valid handle, just anonymous.
+      // A GUEST-implemented resource. Unlike host-implemented ones (bound at
+      // construction from static plan data), a guest resource's class is
+      // assembled from the component's own lifted `[constructor]`/`[method]`
+      // exports, which do not exist until instantiation has finished. If a
+      // guest `start` function hands one to a host import, say so precisely
+      // rather than surfacing a half-built wrapper.
+      if (!this.#exportsBuilt) {
+        throw new PlanError(
+          `a guest-implemented resource (ResourceIndex ${index}) crossed the ` +
+            `boundary before instantiation finished — a guest \`start\` ` +
+            `function passed an own/borrow handle to a host import. Its class ` +
+            `is assembled from the component's own lifted exports, which do ` +
+            `not exist yet. Host-implemented resources are unaffected. If a ` +
+            `real component needs this, the class must be built lazily from ` +
+            `the plan's export table instead of the runtime's export surface.`,
+        );
+      }
+      // Post-instantiation: a guest resource with no exported type and no
+      // exported leaves. Still a valid handle, just anonymous.
       b = { kind: "guest", name: `resource-${index}` };
       this.#bindings.set(index, b);
     }
@@ -241,6 +289,31 @@ class Facade {
       () => [],
     );
     return b.cls;
+  }
+
+  /**
+   * Bind host-implemented resource types to their `ResourceIndex`.
+   *
+   * Everything this needs is static wire data (`plan.importedResources`, whose
+   * entries are back-references into `plan.imports`), so it runs at
+   * construction — before instantiation, and therefore before a guest `start`
+   * function can call an import that carries an `own`/`borrow` of one.
+   * Imported resources occupy `ResourceIndex` 0..n-1 in `importedResources`
+   * order (plan-format.md v0.1 amendment #2 / v0.2).
+   */
+  #bindHostResources(): void {
+    const importedResources = this.artifacts.plan.importedResources ?? [];
+    for (const p of this.#pendingHostResources) {
+      const at = importedResources.findIndex((ir) => ir.import === p.importIndex);
+      if (at < 0) continue;
+      this.#bindings.set(at, {
+        kind: "host",
+        name: this.leaves[p.importIndex].leaf,
+        registry: p.registry,
+        cls: p.cls,
+      });
+      this.hostRegistries.set(at, p.registry);
+    }
   }
 
   // -- the value bridge ------------------------------------------------------
@@ -294,10 +367,7 @@ class Facade {
   }
 
   #funcType(index: number | undefined, what: string): FuncType {
-    const loaded = this.#loaded;
-    if (loaded === null) {
-      throw new PlanError(`${what}: the facade is not bound to an instance yet`);
-    }
+    const loaded = this.loaded;
     if (index === undefined) throw new PlanError(`${what}: no type index`);
     const t = loaded.types[index];
     if (t === undefined || t.kind !== "func") {
@@ -553,23 +623,7 @@ class Facade {
 
   // deno-lint-ignore no-explicit-any
   buildExports(handle: ComponentHandle): Record<string, any> {
-    // Host-implemented resource classes are bound now: `bind()` has run, so
-    // the token -> ResourceIndex map exists. Imported resources occupy
-    // ResourceIndex 0..numImportedResources-1, in `importedResources` order
-    // (plan-format.md v0.1 amendment #2).
-    const importedResources = this.artifacts.plan.importedResources ?? [];
-    for (const p of this.#pendingHostResources) {
-      const at = importedResources.findIndex((ir) => ir.import === p.importIndex);
-      if (at < 0) continue;
-      this.#bindings.set(at, {
-        kind: "host",
-        name: this.leaves[p.importIndex].leaf,
-        registry: p.registry,
-        cls: p.cls,
-      });
-      this.hostRegistries.set(at, p.registry);
-    }
-
+    this.#exportsBuilt = true;
     // deno-lint-ignore no-explicit-any
     const out: Record<string, any> = {};
     const worldLeaves: WireExport[] = [];
@@ -633,7 +687,7 @@ class Facade {
         // from the resource TABLE it points at (the wire field is a table
         // index, like `own`/`borrow`).
         if (exp.type.kind === "resource") {
-          const token = this.#loaded!.resourceTokens[exp.type.resource];
+          const token = this.loaded.resourceTokens[exp.type.resource];
           if (token !== undefined && this.#tokenIndex.has(token)) {
             const index = this.#tokenIndex.get(token)!;
             const held = this.#bindings.get(index);
