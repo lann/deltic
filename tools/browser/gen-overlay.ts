@@ -20,7 +20,7 @@ const CLASSES: [RegExp, string][] = [
   ],
   [
     /expected trap "wasm trap: wasm `unreachable` instruction executed", got/,
-    "ENGINE: this engine words the unreachable trap differently; the suite's assert_trap text is de facto wasmtime/V8 wording (PLAN \u00a71)",
+    "ENGINE: this engine words the unreachable trap differently; the suite's assert_trap text is de facto wasmtime/V8 wording (docs/architecture.md \u00a71)",
   ],
   [
     /exit-sync-call with an empty sync-call stack|transfer-borrow outside an enter-sync-call/,

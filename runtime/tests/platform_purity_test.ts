@@ -1,4 +1,4 @@
-// Platform-purity guard (PLAN §4.3): the runtime core depends on the
+// Platform-purity guard (docs/architecture.md §4.3): the runtime core depends on the
 // WebAssembly JS API, TextEncoder/TextDecoder, and Promises — nothing
 // platform-specific. A `node:` (or `deno`-global) dependency creeping into
 // runtime/src breaks every browser lane at once; the M3A-1 episode (the

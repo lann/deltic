@@ -1,4 +1,4 @@
-//! `bindgen` CLI (PLAN.md §9 kickoff): WIT world -> typed TS facade +
+//! `bindgen` CLI (docs/architecture.md §9 kickoff): WIT world -> typed TS facade +
 //! embedded canonical digest.
 //!
 //! ```text

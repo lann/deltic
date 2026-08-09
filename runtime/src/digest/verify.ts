@@ -1,4 +1,4 @@
-// Runtime handshake (PLAN.md §9): verify a loaded plan's world against the
+// Runtime handshake (docs/architecture.md §9): verify a loaded plan's world against the
 // digest embedded by generated bindgen code, producing a rich mismatch
 // report that names the first divergent import/export/type path rather
 // than just "digests differ".

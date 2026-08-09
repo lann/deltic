@@ -9,7 +9,7 @@
 //!
 //! Built on `wit_bindgen_core::Source`/`Files` for text accumulation, same
 //! as the M1-C predecessor of this file; still a hand-written generator,
-//! not a `WorldGenerator` trait implementation (CONTRACT: PLAN.md §9 doesn't
+//! not a `WorldGenerator` trait implementation (CONTRACT: docs/architecture.md §9 doesn't
 //! mandate the trait specifically, only "built on wit-bindgen-core").
 
 use std::collections::BTreeSet;
@@ -93,7 +93,7 @@ pub fn generate(resolve: &Resolve, world: WorldId, expected_digest: &str) -> Res
     )?;
 
 
-    writeln!(src, "/** Canonical structural digest (PLAN.md §9). */")?;
+    writeln!(src, "/** Canonical structural digest (docs/architecture.md §9). */")?;
     writeln!(src, "export const WORLD_DIGEST = {expected_digest:?};\n")?;
 
     writeln!(

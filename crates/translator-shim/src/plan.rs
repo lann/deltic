@@ -3,7 +3,7 @@
 //!
 //! This module is the only code that sees both shapes (wasmtime's unstable
 //! internals and our stable plan format); everything wasmtime-specific is
-//! confined here per PLAN.md §4.1.
+//! confined here per docs/architecture.md §4.1.
 //!
 //! wasmtime-environ 47.0.3 API reality this maps from (recorded for the
 //! contract-v0.1 review; see crate README):

@@ -1,7 +1,7 @@
 # Contract: CABI Descriptor IR v0
 
 The **descriptor IR** is the type/options information that drives host-boundary
-lift/lower — PLAN.md §8's "one IR, two executors." Producers: the translator
+lift/lower — docs/architecture.md §8's "one IR, two executors." Producers: the translator
 shim (inside `plan.json` `types` / `canonicalOptions` tables) and tests.
 Consumers: the v1 interpreter (`runtime/src/cabi/`), the future generated-JS
 executor, and the world-digest computation.
@@ -58,7 +58,7 @@ semantics.)
 ## Host value mapping (interim — superseded by embedder-api.md)
 
 **Status note (post-M2):** this table is **superseded as the destination by
-`contracts/embedder-api.md`** (PLAN §17/C1 — the embedder conventions
+`contracts/embedder-api.md`** (docs/consumers.md, C1 — the embedder conventions
 designed against the polymorph consumers, with WASI p2+p3 interface shapes
 as first-class design inputs). It remains current-truth *only* as a
 description of what the aspirational shapes were before C1; do not converge
@@ -92,7 +92,7 @@ the implementation truth; the destination is now embedder-api.md's.
 
 NaN handling, lane widening/padding (i64 lanes as `bigint`, `0n` padding),
 and latin1(windows-1252) details follow the decisions recorded in
-`runtime/README.md` and PLAN.md §7.
+`runtime/README.md` and docs/architecture.md §7.
 
 ## Trap discipline
 

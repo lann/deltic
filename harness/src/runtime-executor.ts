@@ -3,7 +3,7 @@
 // JS WebAssembly API (delegated to CoreOnlyExecutor's module path, which is
 // exact and needs no reimplementation).
 //
-// Scope note (task M1-B): the M0 runtime is a *sync* executor (PLAN.md §6
+// Scope note (task M1-B): the M0 runtime is a *sync* executor (docs/architecture.md §6
 // degenerate path); async canonical options / stream|future types raise
 // PlanError("... M2 task scheduler ...") from
 // runtime/src/exec/boundary.ts createLiftedFunction, or NotImplemented from

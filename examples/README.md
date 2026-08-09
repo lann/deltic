@@ -1,7 +1,7 @@
 # examples/ — Rust guest fixture corpus
 
 Guest components built with **wit-bindgen** (the compatibility target of this
-project, PLAN.md §1/§11). The future TS host runs these as its executable
+project, docs/architecture.md §1/§11). The future TS host runs these as its executable
 wit-bindgen-compat claim. Each guest is a pure computational reactor — **no
 WASI imports** — so componentization needs no wasip1 adapter.
 
@@ -79,7 +79,7 @@ here.** Details:
 - **Every async export is lifted with the stackless callback ABI**:
   `canon lift ... async (callback ...)`; core exports come in pairs
   `[async-lift]NAME` + `[callback][async-lift]NAME`. wit-bindgen's Rust
-  backend never emits stackful async lifts, which matches PLAN §6's build
+  backend never emits stackful async lifts, which matches docs/architecture.md §6's build
   order (task core + callback ABI first — JSPI paths are only needed for
   blocking sync-lowers over async, not to run these guests' exports).
 - Canonical builtins used by the generated runtime: `task.return`,

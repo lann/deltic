@@ -1,7 +1,7 @@
-// Claim (d) — PLAN.md §6: reentry while suspended.
+// Claim (d) — docs/architecture.md §6: reentry while suspended.
 //
 // While instance A's export is suspended, call another export of the SAME
-// instance. PLAN.md says the engine permits this (the Component Model's
+// instance. docs/architecture.md §6 says the engine permits this (the Component Model's
 // reentrance rules are enforced by the host/scheduler, not the engine) —
 // this test pins that the engine really does allow it, with no trap and no
 // special interaction between the two activations (they operate on
@@ -26,7 +26,7 @@ Deno.test("reentry: calling another export of the same instance while one export
 
   // Reenter the SAME instance via a different export while `run` is
   // suspended. If the Component Model's reentrance gate were enforced by the
-  // engine, this would trap; PLAN.md §6 says it is NOT — the CM-level check
+  // engine, this would trap; docs/architecture.md §6 says it is NOT — the CM-level check
   // is the scheduler's job (out of scope for this mechanics-only module).
   const otherResult = exp.other(1);
   assertEquals(otherResult, 1001, "OBSERVED: reentry succeeds, no engine-level trap");

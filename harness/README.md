@@ -1,6 +1,6 @@
 # Conformance harness
 
-The wast→JSON conformance pipeline from PLAN.md §11: an offline Rust step
+The wast→JSON conformance pipeline from docs/architecture.md §11: an offline Rust step
 (`crates/testgen`) converts the official Component Model `.wast` suite into
 JSON command files plus extracted binaries, and a TypeScript runner (this
 directory, Deno) executes the JSON. The component runtime does not exist yet;
@@ -41,7 +41,7 @@ its JSON — the schema below is essentially its schema — but its bundled
 with that CLI. testgen therefore uses the `wast` crate directly (pinned in
 `Cargo.lock`, currently 255.0.0), which parses the entire suite, and emits
 the same JSON model with two extensions noted below. This is the exact
-fallback PLAN.md §11 anticipated.
+fallback docs/architecture.md §11 anticipated.
 
 ## Generated layout
 
@@ -235,7 +235,7 @@ flagged) — periodically diff the summary's `xfail` column against
 `XFAIL.length`.
 
 `test/async/` and `test/values/` are deliberately **not** triaged into
-`xfail.ts` — PLAN.md §7 excludes `test/values/` from parity scope entirely
+`xfail.ts` — docs/architecture.md §7 excludes `test/values/` from parity scope entirely
 (wasmtime doesn't implement component `value` imports/exports), and
 `test/async/` is M2 scope; both are expected to show real failures against
 the M0 (sync-only) executor and are left as visible `failed` counts rather

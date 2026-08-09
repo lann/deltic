@@ -1,4 +1,4 @@
-// Claim (f) — PLAN.md §6: two concurrent suspended activations of the same
+// Claim (f) — docs/architecture.md §6: two concurrent suspended activations of the same
 // instance/memory. Legal at engine level? (Already exercised incidentally in
 // reentry_test.ts's second case; this file pins it as its own named claim,
 // and additionally checks that both activations observe/produce correct

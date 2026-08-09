@@ -1,4 +1,4 @@
-// Cache API backend for the artifact cache (PLAN.md §10), for browsers
+// Cache API backend for the artifact cache (docs/architecture.md §10), for browsers
 // (and other environments implementing the standard `CacheStorage`/`Cache`
 // interfaces). Feature-detects `globalThis.caches`; throws a named error
 // where unavailable (e.g. plain Deno without `--unstable-*` polyfills, or a

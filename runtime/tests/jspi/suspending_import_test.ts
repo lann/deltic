@@ -1,4 +1,4 @@
-// Claim (c) — PLAN.md §5: Suspending import returning a NON-promise value —
+// Claim (c) — docs/architecture.md §5: Suspending import returning a NON-promise value —
 // no suspension, value passes through (the "fast path"). Also pins a
 // related, non-obvious fact: calling a Suspending-wrapped import OUTSIDE a
 // `promising`-wrapped activation always traps, regardless of whether the

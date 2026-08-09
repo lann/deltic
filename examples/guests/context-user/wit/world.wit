@@ -1,7 +1,7 @@
 package deltic:context-user;
 
 /// Exercises context-local storage (canonical `context.get`/`context.set`
-/// slot 0, PLAN.md §5/§6) across interleaved, concurrently-suspended task
+/// slot 0, docs/architecture.md §5/§6) across interleaved, concurrently-suspended task
 /// activations. wit-bindgen's own async runtime uses slot 0 internally to
 /// stash a per-activation `TaskState` pointer; this guest spawns several
 /// concurrent local tasks (via `spawn_local`) that each yield a different

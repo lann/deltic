@@ -48,7 +48,7 @@ export class GuestResource {
 }
 
 /**
- * Backstop for leaked handles (PLAN §7). A wrapper that becomes unreachable
+ * Backstop for leaked handles (docs/architecture.md §7). A wrapper that becomes unreachable
  * without `drop()` still runs the guest destructor — late, but not never.
  */
 const leaked = new FinalizationRegistry<WrapperState>((s) => {

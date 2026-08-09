@@ -13,7 +13,7 @@ name = "bindgen"
 path = "src/lib.rs"
 
 [dependencies]
-# Version pinning (PLAN.md §9, §15 pins wit-parser to the wasmtime-environ
+# Version pinning (docs/architecture.md §9 pins wit-parser to the wasmtime-environ
 # cadence): wasmtime-environ =47.0.3 (crates/translator-shim) pins
 # wasmparser 0.252.0 exactly. wit-parser and wasmparser are released in
 # lockstep as part of the wasm-tools workspace (same version number across

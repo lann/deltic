@@ -1,4 +1,4 @@
-// Claim (a) — PLAN.md §5: suspension through a pure-wasm stack works.
+// Claim (a) — docs/architecture.md §5: suspension through a pure-wasm stack works.
 //
 // promising(export) → wasm → Suspending(import returning a real Promise) →
 // suspends → resolves → wasm resumes → export result delivered.

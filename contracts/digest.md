@@ -1,6 +1,6 @@
 # Contract: Canonical World Digest (`cewd:1`)
 
-The digest is the skew-protection handshake of PLAN.md §9: bindings generated
+The digest is the skew-protection handshake of docs/architecture.md §9: bindings generated
 from WIT embed an expected digest; the runtime recomputes it from the loaded
 plan at instantiate time and fails fast with a structural diff on mismatch.
 A digest match must imply ABI-shape compatibility for positional calling.

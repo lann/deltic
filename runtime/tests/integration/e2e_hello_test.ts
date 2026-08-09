@@ -1,4 +1,4 @@
-// M0 end-to-end integration (PLAN.md §13 M0 exit criterion): the full-JS
+// M0 end-to-end integration (docs/milestones.md M0 exit criterion): the full-JS
 // pipeline — translator shim (wasm32, running under Deno) -> plan v0 ->
 // TS plan executor -> typed call -> correct result — against the real
 // wit-bindgen `hello` guest (strings, realloc, post-return).
@@ -135,7 +135,7 @@ Deno.test("task model: reentrance gate blocks concurrent entry", async () => {
   greet("warm-up");
 
   // Simulate an in-progress activation of the same instance, as a
-  // transitive call back into it would observe (PLAN.md §4.3 item 4: the
+  // transitive call back into it would observe (docs/architecture.md §4.3 item 4: the
   // gates are ours to enforce; the engine permits reentry the CM forbids).
   const inst = component.componentInstances[0];
   inst.enter();

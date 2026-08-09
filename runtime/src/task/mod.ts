@@ -1,4 +1,4 @@
-// The 0.3 task model (PLAN.md §6): `ComponentInstance`, `Task`, and the
+// The 0.3 task model (docs/architecture.md §6): `ComponentInstance`, `Task`, and the
 // re-export surface of the task core. Thread, Waitable/WaitableSet, Subtask
 // and the scheduler live in sibling modules; see ./scheduler.ts for the
 // scheduling-policy rationale and the generator-based thread model.
@@ -9,7 +9,7 @@
 //
 //   1. threads are generators, not OS threads (./scheduler.ts header), and
 //   2. the shared-everything-threads built-ins (`thread.suspend-then-resume`
-//      and friends, 🧵) are absent rather than approximated — PLAN.md §16
+//      and friends, 🧵) are absent rather than approximated — https://github.com/lann/deltic/issues/12
 //      defers that feature with memory64.
 
 import { Table } from "../cabi/handles.ts";

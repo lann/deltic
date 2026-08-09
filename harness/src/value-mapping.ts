@@ -248,7 +248,7 @@ export function compareValue(
     }
     case "list": {
       const items = expected.value as Value[];
-      // list<u8> lifts as a Uint8Array (PLAN.md §7); accept both.
+      // list<u8> lifts as a Uint8Array (docs/architecture.md §7); accept both.
       const arr = actual instanceof Uint8Array
         ? Array.from(actual)
         : actual;

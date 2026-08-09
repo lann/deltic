@@ -18,7 +18,7 @@ import type {
 // deno-lint-ignore no-unused-vars
 type _EnsureEmbedderTypesUsed = [Stream<unknown>, Future<unknown>, StreamSource<unknown>, FutureSource<unknown>, ErrorContext, WitError, Trap];
 
-/** Canonical structural digest (PLAN.md §9). */
+/** Canonical structural digest (docs/architecture.md §9). */
 export const WORLD_DIGEST = "sha256:3e92c7647b980356b1d27da9f75fa212a60da6976f99941ffe1ecf3bd9e400bd";
 
 /** Verify a loaded plan against this world's expected digest before

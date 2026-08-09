@@ -1,4 +1,4 @@
-// Claim (b) — PLAN.md §5: the frame rule.
+// Claim (b) — docs/architecture.md §5: the frame rule.
 //
 // wasm₁ → JS glue → wasm₂ → Suspending import returning a Promise. Spec says
 // this traps because a JS frame sits between the promising entry and the
@@ -6,7 +6,7 @@
 // timing (synchronous throw from the `promising`-wrapped call, vs an
 // asynchronous rejection).
 //
-// This is the single fact PLAN.md §5 calls load-bearing for the whole JSPI
+// This is the single fact docs/architecture.md §5 calls load-bearing for the whole JSPI
 // phase (cross-component adapters must be wasm, not JS, or they trap the
 // moment anything below them suspends).
 

@@ -130,7 +130,7 @@ export function loadListFromValidRange(
   elemType: ValType,
 ): ComponentValue {
   const mem = requireMemory(cx.opts);
-  // PLAN.md §7: list<u8> lifts to a Uint8Array copy.
+  // docs/architecture.md §7: list<u8> lifts to a Uint8Array copy.
   if (despecialize(elemType).kind === "u8") {
     return bytesOf(mem, ptr, length).slice();
   }

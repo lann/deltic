@@ -10,7 +10,7 @@
 // to this file: pin (h) is a statement ABOUT the platform ("an async-context
 // store would survive a JSPI resumption"), so measuring it requires the store.
 // Nothing in `runtime/src` imports it — that dependency was FINDING M3A-1 and
-// was removed, because no browser provides it (PLAN §4.3). This test therefore
+// was removed, because no browser provides it (docs/architecture.md §4.3). This test therefore
 // runs on Deno only, and is not part of the browser lanes.
 
 import { AsyncLocalStorage } from "node:async_hooks";

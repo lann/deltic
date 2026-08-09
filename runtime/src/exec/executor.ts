@@ -1,4 +1,4 @@
-// Plan executor (PLAN.md §4.3 item 1): compile sliced core modules and FACT
+// Plan executor (docs/architecture.md §4.3 item 1): compile sliced core modules and FACT
 // adapters, run the plan's `initializers` strictly in order, wire the
 // component's typed export surface through the task model.
 //
@@ -97,7 +97,7 @@ export class HostResourceType {
       readonly name?: string;
       /**
        * Destructor for handles owned by a component and dropped there.
-       * Per PLAN.md §7 / CanonicalABI.md `canon resource.drop`, it runs
+       * Per docs/architecture.md §7 / CanonicalABI.md `canon resource.drop`, it runs
        * synchronously and may not block.
        */
       readonly dtor?: (rep: number) => void;
@@ -122,7 +122,7 @@ export interface InstantiateInput {
   /** Verify plan.component.sha256 against componentBytes (default true). */
   verifyHash?: boolean;
   /**
-   * Opt in to JSPI-backed suspension (PLAN.md §6 role 1-3).
+   * Opt in to JSPI-backed suspension (docs/architecture.md §6 role 1-3).
    *
    * Off by default, and deliberately so: in this mode every lifted export
    * returns a Promise (empirical fact (e) — `WebAssembly.promising` always

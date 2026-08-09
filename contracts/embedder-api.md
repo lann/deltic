@@ -1,6 +1,6 @@
 # Embedder API conventions (host-facing)
 
-Status: **v0.1 — C1 deliverable (PLAN §13), normative for the C2
+Status: **v0.1 — C1 deliverable (docs/milestones.md), normative for the C2
 implementation.** This document supersedes `descriptor-ir.md`'s interim
 "host value mapping" table as the destination for host-facing value shapes.
 The runtime's *raw* boundary (`instance.exports`, `HostImports`) keeps the
@@ -10,11 +10,11 @@ conventions below are implemented by the bindgen-generated ergonomic layer
 modules (`webrtc.js`, `webcrypto.js`, `websocket.js`) and the C2 WASI shim
 package. Design evidence: `tools/smoke-c0/REPORT.md` §"C1 design-input
 notes" (friction findings 1–8), the R-fix review's stream-API advisories,
-and PLAN §17.
+and docs/consumers.md.
 
 ## Principles
 
-1. **Fresh design; jco compatibility is a non-goal** (PLAN §2). Where jco's
+1. **Fresh design; jco compatibility is a non-goal** (docs/architecture.md §2). Where jco's
    choice is also the right choice (camelCase, `{tag, val}` variants), we
    converge by merit — deliberately, so consumer ports stay small.
 2. **Footguns are design defects.** Every convention here is judged against
@@ -115,7 +115,7 @@ without interference).
 | `u8 s8 u16 s16 u32 s32 f32 f64` | `number` | range-checked at lower |
 | `u64 s64` | `bigint` | range-checked at lower |
 | `char` | `string` (single code point) | validated at lower |
-| `string` | `string` | lower applies USVString replacement (PLAN §7) |
+| `string` | `string` | lower applies USVString replacement (docs/architecture.md §7) |
 | `list<u8>` | `Uint8Array` | always a copy; never a view into guest memory |
 | `list<T>` (T ≠ u8) | `T[]` | plain arrays; no typed-array widening (a future perf opt-in, never a silent shape change) |
 | `tuple<A, B, …>` | `[A, B, …]` | real TS tuple |
@@ -199,7 +199,7 @@ class Trap extends Error { … }  // existing; component-fatal, never a value
   defensively (`platformCall` in webcrypto.js). Here the defensive wrapper
   is unnecessary by construction: only `WitError` crosses as an err value.
 - Host code must never catch-and-swallow `Trap` (re-throw if observed);
-  traps poison the instance per PLAN §7 regardless.
+  traps poison the instance per docs/architecture.md §7 regardless.
 - Results nested inside values never throw anywhere — they are plain
   `{ tag, val }` data (table above).
 
@@ -207,7 +207,7 @@ class Trap extends Error { … }  // existing; component-fatal, never a value
 
 - **Exports are uniformly Promise-shaped**: bindgen types every export as
   returning `Promise<T>`, sync-typed or not (a sync completion resolves
-  immediately). One calling convention; async-first per PLAN §1. Exactly
+  immediately). One calling convention; async-first per docs/architecture.md §1. Exactly
   two exceptions (C2 amendments): resource constructors (synchronous —
   see Resources) and `future<T>`-typed results (eager handles — see
   Streams and futures).
@@ -231,7 +231,7 @@ obligations, never the embedder's.
 class per resource — constructor calls the guest constructor; methods and
 statics camelCase; `[Symbol.dispose]()` and `drop()` both drop the handle
 (TS `using` works); a `FinalizationRegistry` backstop drops leaked handles
-(PLAN §7). Passing an instance where `own<R>` is expected **invalidates
+(docs/architecture.md §7). Passing an instance where `own<R>` is expected **invalidates
 the wrapper** (further use throws); passing as `borrow<R>` leaves it
 usable after the call returns.
 
@@ -352,7 +352,7 @@ internal surface with no stability promise).
 
 ## WASI examination (paper signatures)
 
-Per the operator ruling (PLAN §2/§17): implementations stay out of core,
+Per the operator ruling (docs/architecture.md §2 / docs/consumers.md): implementations stay out of core,
 but the conventions must make WASI interfaces natural. Idiomatic
 signatures for the representative slice:
 
@@ -461,4 +461,4 @@ canonicalization" (semver-track resolution, matching wasmtime's linker
    directions, mangled-key assembly, value types per the table.
 7. WASI shim package (separate deliverable) implementing the p2 baseline
    (tier (a)/(b)) + p3 clocks against these conventions — the executable
-   check that the conventions serve WASI (PLAN §17).
+   check that the conventions serve WASI (docs/consumers.md).

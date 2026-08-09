@@ -1,6 +1,6 @@
 // Official Component Model suite, end to end: translate -> plan -> instantiate
 // -> invoke, against binaries produced by `cargo run -p testgen` from
-// third_party/component-model/test/ (PLAN.md §11, milestone M1).
+// third_party/component-model/test/ (docs/architecture.md §11, milestone M1).
 //
 // Scope of this file is the *sync* shapes of `linking/` and `resources/` plus
 // the rejection verdicts of `binary/` and `validation/`. It is deliberately

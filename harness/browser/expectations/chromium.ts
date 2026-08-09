@@ -1,4 +1,4 @@
-// Chromium lane expectation — the REQUIRED lane (PLAN §13 M3).
+// Chromium lane expectation — the REQUIRED lane (docs/milestones.md M3).
 //
 // Chromium and Deno share V8, so the browser lane SHOULD be the Deno lane.
 // **It now is, exactly**: zero deltas, and the TOTAL row below is the Deno
@@ -18,7 +18,7 @@
 // "engine-driven resumptions" section of `runtime/src/task/scheduler.ts`, the
 // `Suspending`-import wrapper in `runtime/src/jspi/bridge.ts`, and
 // `SuspensionPoint.owner`. Nothing in `runtime/src` imports a platform
-// async-context facility any more (PLAN §4.3), so the browser bundle
+// async-context facility any more (docs/architecture.md §4.3), so the browser bundle
 // substitutes nothing and the lane has nothing to excuse.
 //
 // KEEP THIS LIST EMPTY. It is the detector this lane exists for: any entry

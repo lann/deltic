@@ -31,7 +31,7 @@ Deno.test("records, tuples, fixed-length lists", () => {
     [1, 2, 3],
     { "0": { "0": 1, "1": 2 }, "1": 3 },
   );
-  // list<u8> is a Uint8Array on the host side (PLAN.md §7).
+  // list<u8> is a Uint8Array on the host side (docs/architecture.md §7).
   runTest(
     { kind: "list", element: u8, length: 3 },
     [1, 2, 3],

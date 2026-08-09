@@ -56,7 +56,7 @@
 //!     "intersection" forced by data loss.
 //!   - **Docs, `@since`/`@unstable` stability attributes, source spans.**
 //!     Present in WIT, entirely absent from the plan (contracts/plan-format
-//!     carries no docs — PLAN.md §9 says so explicitly: "docs are lost in
+//!     carries no docs — docs/architecture.md §9 says so explicitly: "docs are lost in
 //!     binaries"). Bindgen embeds docs in generated output from WIT
 //!     directly; they play no role in the skew-protection handshake since
 //!     the handshake's job is ABI-shape equality, not doc-freshness.
@@ -70,7 +70,7 @@
 //!     exclusion and rejected — the two sides already carry it identically,
 //!     so excluding it would be gratuitous information-throwing-away.)
 //!   - **Component `value` imports/exports.** Out of parity scope entirely
-//!     (PLAN.md §7); never appear in either side's model.
+//!     (docs/architecture.md §7); never appear in either side's model.
 //!   - **`map` types.** Not emitted by current translators (descriptor-ir.md
 //!     "Open items"); WIT's `TypeDefKind::Map` is despecialized to
 //!     `list<tuple<K,V>>` structurally by this digest to stay on the plan

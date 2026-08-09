@@ -1,7 +1,7 @@
 # Upstream consumer-repo findings
 
 Single source for issues/PRs to file against the **polymorph consumer
-repositories** (PLAN §17) discovered while running their artifacts under
+repositories** (docs/consumers.md) discovered while running their artifacts under
 deltic. Mirrors the conventions of
 `upstream-component-model-repo-findings.md`: entries carry status
 (`DRAFT` → `FILED #n` → `RESOLVED`), evidence, and proposed fixes. All
@@ -40,7 +40,7 @@ the collision near-certain on any host that interleaves there.
 absence — holding a `RefCell` borrow across a yield is illegal on any
 conforming host. wasmtime's interleaving choices happen not to run the
 poller inside that window (their matrix row is green); deltic's
-do (see PLAN §16 open question on the `bridge.ts` exclusivity
+do (see https://github.com/lann/deltic/issues/5 open question on the `bridge.ts` exclusivity
 divergence, which widens — but does not create — the window).
 
 **Proposed fix (guest-side):** scope the borrow inside `drain`'s inner

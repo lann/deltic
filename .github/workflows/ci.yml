@@ -150,7 +150,8 @@ jobs:
       - name: firefox lane (required — JSPI pref set by the driver)
         run: deno run -A tools/browser/run-lane.ts firefox
 
-      # WebKit is best-effort per PLAN §13/§14: the lane's expectation overlay
+      # WebKit is best-effort per docs/architecture.md §3/§12 (issue #11): the
+      # lane's expectation overlay
       # encodes JSC's missing multi-memory; GH's ubuntu-24.04 matches the ABI
       # playwright's WebKit wants, so no library staging should be needed —
       # but the lane stays non-blocking until it has a track record.

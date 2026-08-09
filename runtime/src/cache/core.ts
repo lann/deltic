@@ -1,4 +1,4 @@
-// Artifact cache — platform-neutral core (PLAN.md §10, layer 1: ours, bytes
+// Artifact cache — platform-neutral core (docs/architecture.md §10, layer 1: ours, bytes
 // only; nothing here depends on the engine's own compiled-module cache,
 // i.e. layer 2).
 //

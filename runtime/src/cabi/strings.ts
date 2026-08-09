@@ -1,18 +1,18 @@
 // String and char lift/lower (definitions.py `load_string*`,
 // `store_string*`, `convert_i32_to_char`, `char_to_i32`).
 //
-// Host-side strings are plain JS strings (PLAN.md §7). Two deliberate
+// Host-side strings are plain JS strings (docs/architecture.md §7). Two deliberate
 // deviations from definitions.py, both recorded in runtime/README.md:
 //
 // 1. No encoding provenance. The reference represents a lifted string as
 //    (str, src_encoding, tagged_code_units) so that lowering can pick a
 //    same-encoding copy fast path. In this host, cross-component calls (and
-//    hence transcode fast paths) belong to FACT adapters (PLAN.md §4.1); the
+//    hence transcode fast paths) belong to FACT adapters (docs/architecture.md §4.1); the
 //    host boundary deals in JS strings only. Lowering therefore always treats
 //    the source as a UTF-16 code-unit sequence — exactly the reference's
 //    behavior for src_encoding='utf16' — because that is what a JS string is.
 //
-// 2. USVString replacement semantics (PLAN.md §7): a JS string containing
+// 2. USVString replacement semantics (docs/architecture.md §7): a JS string containing
 //    lone surrogates is lowered as if each unpaired surrogate were U+FFFD
 //    (WebIDL USVString). The reference never sees unpaired surrogates because
 //    lifted Python strings are always well-formed; this only affects

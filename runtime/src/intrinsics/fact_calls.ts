@@ -600,7 +600,7 @@ export function createSyncStartCall(
       // The callee did not resolve within its first activation. definitions.py
       // `canon_lower`'s sync path blocks here — `thread.wait_until(
       // subtask.resolved)` (line 2286) — suspending the *caller's* wasm frame
-      // while the scheduler runs other threads. That is JSPI role 2 (PLAN.md
+      // while the scheduler runs other threads. That is JSPI role 2 (docs/architecture.md
       // §6), and it is the first place a purely stackless runtime genuinely
       // cannot proceed.
       //
@@ -617,7 +617,7 @@ export function createSyncStartCall(
       // escaped a task), and it disappears once JSPI lets this path actually
       // block instead of bailing.
       if (ctx.suspensionMode === "jspi") {
-        // JSPI role 2 (PLAN.md §6): park the *caller's* wasm activation until
+        // JSPI role 2 (docs/architecture.md §6): park the *caller's* wasm activation until
         // the callee resolves, exactly as definitions.py `canon_lower`'s sync
         // path does with `thread.wait_until(subtask.resolved)` (line 2286).
         // The scheduler keeps ticking the callee meanwhile; when it produces

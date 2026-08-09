@@ -1,4 +1,4 @@
-// WebRTC-under-Deno capability probe (PLAN §16 / §17, C0 evidence).
+// WebRTC-under-Deno capability probe (docs/consumers.md (C0 evidence)).
 //
 // Question answered: can Deno functionally substitute for Node as the
 // consumers' JS-native lane, on the one capability that is not a Deno

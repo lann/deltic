@@ -55,9 +55,19 @@ cargo build -p translator-shim --target wasm32-unknown-unknown --release
 deno run -A tools/browser/run-lane.ts chromium   # same corpus, real browser
 ```
 
-Design, decisions, and milestone history: [`PLAN.md`](PLAN.md). The
-embedder-facing conventions (value shapes, errors, resources, streams,
-version canonicalization): [`contracts/embedder-api.md`](contracts/embedder-api.md).
+Deno workspace (TS) + cargo workspace (Rust).
+
+## Documentation
+
+| Where | What |
+|---|---|
+| [`docs/architecture.md`](docs/architecture.md) | the system design and decisions, with rationale (§-numbered; cited from code comments) |
+| [`docs/milestones.md`](docs/milestones.md) | the verified milestone record (S0 → C3) |
+| [`docs/consumers.md`](docs/consumers.md) | the polymorph adoption track: jco blocker mapping, cutover evidence, in-repo ports |
+| [`docs/references.md`](docs/references.md) | canonical upstream links (spec, JSPI, wasmtime internals, toolchain pins) |
+| [`contracts/`](contracts/) | versioned interface contracts — [plan format](contracts/plan-format.md), [descriptor IR](contracts/descriptor-ir.md), [intrinsics](contracts/intrinsics.md), [digest](contracts/digest.md), [embedder API](contracts/embedder-api.md) |
+| [`AGENTS.md`](AGENTS.md) | development protocol and the full gate list |
+| [issue tracker](https://github.com/lann/deltic/issues) | open and deferred work |
 
 [polymorph]: https://github.com/polymorph-components
 

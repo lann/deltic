@@ -25,10 +25,10 @@
 // ---------------
 // 1. JSPI WORKS on JavaScriptCore, in a stock playwright WebKit build, with
 //    no flag: `{suspending: true, promising: true, roundTrip: true}` from the
-//    in-page end-to-end probe. PLAN §14 records "Safari: JSPI in STP only"
+//    in-page end-to-end probe. docs/architecture.md §12 (Risks) records "Safari: JSPI in STP only"
 //    and excludes stable Safari; on this build the API is present and a real
 //    suspend/resume round trip completes. Worth re-checking against shipping
-//    Safari before the exclusion in PLAN is relaxed.
+// Safari before the exclusion in docs/architecture.md §12 (Risks) is relaxed.
 // 2. **JSC does not implement multi-memory** — 58 commands fail at
 //    `WebAssembly.Module` compile time with "there can at most be one Memory
 //    section for now". This is the substantive WebKit finding: the Component
@@ -40,7 +40,7 @@
 //    those failed instantiations ("no current instance").
 // 3. One trap-wording variance, same class as Firefox's: JSC says
 //    "Unreachable code should not be executed" where the suite expects the
-//    wasmtime/V8 wording (PLAN §1).
+//    wasmtime/V8 wording (docs/architecture.md §1).
 //
 // FINDING M3A-1 IS CLOSED, and its 18 entries are gone from this file. The
 // runtime no longer depends on a platform async-context facility (see
@@ -442,7 +442,7 @@ export const webkit: LaneExpectation = {
       line: 9,
       kind: "expected-fail",
       reason:
-        "ENGINE: this engine words the unreachable trap differently; the suite's assert_trap text is de facto wasmtime/V8 wording (PLAN §1)",
+        "ENGINE: this engine words the unreachable trap differently; the suite's assert_trap text is de facto wasmtime/V8 wording (docs/architecture.md §1)",
     },
     {
       file: "async/cross-abi-calls.json",

@@ -1,4 +1,4 @@
-// Embedder conventions layer (contracts/embedder-api.md; PLAN §13/§17, C2).
+// Embedder conventions layer (contracts/embedder-api.md; docs/milestones.md C2 / docs/consumers.md).
 //
 // The host-facing surface: camelCase facades, resource classes on both sides,
 // stream/future handles, version-canonical import resolution and the branded

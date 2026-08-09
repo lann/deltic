@@ -1,7 +1,7 @@
 # C0 — Consumer smoke test: report
 
-Exit artifact for PLAN.md §13 row C0 (adoption track §17). Evidence-gathering
-only: no `runtime/`, `crates/`, `harness/`, `contracts/` or `PLAN.md` code was
+Exit artifact for docs/milestones.md row C0 (adoption track — docs/consumers.md). Evidence-gathering
+only: no `runtime/`, `crates/`, `harness/`, `contracts/` or design-doc code was
 changed by this track. Everything below is reproducible from
 `tools/smoke-c0/`.
 
@@ -86,7 +86,7 @@ Notes:
 - The composed component carries **19 imports** none of which appear in either
   WIT world — the whole Rust `wasm32-wasip2` libc baseline at
   **`@0.2.6`**. All 19 were satisfied by loud stubs; assertion #8 proves none
-  fired. "Two tiny components, no shims" (PLAN.md §13 C0) is true of the WIT
+  fired. "Two tiny components, no shims" (docs/milestones.md C0) is true of the WIT
   but not of the binary.
 
 ## Leg 2 — iroh `exec-model`, the lann/jco#11 kill shot
@@ -163,7 +163,7 @@ probe 5  sink-stream(<host stream, 500 bytes>)       PASS
 Probe 2's timing assertion is the load-bearing one: `start-pump` returned in
 0.6 ms while the pump's first act is `wait_for(50 ms)`, so the detached task
 was provably still parked when the export call resolved — and probe 3 then ran
-to completion anyway. **PLAN.md §17's first blocker row is now executable
+to completion anyway. **docs/consumers.md's first blocker row is now executable
 evidence, not a claim.**
 
 `stats: liftedCalls=6, tasksResolved=6, loweredCalls=20, callbackInvocations=21`;

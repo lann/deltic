@@ -2,7 +2,7 @@
 // `ptr_size`).
 //
 // A `MemInst` wraps a byte buffer with an address type (wasm32/wasm64). All
-// multi-byte accesses are little-endian via DataView. Following PLAN.md §7,
+// multi-byte accesses are little-endian via DataView. Following docs/architecture.md §7,
 // integer lanes/values of width <= 32 are JS numbers and 64-bit values are
 // BigInt.
 //
@@ -61,7 +61,7 @@ export function asIndex(v: number | bigint): number {
 }
 
 // definitions.py load_int(cx, ptr, nbytes, signed): widths 1/2/4 -> number,
-// width 8 -> bigint (PLAN.md §7 number/BigInt split).
+// width 8 -> bigint (docs/architecture.md §7 number/BigInt split).
 
 export function loadIntU(mem: MemInst, ptr: number, nbytes: 1 | 2 | 4): number;
 export function loadIntU(mem: MemInst, ptr: number, nbytes: 8): bigint;

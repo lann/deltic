@@ -1,7 +1,7 @@
 // Host-boundary wiring: lifted-export invocation (reference `canon_lift`,
 // sync path) and lowered-import bodies (reference `canon_lower`, sync path),
 // built on the cabi v1 interpreter (runtime/src/cabi/) driven by the plan's
-// canonical options — PLAN.md §4.3 items 2 and 5, degenerate sync case.
+// canonical options — docs/architecture.md §4.3 items 2 and 5, degenerate sync case.
 
 import {
   type CanonicalOptions,

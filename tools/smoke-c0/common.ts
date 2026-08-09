@@ -1,4 +1,4 @@
-// C0 consumer smoke test — shared helpers (PLAN.md §13 row C0 / §17).
+// C0 consumer smoke test — shared helpers (docs/milestones.md row C0 / docs/consumers.md).
 //
 // Run legs from this directory:
 //   deno run --allow-read leg1_tdz.ts

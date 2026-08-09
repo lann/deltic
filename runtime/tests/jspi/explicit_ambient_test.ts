@@ -3,7 +3,7 @@
 // The scheduler used to recover "which activation is running?" across the
 // engine's JSPI continuations from an async-context store (`node:async_hooks`
 // `AsyncLocalStorage`). No browser ships that facility, nor its `AsyncContext`
-// successor, so PLAN §4.3 forbids it and the browser lanes lost 80 commands to
+// successor, so docs/architecture.md §4.3 forbids it and the browser lanes lost 80 commands to
 // it. The runtime now states the ambient explicitly at the two sites where
 // wasm leaves our JS frames. These tests pin BOTH sites, because a regression
 // at either is silent on Deno-only unit tests and only shows up as a wrong

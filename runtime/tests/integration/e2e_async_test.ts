@@ -1,4 +1,4 @@
-// M2 end-to-end (PLAN.md §13 M2): the async pipeline — translator shim
+// M2 end-to-end (docs/milestones.md M2): the async pipeline — translator shim
 // (plan v1, `unsafe-intrinsic`) -> executor -> task core -> callback ABI ->
 // correct result — against the real wit-bindgen `async-probe` guest.
 //

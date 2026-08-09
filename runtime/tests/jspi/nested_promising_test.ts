@@ -1,4 +1,4 @@
-// Claim (g) — PLAN.md §5/§6: nested promising. A promising-wrapped export A
+// Claim (g) — docs/architecture.md §5/§6: nested promising. A promising-wrapped export A
 // calls (through wasm) an import that itself was created from
 // promising(another wasm export B). Does this compose?
 

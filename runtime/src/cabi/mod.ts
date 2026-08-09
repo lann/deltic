@@ -2,7 +2,7 @@
 //
 // A direct TypeScript port of the value lift/lower machinery of
 // third_party/component-model/design/mvp/canonical-abi/definitions.py
-// (readable over fast; PLAN.md §8 "v1: a generic interpreter").
+// (readable over fast; docs/architecture.md §8 "v1: a generic interpreter").
 // Task/thread/waitable machinery is deliberately absent — see
 // runtime/README.md for the port/defer inventory.
 

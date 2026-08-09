@@ -34,7 +34,7 @@ export class Translator {
    * bytes available (module identity can't be recovered post-compile).
    *
    * This is the honest translator "build hash" for the artifact cache
-   * (PLAN.md §10): the wire envelope's `producer` block records
+   * (docs/architecture.md §10): the wire envelope's `producer` block records
    * `{shimVersion, wasmtimeEnviron, features}`, which does NOT change when
    * the shim wasm is rebuilt from the same source versions (e.g. a local
    * patch or a different toolchain producing different codegen) — see the

@@ -1,7 +1,7 @@
 package deltic:backpressure-probe;
 
 /// Exercises the canonical `backpressure.inc`/`backpressure.dec` built-ins
-/// (PLAN.md §6: backpressure is a direct port of the reference structures)
+/// (docs/architecture.md §6: backpressure is a direct port of the reference structures)
 /// around a suspension point, so the host can observe backpressure state
 /// toggling independently of task resolution.
 world backpressure-probe {

@@ -1,12 +1,12 @@
 // Canonical ABI — provisional component value-type model.
 //
-// This is the v1 sketch of the "CABI descriptor IR" of PLAN.md §8: the type
+// This is the v1 sketch of the "CABI descriptor IR" of docs/architecture.md §8: the type
 // information the host-boundary lift/lower interpreter walks. It mirrors the
 // type classes of the executable spec
 // (third_party/component-model/design/mvp/canonical-abi/definitions.py) as a
 // TypeScript discriminated union, holding only what lift/lower needs.
 //
-// PROVISIONAL — expected to change when the translator shim (PLAN.md §4.2)
+// PROVISIONAL — expected to change when the translator shim (docs/architecture.md §4.2)
 // defines the real plan format. Open questions, tracked in runtime/README.md:
 //   - Serialized encoding (this in-memory shape vs the plan's wire format).
 //   - Whether labels stay strings or become interned indices in the IR.
@@ -171,7 +171,7 @@ export type ValType =
 
 /**
  * definitions.py `FuncType`, without parameter/result names (names do not
- * affect the ABI; bindings generation reads WIT instead — PLAN.md §9).
+ * affect the ABI; bindings generation reads WIT instead — docs/architecture.md §9).
  * `results` holds zero or one type in current CM, but stays a list to mirror
  * the reference (`FuncType.result`).
  */
@@ -182,7 +182,7 @@ export interface FuncType {
 }
 
 // ---------------------------------------------------------------------------
-// Component-level values (host-side JS representations, PLAN.md §7)
+// Component-level values (host-side JS representations, docs/architecture.md §7)
 // ---------------------------------------------------------------------------
 
 /**
@@ -192,7 +192,7 @@ export interface FuncType {
  *   u64, s64     -> bigint
  *   char         -> single-code-point string
  *   string       -> string (plain; see README on dropped encoding provenance)
- *   list<u8>     -> Uint8Array (copy; PLAN.md §7) — other lists -> Array
+ *   list<u8>     -> Uint8Array (copy; docs/architecture.md §7) — other lists -> Array
  *   record       -> { [fieldLabel]: value }
  *   tuple        -> despecialized record { "0": v0, "1": v1, ... }
  *   variant/enum/option/result -> single-key object { [caseLabel]: payload|null }

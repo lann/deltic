@@ -1,6 +1,6 @@
 // Ambient type declarations for the JS Promise Integration (JSPI) API.
 //
-// JSPI is phase 4 (PLAN.md §3) and not yet part of TypeScript's/Deno's
+// JSPI is phase 4 (docs/architecture.md §3) and not yet part of TypeScript's/Deno's
 // built-in `lib.dom`/`lib.deno` typings, so `WebAssembly.Suspending` and
 // `WebAssembly.promising` are declared here by hand, matching the shape
 // implemented by V8 (observed via Deno 2.9.5 / V8 15.0.245.2-rusty) and
@@ -19,7 +19,7 @@ declare global {
      *
      * Must only be called (i.e. actually suspend) while every frame between
      * the nearest enclosing `WebAssembly.promising`-wrapped entry and this
-     * call is a wasm frame — the "frame rule" (PLAN.md §5). A JS frame
+     * call is a wasm frame — the "frame rule" (docs/architecture.md §5). A JS frame
      * anywhere in between traps; see `frame_rule_test.ts` for the pinned,
      * observed error shape.
      */

@@ -19,7 +19,7 @@ not yet representable in the plan (never silently drop).
 
 1. **Synchronous, non-suspending.** Every intrinsic and trampoline body runs
    to completion in JS and returns. JS frames here are compatible with JSPI
-   because they complete before any suspension occurs (PLAN.md §5). An
+   because they complete before any suspension occurs (docs/architecture.md §5). An
    intrinsic that needs to wait is a design error — waiting belongs to the
    task core.
 2. **Traps** are thrown as the runtime's `ComponentTrap` and must not be
@@ -51,7 +51,7 @@ By `fact::Import` variant — implementation obligations:
 Grouped by milestone at which the runtime must stop instantiate-failing them:
 
 - **M0**: `LowerImport` (host function call through descriptor-IR lift/lower),
-  `ResourceDrop` (sync path incl. dtor call rules of PLAN.md §7 — needed as
+  `ResourceDrop` (sync path incl. dtor call rules of docs/architecture.md §7 — needed as
   soon as resources fixtures run, may slip to M1), `TaskReturn` (needed by
   any callback-ABI guest; M0 hello is sync — instantiate-fail is acceptable
   until M2 if unreferenced).

@@ -18,7 +18,7 @@
 //     transcoding as whole-string `store_string_*` rather than as these
 //     partial-progress primitives.
 //
-// Memory64 (`from64`/`to64`) is out of scope (PLAN.md §16); the executor
+// Memory64 (`from64`/`to64`) is out of scope (https://github.com/lann/deltic/issues/12); the executor
 // rejects those at instantiate time.
 
 import { trap } from "../cabi/trap.ts";

@@ -1,4 +1,4 @@
-// Claim (e) — PLAN.md §5/§6: promising() Promise resolution ordering vs
+// Claim (e) — docs/architecture.md §5/§6: promising() Promise resolution ordering vs
 // microtasks, and what happens when the wasm traps AFTER suspension+resume.
 
 import { assertEquals } from "./asserts.ts";

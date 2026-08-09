@@ -1,8 +1,8 @@
-// The 0.3 task scheduler (PLAN.md §6) — the `Store` of definitions.py plus
+// The 0.3 task scheduler (docs/architecture.md §6) — the `Store` of definitions.py plus
 // the current-thread context that every canonical built-in reads.
 //
 // ===========================================================================
-// SCHEDULING POLICY (orchestrator decision, PLAN.md §16)
+// SCHEDULING POLICY (orchestrator decision, docs/architecture.md §6)
 // ===========================================================================
 //
 // definitions.py makes two explicitly nondeterministic choices:
@@ -296,7 +296,7 @@ function activationOf(): any {
  * the engine restored it because it had captured the context when it
  * registered the continuation. We now record the same activation ourselves,
  * at the same instant, by construction — no Node `async_hooks` builtin, no
- * `AsyncContext` proposal, nothing beyond Promises (PLAN §4.3; M3A-1).
+ * `AsyncContext` proposal, nothing beyond Promises (docs/architecture.md §4.3; M3A-1).
  *
  * NOTE ON ORDINARY `await`s. Nothing here needs a context to survive a plain
  * `await` any more, and nothing ever did on its own merits: the driving loops

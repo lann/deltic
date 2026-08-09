@@ -1,4 +1,4 @@
-// Deno filesystem backend for the artifact cache (PLAN.md §10).
+// Deno filesystem backend for the artifact cache (docs/architecture.md §10).
 //
 // Layout, under `<path>/<keyhex>/`:
 //   meta.json         CacheMeta (layoutVersion, componentSha256,

@@ -2,8 +2,8 @@
 
 Single source of truth for issues and PRs we file (or intend to file) against
 the [WebAssembly/component-model] repository. Anything upstream-worthy
-discovered during development gets an entry **here**, not a note in PLAN.md —
-PLAN.md links here instead. Findings against *other* repos (wasm-tools,
+discovered during development gets an entry **here**, not a note in the design
+docs — docs/architecture.md links here instead. Findings against *other* repos (wasm-tools,
 wasmtime, wit-bindgen) do not belong in this file; see "Out of scope" at the
 bottom.
 
@@ -110,12 +110,12 @@ CanonicalABI.md and the Explainer instead.
 
 - **wasm-tools CLI 1.247 `json-from-wast` parser lag** (15/59 suite files
   parse; current `wast` crate parses 59/59): version-skew, resolved on our
-  side by owning the emitter (`crates/testgen`, PLAN.md §11). Only worth
+  side by owning the emitter (`crates/testgen`, docs/architecture.md §11). Only worth
   upstream traffic (bytecodealliance/wasm-tools) if still true at a current
   CLI release.
 - **wasmparser 0.252 requires async function types for async lifts; wasm-tools
   1.247's validator predates the rule**: spec-tracking drift between released
-  versions, not a component-model repo defect. Handled by PLAN.md §4.1/§9
+  versions, not a component-model repo defect. Handled by docs/architecture.md §4.1/§9
   version-pinning discipline (the translator's wasmparser is the single
   validation authority).
 

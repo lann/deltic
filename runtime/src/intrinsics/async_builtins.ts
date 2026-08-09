@@ -31,7 +31,7 @@
 // `waitable-set.wait`, `thread.yield` and the synchronous `subtask.cancel`
 // all *block the calling wasm frame* in the reference. A callback-ABI guest
 // is stackless: there is no suspendable wasm stack to park, so blocking here
-// genuinely requires JSPI (PLAN.md §6, JSPI role 2) and these built-ins say
+// genuinely requires JSPI (docs/architecture.md §6, JSPI role 2) and these built-ins say
 // so at the precise point, loudly, instead of faking a wait.
 //
 // They are not, however, unconditionally unavailable. Where the reference can

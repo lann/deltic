@@ -182,7 +182,7 @@ export function liftFlatList(
     for (let i = 0; i < maybeLength; i++) {
       a.push(liftFlat(cx, vi, elemType));
     }
-    // PLAN.md §7: list<u8> is a Uint8Array.
+    // docs/architecture.md §7: list<u8> is a Uint8Array.
     if (despecialize(elemType).kind === "u8") {
       return Uint8Array.from(a as number[]);
     }

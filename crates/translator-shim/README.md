@@ -3,7 +3,7 @@
 `wasmtime-environ`'s component frontend (validate, resolve linkage, FACT
 fused-adapter synthesis) behind the stable **plan v0** output format of
 [contracts/plan-format.md](../../contracts/plan-format.md). Promoted from the
-S0 spike (`translator-spike`); PLAN.md §4.1/§4.2, milestone M0.
+S0 spike (`translator-spike`); docs/architecture.md §4.1/§4.2, milestone M0.
 
 This crate is the only code in the repository that sees wasmtime's unstable
 internal shapes; everything it emits is our own schema. Pinned:

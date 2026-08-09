@@ -1,4 +1,4 @@
-// C3-IROH — the iroh endpoint exit exam (PLAN §13, track C3).
+// C3-IROH — the iroh endpoint exit exam (docs/milestones.md, track C3).
 //
 // Runs the polymorph-iroh ENDPOINT COMPONENT under deltic on Deno,
 // with the committed ports supplying every non-WASI import. This is the

@@ -11,7 +11,7 @@
 //    (`harness/browser/entry.ts` `probeJspi`) builds a module with a
 //    `Suspending` import, wraps the export with `WebAssembly.promising`, and
 //    gets the suspended value back: `{suspending: true, promising: true,
-//    roundTrip: true}`. PLAN §14 lists "Firefox: flagged" as an accepted
+//    roundTrip: true}`. docs/architecture.md §12 (Risks) lists "Firefox: flagged" as an accepted
 //    risk and §13 M3 budgets a pref flip; the flip is sufficient — no
 //    SpiderMonkey JSPI bug is visible from this corpus. Nothing in the M2
 //    empirical pins (a)-(j) misfires here: with the runtime's ambient made
@@ -20,7 +20,7 @@
 // 2. ONE genuine SpiderMonkey variance, in trap wording:
 //    `async/builtin-trap-poisons-instance.wast:9` expects
 //    "wasm trap: wasm `unreachable` instruction executed"; SpiderMonkey says
-//    "unreachable executed". Per PLAN §1 the suite's `assert_trap` text is de
+//    "unreachable executed". Per docs/architecture.md §1 the suite's `assert_trap` text is de
 //    facto wasmtime/V8 wording, so this is an expected cross-engine
 //    difference in message text, not a behavioural one — the trap happens,
 //    at the right place, and poisons the instance as the spec requires.
@@ -45,7 +45,7 @@ export const firefox: LaneExpectation = {
       line: 9,
       kind: "expected-fail",
       reason:
-        "ENGINE: this engine words the unreachable trap differently; the suite's assert_trap text is de facto wasmtime/V8 wording (PLAN §1)",
+        "ENGINE: this engine words the unreachable trap differently; the suite's assert_trap text is de facto wasmtime/V8 wording (docs/architecture.md §1)",
     },
   ],
   // Findings lane: totals are recorded for drift detection but the driver

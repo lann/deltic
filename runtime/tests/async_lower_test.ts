@@ -1,5 +1,5 @@
 // Async `canon_lower` against **host** imports — the flagship Deno capability
-// of this phase (PLAN.md §6): a JS `async` function is a valid Component Model
+// of this phase (docs/architecture.md §6): a JS `async` function is a valid Component Model
 // async import, with no JSPI anywhere.
 //
 // Why no JSPI is needed: the guest is stackless. It lowers the import, gets a

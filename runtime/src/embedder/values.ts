@@ -154,7 +154,7 @@ export function toHost(
     case "list": {
       const elem = despecialize(t.element);
       if (elem.kind === "u8") {
-        // Already a Uint8Array from the raw boundary (PLAN §7); copy defensively
+        // Already a Uint8Array from the raw boundary (docs/architecture.md §7); copy defensively
         // only if the interpreter handed back a plain array (fixed-length lists
         // take the Uint8Array path too, but be tolerant).
         return v instanceof Uint8Array ? v : Uint8Array.from(v as number[]);

@@ -16,7 +16,7 @@ both producer and consumer in the same commit and bumping `formatVersion`.
 1. **Own schema, not wasmtime's.** `wasmtime_environ::component::Component`
    derives `Serialize`, which makes the *shim's mapping code* cheap — but its
    shape is an unstable internal API and is never exposed in the plan. The
-   plan schema is defined here and owned by us (PLAN.md §4.2). The shim is
+   plan schema is defined here and owned by us (docs/architecture.md §4.2). The shim is
    the only code that sees both shapes.
 2. **JSON encoding for v0.** Debuggable, diffable, good enough. Revisit
    (postcard / custom section) only on measured need.
@@ -131,7 +131,7 @@ plan never embeds it.
                  "coreDef": { /* CoreDef */ }, "options": 0, "type": 0 } ],
 
   // Structural digest of the typed world surface, for the bindgen
-  // instantiate-time handshake (PLAN.md §9). v0: sha256 over a canonical
+  // instantiate-time handshake (docs/architecture.md §9). v0: sha256 over a canonical
   // JSON serialization of {imports, exports, types} with names sorted.
   "worldDigest": "sha256:…"
 }
@@ -142,7 +142,7 @@ plan never embeds it.
 Byte-identical `plan.json` + adapters for identical
 `(component bytes, shim build, features)`. JSON emission must use stable key
 order and no floats-as-locale. This property is what makes the artifact cache
-(PLAN.md §10) a pure content-address lookup — treat any nondeterminism as a
+(docs/architecture.md §10) a pure content-address lookup — treat any nondeterminism as a
 bug.
 
 ## Executor obligations
@@ -153,13 +153,13 @@ bug.
   `GlobalInitializer` variant.
 - Instantiate-time (not call-time) failure for any trampoline kind, intrinsic,
   or op the executor doesn't support.
-- Verify `worldDigest` when typed bindings are in play (PLAN.md §9).
+- Verify `worldDigest` when typed bindings are in play (docs/architecture.md §9).
 
 ## Open items (v0)
 
 - Resource table details beyond dtor wiring (borrow bookkeeping lives in the
   runtime; revisit when the shim emits resource-rich components).
-- `values` section: out of scope (wasmtime parity, PLAN.md §7).
+- `values` section: out of scope (wasmtime parity, docs/architecture.md §7).
 - Imported-module instantiation (`InstantiateModule::Import`) — not emitted
   for our current corpus; shim rejects with a clear error until implemented.
 - Digest canonicalization details will firm up with bindgen (M1+).

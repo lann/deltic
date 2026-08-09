@@ -163,7 +163,7 @@ Deno.test("bridge: mode is plain unless BOTH requested and supported", () => {
 });
 
 Deno.test("bridge: JSPI-less degradation — plain mode wraps nothing", () => {
-  // The M3 browser-matrix path (PLAN.md §13). On an engine without JSPI every
+  // The M3 browser-matrix path (docs/milestones.md). On an engine without JSPI every
   // blocking site keeps raising its precise NeedsJspi, which requires that
   // plain mode leave both wrapping sites untouched — a `Suspending` import
   // reached from a non-promising activation traps unconditionally (fact (c)).

@@ -69,7 +69,7 @@ export const XFAIL: XfailEntry[] = [
   // subtask.*, stream.*, future.*) to assert they trap from a post-return
   // function. The M2 task core shipped; the SURVIVING refusal is
   // 'thread-index' — the 🧵 shared-everything-threads class, deferred by
-  // PLAN §16 — so the component still declines at instantiation and all 28
+  // https://github.com/lann/deltic/issues/12 — so the component still declines at instantiation and all 28
   // assert_traps cascade off 'no current instance'. (Reason strings
   // rewritten post-M2-exit-review: they previously named the shipped task
   // core, which would misdirect triage.)
@@ -79,143 +79,143 @@ export const XFAIL: XfailEntry[] = [
     reason:
       "UnsupportedFeatureError: component requires host trampoline " +
       "'thread-index' — post-return.wast:4 declares the full async built-in " +
-      "surface incl. 🧵 thread.* built-ins; deferred-threads class, PLAN §16 " +
+      "surface incl. 🧵 thread.* built-ins; deferred-threads class, https://github.com/lann/deltic/issues/12 " +
       "(pending-capability: shared-everything threads)",
   },
   {
     file: "values/post-return.json",
     line: 204,
-    reason: "same 🧵 thread-index (deferred threads, PLAN §16) dependency as line 202",
+    reason: "same 🧵 thread-index (deferred threads, https://github.com/lann/deltic/issues/12) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 206,
-    reason: "same 🧵 thread-index (deferred threads, PLAN §16) dependency as line 202",
+    reason: "same 🧵 thread-index (deferred threads, https://github.com/lann/deltic/issues/12) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 208,
-    reason: "same 🧵 thread-index (deferred threads, PLAN §16) dependency as line 202",
+    reason: "same 🧵 thread-index (deferred threads, https://github.com/lann/deltic/issues/12) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 210,
-    reason: "same 🧵 thread-index (deferred threads, PLAN §16) dependency as line 202",
+    reason: "same 🧵 thread-index (deferred threads, https://github.com/lann/deltic/issues/12) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 212,
-    reason: "same 🧵 thread-index (deferred threads, PLAN §16) dependency as line 202",
+    reason: "same 🧵 thread-index (deferred threads, https://github.com/lann/deltic/issues/12) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 214,
-    reason: "same 🧵 thread-index (deferred threads, PLAN §16) dependency as line 202",
+    reason: "same 🧵 thread-index (deferred threads, https://github.com/lann/deltic/issues/12) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 216,
-    reason: "same 🧵 thread-index (deferred threads, PLAN §16) dependency as line 202",
+    reason: "same 🧵 thread-index (deferred threads, https://github.com/lann/deltic/issues/12) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 218,
-    reason: "same 🧵 thread-index (deferred threads, PLAN §16) dependency as line 202",
+    reason: "same 🧵 thread-index (deferred threads, https://github.com/lann/deltic/issues/12) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 220,
-    reason: "same 🧵 thread-index (deferred threads, PLAN §16) dependency as line 202",
+    reason: "same 🧵 thread-index (deferred threads, https://github.com/lann/deltic/issues/12) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 222,
-    reason: "same 🧵 thread-index (deferred threads, PLAN §16) dependency as line 202",
+    reason: "same 🧵 thread-index (deferred threads, https://github.com/lann/deltic/issues/12) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 224,
-    reason: "same 🧵 thread-index (deferred threads, PLAN §16) dependency as line 202",
+    reason: "same 🧵 thread-index (deferred threads, https://github.com/lann/deltic/issues/12) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 226,
-    reason: "same 🧵 thread-index (deferred threads, PLAN §16) dependency as line 202",
+    reason: "same 🧵 thread-index (deferred threads, https://github.com/lann/deltic/issues/12) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 228,
-    reason: "same 🧵 thread-index (deferred threads, PLAN §16) dependency as line 202",
+    reason: "same 🧵 thread-index (deferred threads, https://github.com/lann/deltic/issues/12) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 230,
-    reason: "same 🧵 thread-index (deferred threads, PLAN §16) dependency as line 202",
+    reason: "same 🧵 thread-index (deferred threads, https://github.com/lann/deltic/issues/12) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 232,
-    reason: "same 🧵 thread-index (deferred threads, PLAN §16) dependency as line 202",
+    reason: "same 🧵 thread-index (deferred threads, https://github.com/lann/deltic/issues/12) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 234,
-    reason: "same 🧵 thread-index (deferred threads, PLAN §16) dependency as line 202",
+    reason: "same 🧵 thread-index (deferred threads, https://github.com/lann/deltic/issues/12) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 236,
-    reason: "same 🧵 thread-index (deferred threads, PLAN §16) dependency as line 202",
+    reason: "same 🧵 thread-index (deferred threads, https://github.com/lann/deltic/issues/12) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 238,
-    reason: "same 🧵 thread-index (deferred threads, PLAN §16) dependency as line 202",
+    reason: "same 🧵 thread-index (deferred threads, https://github.com/lann/deltic/issues/12) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 240,
-    reason: "same 🧵 thread-index (deferred threads, PLAN §16) dependency as line 202",
+    reason: "same 🧵 thread-index (deferred threads, https://github.com/lann/deltic/issues/12) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 242,
-    reason: "same 🧵 thread-index (deferred threads, PLAN §16) dependency as line 202",
+    reason: "same 🧵 thread-index (deferred threads, https://github.com/lann/deltic/issues/12) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 244,
-    reason: "same 🧵 thread-index (deferred threads, PLAN §16) dependency as line 202",
+    reason: "same 🧵 thread-index (deferred threads, https://github.com/lann/deltic/issues/12) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 246,
-    reason: "same 🧵 thread-index (deferred threads, PLAN §16) dependency as line 202",
+    reason: "same 🧵 thread-index (deferred threads, https://github.com/lann/deltic/issues/12) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 248,
-    reason: "same 🧵 thread-index (deferred threads, PLAN §16) dependency as line 202",
+    reason: "same 🧵 thread-index (deferred threads, https://github.com/lann/deltic/issues/12) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 250,
-    reason: "same 🧵 thread-index (deferred threads, PLAN §16) dependency as line 202",
+    reason: "same 🧵 thread-index (deferred threads, https://github.com/lann/deltic/issues/12) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 252,
-    reason: "same 🧵 thread-index (deferred threads, PLAN §16) dependency as line 202",
+    reason: "same 🧵 thread-index (deferred threads, https://github.com/lann/deltic/issues/12) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 254,
-    reason: "same 🧵 thread-index (deferred threads, PLAN §16) dependency as line 202",
+    reason: "same 🧵 thread-index (deferred threads, https://github.com/lann/deltic/issues/12) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 256,
-    reason: "same 🧵 thread-index (deferred threads, PLAN §16) dependency as line 202",
+    reason: "same 🧵 thread-index (deferred threads, https://github.com/lann/deltic/issues/12) dependency as line 202",
   },
   // post-return.wast:260 uses `context.get`/`context.set`, which wasmtime
   // lowers to `CoreDef::UnsafeIntrinsic` — a shape plan v0 has no wire form
@@ -367,7 +367,7 @@ export const XFAIL: XfailEntry[] = [
       "downgrading testgen to `wast` 252 is NOT a fix (verified: it fails " +
       "to parse 44 of the 59 suite files, which use the newer " +
       "`(memory (core memory ...))` text syntax). Note the file's canonical " +
-      "functions are all deferred thread built-ins anyway (PLAN.md §16) " +
+      "functions are all deferred thread built-ins anyway (https://github.com/lann/deltic/issues/12) " +
       "(pending-capability: wasmparser/wast pin alignment)",
   },
   {

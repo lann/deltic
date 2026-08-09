@@ -6,7 +6,7 @@
 //! Usage:
 //!   cargo run -p translator-shim --example suite-inventory [-- dir ...]
 //!
-//! This is a development/triage tool (PLAN.md §11), not a gate.
+//! This is a development/triage tool (docs/architecture.md §11), not a gate.
 
 use std::collections::BTreeMap;
 

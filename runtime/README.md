@@ -1,16 +1,16 @@
 # runtime — TS core runtime
 
-Platform-neutral TypeScript runtime core (PLAN.md §4.3). Two layers exist
+Platform-neutral TypeScript runtime core (docs/architecture.md §4.3). Two layers exist
 today:
 
 1. the **canonical-ABI v1 value interpreter** (`src/cabi/`) with the
-   **definitions.py test ports** (`tests/`): PLAN.md §11 row 2, feeding §7
+   **definitions.py test ports** (`tests/`): docs/architecture.md §11 row 2, feeding §7
    (canonical-ABI decisions) and §8 (the descriptor-IR interpreter);
 2. the **M0 plan executor on the task-model skeleton** (`src/plan/`,
    `src/task/`, `src/exec/`, `src/intrinsics/`, `src/shim/`): loads the
    translator shim's plan v0 (contracts/plan-format.md), instantiates and
    links the component, and routes every lifted-export call through
-   Task/Thread structures (degenerate sync path, PLAN.md §6).
+   Task/Thread structures (degenerate sync path, docs/architecture.md §6).
 
 ## Layout
 
@@ -29,7 +29,7 @@ src/cabi/          v1 reference interpreter, mirroring definitions.py sections
   values.ts        lift_flat_values / lower_flat_values (max_flat spilling)
 src/plan/          plan v0 wire types (format.ts) + loader/validator (loader.ts)
 src/task/          Task / Thread / Subtask / ComponentInstanceState + sync
-                   driving loop (the M2 scheduler's spine; PLAN.md §6)
+                   driving loop (the M2 scheduler's spine; docs/architecture.md §6)
 src/exec/          plan executor (executor.ts: initializers, CoreDef/arg
                    resolution, export surface) + host boundary (boundary.ts:
                    canon_lift/canon_lower sync paths, LiveMemory grow-safe views)
@@ -66,7 +66,7 @@ needed when the submodule's definitions.py changes.
 | NaN canonicalization (deterministic profile)                                                                       | `test_nan32/64`                                                       | `nan_test.ts`                                                                              |
 | char validation (surrogates, > 0x10FFFF trap)                                                                      | `test_pairs(CharType...)`                                             | `flat_test.ts`                                                                             |
 | strings: full utf8/utf16/latin1+utf16 matrix, both address types, byte-exact incl. realloc traffic                 | `test_string` matrix                                                  | `string_test.ts` (fixture-driven: 168 lift + 150 lower byte-exact checks + 504 roundtrips) |
-| USVString lone-surrogate replacement (PLAN.md §7)                                                                  | n/a in Python (strings always well-formed)                            | `string_test.ts` (TS-authored)                                                             |
+| USVString lone-surrogate replacement (docs/architecture.md §7)                                                                  | n/a in Python (strings always well-formed)                            | `string_test.ts` (TS-authored)                                                             |
 | lists/records/variants/flags/map over heap memory, misalignment traps, i64 memories                                | `test_heap`                                                           | `heap_test.ts` (35 cases)                                                                  |
 | lift/lower_flat_values spilling (17 params, retp out-param, alignment traps)                                       | reached via `test_roundtrips`/`canon_lower` upstream                  | `values_test.ts` (TS-authored)                                                             |
 | handle Table (slab, free list LIFO, traps), resource.new/rep/drop, own transfer, borrow lend counting              | `test_handles` (pure parts)                                           | `handles_test.ts`                                                                          |
@@ -80,11 +80,11 @@ through `Store`/`Task`/`Thread`: cross-component realloc, the full
 cancellation, `thread.*`/`context.*` built-ins, and the
 error-context/stream/future _value types_ (their layout/flatten is implemented;
 their lift/lower throws `NotImplemented`). Each has an ignored placeholder in
-`tests/deferred_test.ts` with the reason. Per PLAN.md §6 the scheduler is the
+`tests/deferred_test.ts` with the reason. Per docs/architecture.md §6 the scheduler is the
 core deliverable and gets built as the runtime's spine — these ports become its
 acceptance tests, not the other way round.
 
-## Decisions forced by JS semantics (not already settled by PLAN.md §7)
+## Decisions forced by JS semantics (not already settled by docs/architecture.md §7)
 
 Recorded here because definitions.py had no opinion (Python erases these
 distinctions); flagged for plan review:
@@ -106,7 +106,7 @@ distinctions); flagged for plan review:
    destinations, but different realloc traffic than the same-encoding copy fast
    path, and the `store_probably_utf16_to_latin1_or_utf16` path is unreachable.
    Rationale: cross-component transcoding (where provenance pays off) belongs to
-   FACT adapters (PLAN.md §4.1), not the host boundary.
+   FACT adapters (docs/architecture.md §4.1), not the host boundary.
 4. **latin1 decode is hand-rolled**: WHATWG `TextDecoder`'s
    "latin1"/"iso-8859-1" labels alias windows-1252 (0x80–0x9F differ);
    ISO-8859-1 lift is a manual identity byte→code-point loop.
@@ -117,10 +117,10 @@ distinctions); flagged for plan review:
    conversion; present in all JSPI-capable engines (the compatibility floor).
 7. **Variant/record/flags value shapes** mirror definitions.py (single-key
    objects, despecialized tuple records, label→bool maps); `list<u8>` is
-   `Uint8Array` per PLAN.md §7. Final host-facing representations for bindgen
+   `Uint8Array` per docs/architecture.md §7. Final host-facing representations for bindgen
    remain open (below).
 
-Also plan-relevant: PLAN.md §7 defers **latin1+utf16** "until a test forces it"
+Also plan-relevant: docs/architecture.md §7 defers **latin1+utf16** "until a test forces it"
 — the ported definitions.py string matrix forces it, so the v1 interpreter now
 implements it fully (both directions). If we prefer to keep the runtime surface
 minimal, the store path can be re-deferred by ignoring the fixture subset again.
@@ -128,9 +128,9 @@ minimal, the store path can be re-deferred by ignoring the fixture subset again.
 ## Open questions (types.ts is provisional)
 
 - Wire format of the descriptor IR: `types.ts` is the in-memory sketch; the
-  translator shim (PLAN.md §4.2) will define the serialized form and likely
+  translator shim (docs/architecture.md §4.2) will define the serialized form and likely
   intern labels/types by index.
-- Host-facing value representations for bindings (PLAN.md §9): tuples as arrays?
+- Host-facing value representations for bindings (docs/architecture.md §9): tuples as arrays?
   variants as `{ tag, val }`? `option<T>` as `T | undefined` with a
   `Some`/`None` escape hatch for nesting? The interpreter's despecialized shapes
   are faithful to the reference but not ergonomic.
@@ -145,7 +145,7 @@ minimal, the store path can be re-deferred by ignoring the fixture subset again.
 - `canon_backpressure_set` exists in definitions.py (~line 2368) but
   CanonicalABI.md documents only `backpressure.inc`/`backpressure.dec`; the
   repo's own `diff.py` flags it. Vestigial back-compat shim — worth an upstream
-  issue alongside the one PLAN.md §7 already notes (stale `$async?` immediate on
+  issue alongside the one docs/architecture.md §7 already notes (stale `$async?` immediate on
   `resource.drop`, CanonicalABI.md ~line 4013).
 - `python3 run_tests.py` passes upstream unmodified (Python 3.13.7), so no
   reference-snapshot copy was needed.

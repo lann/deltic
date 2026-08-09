@@ -472,7 +472,7 @@ function createTrampolineBody(
         scope!.releaseLenders();
       };
 
-    // Guest-side resource built-ins (sync paths of PLAN.md §7 over the cabi
+    // Guest-side resource built-ins (sync paths of docs/architecture.md §7 over the cabi
     // handle tables). rep is always i32 in current wasmtime.
     case "resource-new": {
       const d = decl as unknown as ResourceTrampolineDecl;
@@ -513,7 +513,7 @@ function createTrampolineBody(
         to64: boolean;
       };
       if (d.from64 || d.to64) {
-        // 64-bit linear memories are out of scope (PLAN.md §16); refusing at
+        // 64-bit linear memories are out of scope (https://github.com/lann/deltic/issues/12); refusing at
         // instantiate time keeps "instantiate-time, never call-time".
         throw new UnsupportedFeatureError(
           "M2",

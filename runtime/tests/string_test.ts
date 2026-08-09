@@ -4,7 +4,7 @@
 // definitions.py): byte-exact lift and lower expectations for the full
 // utf8/utf16/latin1+utf16 matrix on i32 and i64 memories, including realloc
 // traffic against the run_tests.py Heap model. Plus TS-authored cases for
-// JS-specific semantics: USVString lone-surrogate replacement (PLAN.md §7)
+// JS-specific semantics: USVString lone-surrogate replacement (docs/architecture.md §7)
 // and invalid-encoding traps.
 
 import stringsFixture from "./fixtures/strings.json" with { type: "json" };
@@ -128,7 +128,7 @@ Deno.test("string lift/lower roundtrips across the encoding matrix", () => {
   }
 });
 
-Deno.test("USVString semantics: lone surrogates lower as U+FFFD (PLAN.md §7)", () => {
+Deno.test("USVString semantics: lone surrogates lower as U+FFFD (docs/architecture.md §7)", () => {
   const lone = "a\ud800b"; // unpaired high surrogate
   const replaced = "a\ufffdb";
 

@@ -2,10 +2,10 @@
 // `WebAssembly.Suspending`. This module is intentionally standalone: it has
 // no knowledge of the task/scheduler model (runtime/src/task,exec,intrinsics,
 // plan) and must not import from those directories. It is the mechanics
-// layer that the upcoming JSPI scheduler phase (PLAN.md §6) will consume —
+// layer that the upcoming JSPI scheduler phase (docs/architecture.md §6) will consume —
 // not the scheduler itself.
 //
-// # The frame rule (PLAN.md §5)
+// # The frame rule (docs/architecture.md §5)
 //
 // From the js-promise-integration proposal Overview: only WebAssembly
 // computations may be suspended — only wasm frames may be active between the
@@ -24,12 +24,12 @@
 //     `suspending_import_test.ts::pure_wasm_stack_suspends_and_resumes`).
 //   - Cross-component JS glue between two wasm activations traps the moment
 //     anything below it suspends — cross-component adapters must be wasm
-//     (FACT), not JS (PLAN.md §4.1, §5).
+//     (FACT), not JS (docs/architecture.md §4.1, §5).
 //
 // # Reentrancy and concurrency (empirical, not mechanics-layer policy)
 //
 // The engine permits things the Component Model forbids (e.g. reentering an
-// instance while one of its exports is suspended) — PLAN.md §6 flags this as
+// instance while one of its exports is suspended) — docs/architecture.md §6 flags this as
 // the scheduler's job to gate, not the engine's. See
 // `reentry_test.ts`/`concurrent_activations_test.ts` for what the engine
 // actually allows; this module does not enforce CM invariants.
@@ -37,7 +37,7 @@
 import "./types.ts";
 
 /** True if the current engine implements `WebAssembly.promising` and
- * `WebAssembly.Suspending`. Both are phase-4 API surface (PLAN.md §3): no
+ * `WebAssembly.Suspending`. Both are phase-4 API surface (docs/architecture.md §3): no
  * fallback path exists or is planned for engines without them. */
 export function isSupported(): boolean {
   return (
@@ -55,7 +55,7 @@ export function assertSupported(): void {
   if (!isSupported()) {
     throw new Error(
       "JSPI (WebAssembly.promising / WebAssembly.Suspending) is not " +
-        "available in this engine; see PLAN.md §3 for the compatibility " +
+        "available in this engine; see docs/architecture.md §3 for the compatibility " +
         "floor (no fallback path exists).",
     );
   }
@@ -75,7 +75,7 @@ export function assertSupported(): void {
  * This is a direct type-safe pass-through of `WebAssembly.promising`; it
  * does no extra bookkeeping. `TArgs`/`TReturn` are the caller's own
  * annotation of the underlying export's signature (not reflected — see
- * PLAN.md §3's note on js-types being flagged/phase-3).
+ * docs/architecture.md §3's note on js-types being flagged/phase-3).
  */
 export function makePromising<
   TArgs extends unknown[] = unknown[],
