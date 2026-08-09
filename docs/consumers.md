@@ -28,8 +28,9 @@ Their jco blockers map one-for-one onto this project's proven strengths
 
 - **Co-evolution, not compatibility.** Conventions are designed against
   the consumers' host modules as reference implementations; they port; both
-  sides pin exactly and upgrade deliberately (versioned releases:
-  [#16](https://github.com/lann/deltic/issues/16)).
+  sides pin exactly and upgrade deliberately — via git references and/or
+  `pre-<shorthash>` prerelease artifacts; registry publishing is deferred
+  ([#16](https://github.com/lann/deltic/issues/16), decision 2026-08-09).
 - **WASI interfaces are design inputs even though implementations stay
   out of core.** The conventions must make wasi p2 idioms (pollables, io
   streams, error-code enums, resource-heavy surfaces) and p3 idioms
