@@ -308,9 +308,20 @@ class Executor {
     //                                    -- see `suspendableFuncs`)
     //   dont-block-start             1  (start-section singleton)
     //   builtin-trap-poisons-instance 1
-    // NOTE: with detection ON the async command COUNT drops 291 -> 288, i.e.
-    // three commands stop being executed at all. Unexplained; check before
-    // trusting any detection-on delta as complete.
+    // The 291 -> 288 command-count drop under detection is EXPLAINED:
+    // `async/sync-barges-in.wast` (3 commands) STALLS. Its conformance test
+    // dies with "Promise resolution is still pending but the event loop has
+    // already resolved", which happens before `summary.add`, so the file
+    // contributes zero commands and the stall is invisible in the failure
+    // table. Read the detection-on figure as "26 failures + 1 stalled file
+    // over a 288-command corpus", not as 26 over 291.
+    //
+    // The stall has the same shape as the one `deadlock_test` caught
+    // (awaiting=2, one not-ready SuspensionPoint, no host calls, no claim) but
+    // survives the deadlock predicate added for that: the predicate is
+    // entered and produces neither progress nor a trap. Next step: find out
+    // why -- instrument inside the `store.awaiting.size > 0` branch of
+    // `driveAsync`, which currently emits no trace of its own.
     this.suspensionMode = chooseMode(input.jspi);
   }
 
