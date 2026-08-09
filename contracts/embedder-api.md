@@ -116,7 +116,7 @@ without interference).
 | `list<T>` (T ≠ u8) | `T[]` | plain arrays; no typed-array widening (a future perf opt-in, never a silent shape change) |
 | `tuple<A, B, …>` | `[A, B, …]` | real TS tuple |
 | `record` | plain object, camelCase fields | fields of option type are optional properties (`field?: T`) |
-| `enum` | string literal union of kebab tags | `"offer" \| "answer" \| …` |
+| `enum` | string literal union of kebab-case case names | `"offer" \| "answer" \| …` |
 | `variant` | `{ tag: "case" }` \| `{ tag: "case", val: T }` | `val` **absent** (not `undefined`) for payloadless cases |
 | `option<T>` | `T \| undefined`; **nested** options box | see rule below |
 | `result<T, E>` **as a value** (nested in other types) | `{ tag: "ok", val: T } \| { tag: "err", val: E }` | `val` absent for empty sides — same family as `variant` |
@@ -124,6 +124,15 @@ without interference).
 | `flags` | object of camelCase booleans | lift: every flag present; lower: absent = `false` |
 | `own<R>` / `borrow<R>` | the resource class instance | see "Resources" |
 | `stream<T>` / `future<T>` / `error-context` | `Stream<T>` / `Future<T>` / `ErrorContext` | see "Streams and futures" |
+
+**Terminology note.** The spec calls variant alternatives **cases**
+(Explainer, definitions.py `case_label`); prose here follows that. The
+discriminant *property* is nonetheless named `tag`, a deliberate
+divergence: "tagged union" is the JS/TS-side term of art, `{ tag, val }`
+is the established convention in this exact niche (jco, and the consumer
+host modules already written against it), and `case` is a JS reserved
+word — legal as a property, but `v.case` reads like syntax. The value of
+`tag` is always the case name, kebab-case verbatim.
 
 **Option rule.** The *outermost* option in a chain maps to
 `T | undefined`; every option nested **directly inside another option**
