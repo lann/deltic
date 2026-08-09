@@ -64,160 +64,158 @@ export const XFAIL: XfailEntry[] = [
     line: 213,
     reason: "same name-option decoding gap as line 30, see that entry",
   },
-  // --- values/post-return.json: three of the file's five components need
-  // the M2 task core, so their instances never come up and every command
-  // against them fails. Root causes below; none is a values/-specific gap.
-  //
-  // post-return.wast:4 ($Tester) declares every async built-in
-  // (task.return, task.cancel, thread.yield/index, waitable-set.*,
-  // waitable.join, subtask.*, stream.*, future.*) in order to assert they
-  // trap when called from a post-return function. The runtime refuses the
-  // component at instantiate time on the first such trampoline
-  // (contracts/intrinsics.md §B: M2), so all 28 assert_trap commands below
-  // are blocked on the same capability.
+  // --- values/post-return.json: post-return.wast:4 ($Tester) declares
+  // every async built-in (task.return, thread.yield/INDEX, waitable-set.*,
+  // subtask.*, stream.*, future.*) to assert they trap from a post-return
+  // function. The M2 task core shipped; the SURVIVING refusal is
+  // 'thread-index' — the 🧵 shared-everything-threads class, deferred by
+  // PLAN §16 — so the component still declines at instantiation and all 28
+  // assert_traps cascade off 'no current instance'. (Reason strings
+  // rewritten post-M2-exit-review: they previously named the shipped task
+  // core, which would misdirect triage.)
   {
     file: "values/post-return.json",
     line: 202,
     reason:
       "UnsupportedFeatureError: component requires host trampoline " +
-      "'task-return' — post-return.wast:4 declares the full async built-in " +
-      "surface; runtime/src/intrinsics gap " +
-      "(pending-capability: M2 task core)",
+      "'thread-index' — post-return.wast:4 declares the full async built-in " +
+      "surface incl. 🧵 thread.* built-ins; deferred-threads class, PLAN §16 " +
+      "(pending-capability: shared-everything threads)",
   },
   {
     file: "values/post-return.json",
     line: 204,
-    reason: "same M2 task-core dependency as line 202, see that entry",
+    reason: "same 🧵 thread-index (deferred threads, PLAN §16) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 206,
-    reason: "same M2 task-core dependency as line 202, see that entry",
+    reason: "same 🧵 thread-index (deferred threads, PLAN §16) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 208,
-    reason: "same M2 task-core dependency as line 202, see that entry",
+    reason: "same 🧵 thread-index (deferred threads, PLAN §16) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 210,
-    reason: "same M2 task-core dependency as line 202, see that entry",
+    reason: "same 🧵 thread-index (deferred threads, PLAN §16) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 212,
-    reason: "same M2 task-core dependency as line 202, see that entry",
+    reason: "same 🧵 thread-index (deferred threads, PLAN §16) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 214,
-    reason: "same M2 task-core dependency as line 202, see that entry",
+    reason: "same 🧵 thread-index (deferred threads, PLAN §16) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 216,
-    reason: "same M2 task-core dependency as line 202, see that entry",
+    reason: "same 🧵 thread-index (deferred threads, PLAN §16) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 218,
-    reason: "same M2 task-core dependency as line 202, see that entry",
+    reason: "same 🧵 thread-index (deferred threads, PLAN §16) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 220,
-    reason: "same M2 task-core dependency as line 202, see that entry",
+    reason: "same 🧵 thread-index (deferred threads, PLAN §16) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 222,
-    reason: "same M2 task-core dependency as line 202, see that entry",
+    reason: "same 🧵 thread-index (deferred threads, PLAN §16) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 224,
-    reason: "same M2 task-core dependency as line 202, see that entry",
+    reason: "same 🧵 thread-index (deferred threads, PLAN §16) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 226,
-    reason: "same M2 task-core dependency as line 202, see that entry",
+    reason: "same 🧵 thread-index (deferred threads, PLAN §16) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 228,
-    reason: "same M2 task-core dependency as line 202, see that entry",
+    reason: "same 🧵 thread-index (deferred threads, PLAN §16) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 230,
-    reason: "same M2 task-core dependency as line 202, see that entry",
+    reason: "same 🧵 thread-index (deferred threads, PLAN §16) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 232,
-    reason: "same M2 task-core dependency as line 202, see that entry",
+    reason: "same 🧵 thread-index (deferred threads, PLAN §16) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 234,
-    reason: "same M2 task-core dependency as line 202, see that entry",
+    reason: "same 🧵 thread-index (deferred threads, PLAN §16) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 236,
-    reason: "same M2 task-core dependency as line 202, see that entry",
+    reason: "same 🧵 thread-index (deferred threads, PLAN §16) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 238,
-    reason: "same M2 task-core dependency as line 202, see that entry",
+    reason: "same 🧵 thread-index (deferred threads, PLAN §16) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 240,
-    reason: "same M2 task-core dependency as line 202, see that entry",
+    reason: "same 🧵 thread-index (deferred threads, PLAN §16) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 242,
-    reason: "same M2 task-core dependency as line 202, see that entry",
+    reason: "same 🧵 thread-index (deferred threads, PLAN §16) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 244,
-    reason: "same M2 task-core dependency as line 202, see that entry",
+    reason: "same 🧵 thread-index (deferred threads, PLAN §16) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 246,
-    reason: "same M2 task-core dependency as line 202, see that entry",
+    reason: "same 🧵 thread-index (deferred threads, PLAN §16) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 248,
-    reason: "same M2 task-core dependency as line 202, see that entry",
+    reason: "same 🧵 thread-index (deferred threads, PLAN §16) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 250,
-    reason: "same M2 task-core dependency as line 202, see that entry",
+    reason: "same 🧵 thread-index (deferred threads, PLAN §16) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 252,
-    reason: "same M2 task-core dependency as line 202, see that entry",
+    reason: "same 🧵 thread-index (deferred threads, PLAN §16) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 254,
-    reason: "same M2 task-core dependency as line 202, see that entry",
+    reason: "same 🧵 thread-index (deferred threads, PLAN §16) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 256,
-    reason: "same M2 task-core dependency as line 202, see that entry",
+    reason: "same 🧵 thread-index (deferred threads, PLAN §16) dependency as line 202",
   },
   // post-return.wast:260 uses `context.get`/`context.set`, which wasmtime
   // lowers to `CoreDef::UnsafeIntrinsic` — a shape plan v0 has no wire form
@@ -346,7 +344,7 @@ export const XFAIL: XfailEntry[] = [
   // --- async/sync-streams.json: GREEN under jspi auto-detection (M2 flip:
   // exclusivity now follows the call, not the activation — a resolved
   // producer blocked mid-sync-write no longer gates the next task's entry;
-  // see Task.#releaseExclusiveOnResolve, wasmtime-supersedes-reference);
+  // see blockCurrentActivation's release-at-BLOCK for resolved tasks, wasmtime-supersedes-reference #2);
   // entry pruned. ---
   // --- async/trap-if-block-and-sync.json: see entries ---
   {

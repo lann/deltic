@@ -178,10 +178,35 @@ of three debugging rounds.
    `while (tick())` drain — natural for a purely cooperative scheduler —
    overwrites the ambient claim and mis-attributes the first activation's
    built-ins. `tick()` must refuse progress while a claim is live; drains
-   must yield to the microtask queue.
+   must yield to the microtask queue. (Post-flip generalization: this is
+   the special case of constraint 5.)
+4. **The Suspending "fast path" still suspends** (pin (j),
+   `fastpath_hop_test.ts`): a plain-value return from a Suspending import
+   does NOT continue the wasm synchronously — the continuation is deferred
+   to a microtask. Consequence: a promising-wrapped callee can never
+   complete inside the call that entered it, so any caller that must
+   observe an eager callee's completion (FACT `async-start-call` reporting
+   subtask state) must park until the callee is **determinate**
+   (resolved / finished / genuinely scheduler-parked) — never until
+   *resolution* (that parks an async caller on its callee, which is
+   forbidden by what async lowering means).
+5. **Settled-tail atomicity**: between a suspension's settlement and the
+   servicing of that activation's continuation ("tail"), no other
+   scheduling decision may be made — the reference's synchronous
+   run-to-completion resume, reconstructed. Implemented as eager
+   settle-tagging (`Store.settled`), tick-refusal while a finished
+   activation's bookkeeping is unserviced, and tails-first ordering in
+   every driver.
 
-Status: bridge, entry wrapping, mode invariant, ambient, background
-activations all landed and runtime-suite-green with detection forced on;
-auto-detection ships off pending one un-traced resumption path that
-surfaces only under the conformance harness (see the site comment at
-`chooseMode`).
+Status: **auto-detection is ON by default** (M2 exit, commit 652c1dc):
+all blocking sites lit, per-declaration suspendability classification
+(async-form copy built-ins never block; sync forms do; cancel forms per
+their own flag), `KNOWN_DIVERGENT` empty, the plain path pinned
+zero-cost for sync-only components. Two spots where wasmtime supersedes
+definitions.py are implemented and tracked upstream: cancel-copy
+completion superseding (CM-3) and entry-gating ending at
+resolution-plus-block rather than activation end (see
+upstream-component-model-repo-findings.md). Host-import lowers are
+deliberately outside the suspension classification — a sync-lowered
+Promise-returning host function degrades to a clean `NeedsJspi`
+capability signal.

@@ -177,3 +177,55 @@ the count alone cannot distinguish the two.
 
 In `cancel_copy`, when the pending event is a stream `COMPLETED`, deliver
 `CANCELLED` with the same progress count.
+
+---
+
+## CM-4: entry-gating duration — definitions.py's `exclusive_thread` outlives wasmtime's "sync call in progress"
+
+**Status:** DRAFT — candidate upstream issue against `definitions.py`
+**Found:** 2026-08-08, during the JSPI flip (M2 exit; `sync-streams.wast:208` is the arbiter)
+
+### Evidence
+
+- `definitions.py` gates instance entry on `exclusive_thread`, held for the
+  **whole activation** of a non-reentrant task — a task that has already
+  resolved (`task.return` executed) but continues running (the legal
+  producer pattern) still blocks new entries until its thread finishes.
+- wasmtime 47.0.3 gates on **"a sync call in progress"**
+  (`ConcurrentInstanceState.do_not_enter`, concurrent.rs:501, bracketed at
+  :1998/:2008, with the stackful-async exemption at :2701): a resolved
+  producer blocked mid-sync-write does **not** gate the next entry.
+- The official suite asserts wasmtime's semantics: `sync-streams.wast:208`
+  expects a STARTED (not blocked-on-entry) result while a resolved producer
+  is parked mid-copy.
+
+### Why wasmtime looks right
+
+Post-resolution execution is explicitly legal in 0.3; making it hold the
+instance's entry gate turns every producer into an accidental mutex for its
+whole (unbounded) background lifetime. The gate's purpose — non-reentrance
+of the *call* — ends when the call's synchronous span ends.
+
+### Suggested change
+
+Scope the reference's entry gate to the sync-call-in-progress span (release
+on resolution + block), or document the divergence and mark the suite test
+as the normative source.
+
+---
+
+## NOTE-1: several official async tests assume the deterministic profile
+
+**Status:** NOTE (documentation candidate, not a defect)
+**Found:** 2026-08-08 (`async-calls-sync.wast` run-cb, M2 seeded-scheduling
+investigation)
+
+`async-calls-sync.wast`'s guest asserts each subtask's returned value equals
+its index — an order pinned only by `DETERMINISTIC_PROFILE`
+(definitions.py:1373): when backpressure clears, all waiters become ready at
+once and the reference's `Store.tick` picks with `random.choice`. A host
+exploring the spec's allowed nondeterminism beyond the deterministic profile
+fails the guest's own assertion. Worth an upstream doc note on `test/async`
+(tests assume the deterministic profile) or making the guests
+order-tolerant. Hosts adding seeded-schedule testing should profile-scope
+pins for such fixtures (we did).

@@ -318,10 +318,12 @@ export class Task {
     assert_(thread === this.implicitThread, "exit of a non-implicit thread");
     this.unregisterThread(thread);
     if (this.ft.async === true && this.needsExclusive()) {
-      // Release-if-held rather than assert-held: RESOLUTION already released
-      // it (see `#releaseExclusiveOnResolve` — the wasmtime-superseding
-      // "exclusivity follows the call" rule), and every resolved task passes
-      // through here afterwards.
+      // Release-if-held rather than assert-held: a resolved task that then
+      // BLOCKED already released it (see blockCurrentActivation's
+      // release-at-block for resolved tasks — the wasmtime-superseding
+      // "exclusivity follows the sync call in progress" rule,
+      // ConcurrentInstanceState.do_not_enter), and every resolved task
+      // passes through here afterwards.
       if (this.inst.exclusiveThread === thread) {
         this.inst.exclusiveThread = null;
       } else {
