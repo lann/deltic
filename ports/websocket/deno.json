@@ -1,0 +1,14 @@
+{
+  "name": "@component-engine/port-websocket",
+  "version": "0.0.0",
+  "exports": "./src/websocket.ts",
+  "//": "This package is deliberately NOT a member of the root workspace (like tools/smoke-c0): it imports the runtime, wasi-shims and ct-runner by relative path. The one alias below is what wasi-shims itself uses internally; it resolves to the same file URL as the relative imports here, so there is exactly one module instance and `instanceof WitError` holds across the boundary.",
+  "imports": {
+    "@component-engine/runtime/embedder": "../../runtime/src/embedder/mod.ts"
+  },
+  "tasks": {
+    "check": "deno check src tests conformance",
+    "test": "deno test --allow-net=127.0.0.1,localhost tests",
+    "conformance": "DENO_CERT=/home/lmartin/p/polymorph/polymorph-websocket/conformance/server/tls/ca.pem deno run -A conformance/run.ts"
+  }
+}
