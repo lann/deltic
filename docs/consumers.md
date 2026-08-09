@@ -94,7 +94,7 @@ Reference implementations developed here, pending upstreaming
 | `exams/iroh-endpoint` | the endpoint exit exam | 5/5: bind+identity, relay echo, WebRTC upgrade, jco#11/#13 assertions, teardown |
 | `ct-runner` | L3 runner for the polymorph-test L1 contract | golden-tested L4 JSONL; drives the websocket suite |
 | `tools/smoke-c0` | C0 smoke legs + report | legs 1–4 (`REPORT.md`) |
-| `tools/smoke-tls` | polymorph-tls conformance under deltic ([#18](https://github.com/lann/deltic/issues/18)) | translate 8/8; suites 6/6 applicable green per target (named xfails: tag-gating [#25](https://github.com/lann/deltic/issues/25), callback-null-context [#24](https://github.com/lann/deltic/issues/24)) |
+| `tools/smoke-tls` | polymorph-tls conformance under deltic ([#18](https://github.com/lann/deltic/issues/18)) | translate 8/8; suites: all applicable cases green on every composition (sole named xfail class: tag-gating [#25](https://github.com/lann/deltic/issues/25); the callback-null-context defect it found, [#24](https://github.com/lann/deltic/issues/24), is fixed — attribution sentinels, `runtime/src/jspi/bridge.ts`) |
 
 Deferred consumer surfaces: experiment-mosh deep E2E
 ([#2](https://github.com/lann/deltic/issues/2)), webcrypto family completion

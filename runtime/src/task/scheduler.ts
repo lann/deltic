@@ -328,15 +328,56 @@ const activationClaims: any[] = [];
 /**
  * Record that the engine will run `t`'s wasm outside our frames.
  *
- * Idempotent: an activation that makes ten non-suspending `Suspending` calls
- * in a row claims once. A null/undefined activation is "no claim" — the
- * instantiation-time shape that has no thread at all.
+ * Idempotent in MEMBERSHIP but not in POSITION: re-claiming MOVES an
+ * existing claim to the top. The stack's contract is "top = the innermost
+ * activation the engine is running outside our frames", and a re-claim is
+ * direct evidence that `t` is running RIGHT NOW (its Suspending import just
+ * returned into its wasm). The previous early-return kept stale order: a
+ * nested callee's claim whose release edge is a promise reaction
+ * (`Store.noteAwaiting` -> `releaseClaimOf`) outlives the callee by a
+ * microtask, and an outer activation's continuation chunk that resumed in
+ * that window re-claimed itself as a NOOP — leaving the finished callee on
+ * top, so every ambient read in the rest of the chunk (the next hop's
+ * `owner` capture, and any unsafe intrinsic like `context.set`, which has
+ * no hop to re-anchor on) answered the wrong thread. Found as issue #24:
+ * wit-bindgen's callback epilogue restored its task pointer into another
+ * thread's context slots, and the next disciplined callback invocation
+ * panicked on a null slot (async_support.rs:578).
+ *
+ * A null/undefined activation is "no claim" — the instantiation-time shape
+ * that has no thread at all.
  */
 // deno-lint-ignore no-explicit-any
 export function claimActivationAmbient(t: any): void {
   if (t === null || t === undefined) return;
-  if (activationClaims.includes(t)) return;
+  if (AMBIENT_TRACE) traceAmbient("claim", t);
+  const i = activationClaims.indexOf(t);
+  if (i === activationClaims.length - 1 && i !== -1) return; // already top
+  if (i !== -1) activationClaims.splice(i, 1);
   activationClaims.push(t);
+}
+
+// #24 probe.
+// deno-lint-ignore no-explicit-any
+function traceAmbient(what: string, t: any): void {
+  // Lazy import avoidance: reuse context.ts's ids via a local map.
+  console.error(
+    `[amb] ${what} ${dbgId(t)} | stack=[${threadStack.map(dbgId).join(",")}] ` +
+      `claims=[${activationClaims.map(dbgId).join(",")}] resuming=${
+        resumingThread === null ? "-" : dbgId(resumingThread)
+      }\n${(new Error().stack ?? "").split("\n").slice(2, 6).join("\n")}`,
+  );
+}
+const dbgIds = new WeakMap<object, number>();
+let nextDbgId = 1;
+export function dbgId(t: unknown): string {
+  if (t === null || t === undefined || typeof t !== "object") return String(t);
+  let id = dbgIds.get(t);
+  if (id === undefined) {
+    id = nextDbgId++;
+    dbgIds.set(t, id);
+  }
+  return `T${id}`;
 }
 
 /**
@@ -351,6 +392,7 @@ export function claimActivationAmbient(t: any): void {
 // deno-lint-ignore no-explicit-any
 export function releaseActivationAmbient(t: any): void {
   if (t === null || t === undefined) return;
+  if (AMBIENT_TRACE) traceAmbient("release", t);
   let i = activationClaims.indexOf(t);
   if (i === -1) {
     const implicit = (t as { task?: { implicitThread?: unknown } })?.task
@@ -384,6 +426,7 @@ let resumingThread: any = null;
 /** Claim the ambient for `t` across an engine-driven resumption. */
 // deno-lint-ignore no-explicit-any
 export function setResumingThread(t: any): void {
+  if (AMBIENT_TRACE) traceAmbient("set-resuming", t);
   assert_(
     resumingThread === null || resumingThread === t,
     "two activations claim the resumed ambient at once — the " +
@@ -452,6 +495,19 @@ const AMBIENT_TRACE = (() => {
     return false;
   }
 })();
+
+/** Diagnostic (#24 probe): the full ambient state, for tracing. */
+export function ambientDebug(): {
+  stack: unknown[];
+  claims: unknown[];
+  resuming: unknown;
+} {
+  return {
+    stack: [...threadStack],
+    claims: [...activationClaims],
+    resuming: resumingThread,
+  };
+}
 
 /** Diagnostic: module-scope state that must NOT survive a completed call. */
 export function ambientResidue(): { stack: number; claim: boolean } {

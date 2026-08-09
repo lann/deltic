@@ -46,6 +46,7 @@ import { isSupported, makePromising, makeSuspending } from "./mechanics.ts";
 import {
   withActivation,
   claimActivationAmbient,
+  dbgId,
   consumeClaimIfRunning,
   maybeCurrentThread,
   releaseActivationAmbient,
@@ -227,6 +228,75 @@ export function enterWasm<T extends (...a: never[]) => unknown>(
  * exactly, and `blockCurrentActivation` has just released this activation's
  * claim on the way in — re-adding it here would strand it.
  */
+// ---------------------------------------------------------------------------
+// Continuation-chunk attribution sentinels (issue #24)
+// ---------------------------------------------------------------------------
+//
+// PROBLEM. Engine continuation chunks — the segments of a promising wasm
+// activation between suspension/hop points — begin as promise REACTIONS,
+// with no synchronous signal to this runtime. When several activations have
+// pending continuations (a settled real suspension racing a fast-path hop,
+// or two fast-path hops from nested entries), the chunks interleave at an
+// empty bracket stack, and every ambient read in a later chunk — a hop's
+// `owner` capture at `claimingFn` entry, or an unsafe intrinsic like
+// `context.set`, which has no hop at all — inherits whatever claim the
+// previous chunk left on top. Claim-stack ordering alone cannot repair
+// this: the release edges are themselves promise reactions. Measured
+// consequence (issue #24): wit-bindgen's callback epilogue restored one
+// task's state pointer into another thread's context slots, and the next
+// invocation of the starved thread's callback hit
+// `assert!(!state.is_null())` (async_support.rs:578) -> unreachable.
+// Reachable only with enough concurrently-suspended sibling activations
+// (first corpus: polymorph-tls' webcrypto-composed suite, three async
+// wit-bindgen components deep).
+//
+// FIX. Exploit the one ordering guarantee the platform does give us:
+// microtasks run FIFO, and between our code queueing a microtask and the
+// engine queueing the continuation reaction there is only synchronous
+// engine-internal promise machinery. So at EVERY point where an engine
+// continuation is about to be queued, queue a SENTINEL first that claims
+// the chunk's owner (move-to-top):
+//
+//   * fast-path hop: sentinel queued synchronously in `claimingFn` before
+//     returning the plain value — the engine queues the hop reaction while
+//     processing that return, so the queue reads [sentinel, chunk].
+//   * genuine suspension: the wrapper attached to the import's thenable
+//     queues the sentinel inside the settle reaction, before returning the
+//     value — the engine (attached to the WRAPPED promise) queues the
+//     resumption when that wrapper returns, so again [sentinel, chunk].
+//     This holds even when several promises settle in one drain: each
+//     pair is queued contiguously from within its own settle reaction.
+//
+// Nothing is delayed or reordered — unlike a serializing gate, which
+// measurably shifted the deterministic-profile backpressure-admission
+// order (async-calls-sync.wast caught it). This is the JSPI substitute for
+// what fibers give wasmtime for free: identity travels with the
+// resumption, here as a claim planted one microtask ahead of it.
+
+function sentinelFor(owner: unknown): void {
+  if (owner === null || owner === undefined) return;
+  // `Promise.resolve().then`, not `queueMicrotask`: identical FIFO
+  // placement, but the latter does not exist in bare engine shells
+  // (SpiderMonkey jsshell; sm-pinned lane caught it).
+  SENTINEL_TICK.then(() => claimActivationAmbient(owner));
+}
+const SENTINEL_TICK = Promise.resolve();
+
+/** Wrap a suspending import's thenable so the eventual resumption chunk is
+ * preceded contiguously by its attribution sentinel. */
+function attributeContinuation<T>(owner: unknown, r: PromiseLike<T>): Promise<T> {
+  return Promise.resolve(r).then(
+    (v) => {
+      sentinelFor(owner);
+      return v;
+    },
+    (e) => {
+      sentinelFor(owner);
+      throw e;
+    },
+  );
+}
+
 export function suspendingImport<T extends (...a: never[]) => unknown>(
   fn: T,
   mode: SuspensionMode,
@@ -255,9 +325,21 @@ export function suspendingImport<T extends (...a: never[]) => unknown>(
       throw e;
     }
     if (r === null || typeof (r as { then?: unknown })?.then !== "function") {
+      // Fast path (jspi pin (j)): the value still returns to wasm through an
+      // engine microtask hop, so the rest of the caller's frame is an engine
+      // continuation chunk like any other. The synchronous claim covers any
+      // reads before the hop; the sentinel re-claims contiguously ahead of
+      // the hop reaction (see the header above — issue #24's second shape
+      // was exactly a fast-path hop chunk misattributed after a sibling's
+      // claim intervened).
       claimActivationAmbient(owner);
+      sentinelFor(owner);
+      return r;
     }
-    return r;
+    if (SP_TRACE) {
+      console.error(`[sp] hop-suspend owner=${dbgId(owner)} promise=${dbgId(r)}`);
+    }
+    return attributeContinuation(owner, r as PromiseLike<unknown>);
   };
   return makeSuspending(claimingFn);
 }
@@ -313,6 +395,14 @@ export function assertModeConsistent(
  * produced at that block point (an event triple's code, a subtask state, a
  * packed copy result).
  */
+const SP_TRACE = (() => {
+  try {
+    return Deno.env.get("CE_SP_TRACE") === "1";
+  } catch {
+    return false;
+  }
+})();
+
 export class SuspensionPoint<T = unknown> implements SchedulableThread {
   readonly promise: Promise<T>;
   #settle!: (v: T) => void;
@@ -349,6 +439,9 @@ export class SuspensionPoint<T = unknown> implements SchedulableThread {
   ) {
     this.#store = store;
     this.owner = owner ?? maybeCurrentThread() ?? task?.implicitThread ?? null;
+    if (SP_TRACE) {
+      console.error(`[sp] mint ${dbgId(this)} owner=${dbgId(this.owner)} task=${dbgId(this.task)}\n${(new Error().stack ?? "").split("\n").slice(2, 5).join("\n")}`);
+    }
     this.promise = new Promise<T>((res, rej) => {
       this.#settle = res;
       this.#fail = rej;
@@ -367,6 +460,9 @@ export class SuspensionPoint<T = unknown> implements SchedulableThread {
   /** Settle the import's Promise; the engine resumes the wasm activation. */
   resume(cancelled: Cancelled = false): void {
     assert_(!this.#done, "resume of an already-resumed suspension point");
+    if (SP_TRACE) {
+      console.error(`[sp] resume ${dbgId(this)} owner=${dbgId(this.owner)}\n${(new Error().stack ?? "").split("\n").slice(2, 5).join("\n")}`);
+    }
     this.#done = true;
     this.#store.stopWaiting(this);
     let value: T;

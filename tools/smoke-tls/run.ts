@@ -18,10 +18,11 @@
 //     gating yet. Affected: `delegated/decline` (tagged !delegated-signer)
 //     fails on delegated compositions, and the plain composition fails its
 //     delegated-* cases.
-//   CALLBACK-NULL-CONTEXT (#24) — the webcrypto-composed target's
-//     `delegated/handshake` traps in wit-bindgen's async runtime
-//     (async_support.rs:578, callback with null context slot); scheduler-
-//     core defect, only reachable through that deeper composition.
+//   CALLBACK-NULL-CONTEXT (#24) — FIXED (continuation-chunk attribution
+//     sentinels, jspi/bridge.ts); the entry below was pruned. The
+//     webcrypto-composed target is the only corpus that reaches the
+//     interleave, so this suite remains its integration pin
+//     (runtime/tests/jspi/chunk_attribution_test.ts is the unit pin).
 
 import {
   fmtSurface,
@@ -66,7 +67,6 @@ const EXEC_TARGETS: Array<[string, string, Record<string, string>]> = [
   }],
   ["deltic-delegated-webcrypto", `${CONF}/suite-delegated-webcrypto.wasm`, {
     "delegated/decline": "TAG-GATING #25 (!delegated-signer, N/A here)",
-    "delegated/handshake": "CALLBACK-NULL-CONTEXT #24",
   }],
   // Plain composition: `delegated/decline` PASSES here (it asserts exactly
   // the no-signer refusal) and coexist-in-guest-ed25519 needs no signer;

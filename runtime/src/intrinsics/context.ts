@@ -12,6 +12,7 @@
 
 import { assert_, trapIf } from "../cabi/trap.ts";
 import { currentThread } from "../task/mod.ts";
+import { ambientDebug, dbgId } from "../task/scheduler.ts";
 import type { CurrentThreadLike } from "../task/mod.ts";
 import type { CoreFn } from "../exec/boundary.ts";
 import { UnsupportedFeatureError } from "./errors.ts";
@@ -37,13 +38,37 @@ export function canonContextGet(i: number): number {
   assert_(i < NUM_CONTEXT_SLOTS, `context.get slot ${i} out of range`);
   const result = thread.storage[i];
   assert_(result < 2 ** 32, "context.get value out of i32 range");
+  if (CTX_TRACE) trace(`get[${i}] -> ${result}`, thread);
   return result >>> 0;
+}
+
+// Standing probe (CE_CTX_TRACE=1): per-call context-slot traffic with the
+// full ambient state — the instrument that isolated issue #24. Cheap and
+// env-gated; keep.
+const CTX_TRACE = (() => {
+  try {
+    return Deno.env.get("CE_CTX_TRACE") === "1";
+  } catch {
+    return false;
+  }
+})();
+export function ctxThreadId(t: unknown): string {
+  return dbgId(t);
+}
+function trace(msg: string, thread: unknown): void {
+  const a = ambientDebug();
+  console.error(`[ctx] ${ctxThreadId(thread)} ${msg} storage=${
+    JSON.stringify((thread as CurrentThreadLike).storage)
+  } | stack=[${a.stack.map(ctxThreadId).join(",")}] claims=[${
+    a.claims.map(ctxThreadId).join(",")
+  }] resuming=${a.resuming === null ? "-" : ctxThreadId(a.resuming)}`);
 }
 
 /** definitions.py `canon_context_set` (line 2358). */
 export function canonContextSet(i: number, v: number): void {
   const thread = currentThread<CurrentThreadLike>();
   assert_(i < NUM_CONTEXT_SLOTS, `context.set slot ${i} out of range`);
+  if (CTX_TRACE) trace(`set[${i}] = ${v >>> 0}`, thread);
   thread.storage[i] = v >>> 0;
 }
 
