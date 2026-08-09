@@ -67,11 +67,42 @@ for (const relPath of manifest.files) {
     // A fresh executor instance per file for RuntimeExecutor too (component
     // definitions/instances must not leak across .wast files); reset() also
     // clears the CoreOnlyExecutor's transient state (currently none).
-    const result = await runWastJson(
-      doc,
-      (filename) => Deno.readFile(new URL(`${dir}/${filename}`, generatedRoot)),
-      executorFactory,
-    );
+    //
+    // Per-file timeout: a STALL (an await that never settles) would
+    // otherwise die at Deno's pending-promise sanitizer AFTER abandoning
+    // this continuation — summary.add would never run and the file would
+    // silently vanish from the table, shrinking the corpus instead of
+    // failing (observed: sync-barges-in under jspi detection). Racing a
+    // timer makes stalls VISIBLE: every command is recorded as failed
+    // "STALLED", the summary stays corpus-complete, and the test throws.
+    const STALL_TIMEOUT_MS = 30_000;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<"stalled">((resolve) => {
+      timer = setTimeout(() => resolve("stalled"), STALL_TIMEOUT_MS);
+    });
+    const raced = await Promise.race([
+      runWastJson(
+        doc,
+        (filename) =>
+          Deno.readFile(new URL(`${dir}/${filename}`, generatedRoot)),
+        executorFactory,
+      ),
+      timeout,
+    ]);
+    clearTimeout(timer);
+    const result = raced === "stalled"
+      ? {
+        source: doc.source_filename,
+        results: doc.commands.map((c) => ({
+          line: c.line,
+          type: c.type,
+          status: "failed" as const,
+          detail: `STALLED: file did not complete within ${
+            STALL_TIMEOUT_MS / 1000
+          }s (a stall is a worse defect than a failure)`,
+        })),
+      }
+      : raced;
     summary.add(dir, result, (r) => isXfail(relPath, r.line));
 
     const failures = result.results.filter((r) =>
