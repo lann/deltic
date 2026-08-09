@@ -1,0 +1,144 @@
+// Deno filesystem backend for the artifact cache (PLAN.md §10).
+//
+// Layout, under `<path>/<keyhex>/`:
+//   meta.json         CacheMeta (layoutVersion, componentSha256,
+//                      translatorBuildHash, features)
+//   plan.json          the wire WirePlan, JSON-serialized
+//   adapters/<name>    one file per adapter, name = the tail of the wire
+//                       plan's `modules[].file` (which is already
+//                       `adapters/<idx>.wasm` shaped upstream — see
+//                       contracts/plan-format.md "Artifact set" — so this
+//                       backend nests one more `adapters/` level under the
+//                       key directory: `<path>/<keyhex>/adapters/<idx>.wasm`)
+//
+// Deliberately does NOT store component bytes — see core.ts's
+// "PERSISTED-ARTIFACT-SET DECISION" docs for why that's sound, not a gap.
+
+import type { ArtifactCache, CacheKey, CachedArtifacts, CacheMeta } from "./core.ts";
+import { CACHE_LAYOUT_VERSION, keyHex } from "./core.ts";
+import type { WirePlan } from "../plan/format.ts";
+import { loadPlan, PlanError } from "../plan/loader.ts";
+
+/** Reject any adapter file name that isn't a plain, non-traversing
+ * relative path — defense in depth even though the shim is trusted (a
+ * poisoned/tampered cache directory must not escape it). */
+function safeRelName(name: string): string {
+  if (
+    name.length === 0 ||
+    name.startsWith("/") ||
+    name.split("/").some((seg) => seg === "" || seg === "." || seg === "..")
+  ) {
+    throw new PlanError(`artifact cache: unsafe adapter file name '${name}'`);
+  }
+  return name;
+}
+
+async function exists(path: string): Promise<boolean> {
+  try {
+    await Deno.stat(path);
+    return true;
+  } catch (e) {
+    if (e instanceof Deno.errors.NotFound) return false;
+    throw e;
+  }
+}
+
+async function rmIfExists(path: string): Promise<void> {
+  try {
+    await Deno.remove(path, { recursive: true });
+  } catch (e) {
+    if (!(e instanceof Deno.errors.NotFound)) throw e;
+  }
+}
+
+class DirCache implements ArtifactCache {
+  constructor(private readonly root: string) {}
+
+  private async entryDir(key: CacheKey): Promise<string> {
+    return `${this.root}/${await keyHex(key)}`;
+  }
+
+  async get(key: CacheKey): Promise<CachedArtifacts | null> {
+    const dir = await this.entryDir(key);
+    if (!(await exists(dir))) return null;
+
+    try {
+      const metaRaw = await Deno.readTextFile(`${dir}/meta.json`);
+      const meta = JSON.parse(metaRaw) as CacheMeta;
+
+      if (meta.layoutVersion !== CACHE_LAYOUT_VERSION) {
+        await this.evict(key);
+        return null;
+      }
+      // Integrity: the entry must agree with the *requested* key on every
+      // field, not just live at the expected directory name (belt-and-
+      // suspenders against a hand-edited or corrupted cache).
+      if (
+        meta.componentSha256 !== key.componentSha256 ||
+        meta.translatorBuildHash !== key.translatorBuildHash ||
+        JSON.stringify([...meta.features].sort()) !==
+          JSON.stringify([...key.features].sort())
+      ) {
+        await this.evict(key);
+        return null;
+      }
+
+      const planRaw = await Deno.readTextFile(`${dir}/plan.json`);
+      const plan = JSON.parse(planRaw) as WirePlan;
+      if (plan.component.sha256 !== key.componentSha256) {
+        await this.evict(key);
+        return null;
+      }
+      loadPlan(plan); // structural validation; throws on a corrupted plan
+
+      const adapters = new Map<string, Uint8Array>();
+      for (const m of plan.modules) {
+        if (m.kind !== "adapter") continue;
+        const name = safeRelName(m.file);
+        adapters.set(m.file, await Deno.readFile(`${dir}/adapters/${name}`));
+      }
+
+      return { plan, adapters };
+    } catch {
+      // Any parse/read/structural failure = a poisoned entry: miss + evict,
+      // never trust (dispatch requirement).
+      await this.evict(key);
+      return null;
+    }
+  }
+
+  async put(key: CacheKey, artifacts: CachedArtifacts): Promise<void> {
+    const dir = await this.entryDir(key);
+    // Write to a temp sibling then rename, so a crash mid-write never
+    // leaves a partially-written entry that `get` would (try to) read.
+    const tmp = `${dir}.tmp-${crypto.randomUUID()}`;
+    await rmIfExists(tmp);
+    await Deno.mkdir(`${tmp}/adapters`, { recursive: true });
+
+    const meta: CacheMeta = {
+      layoutVersion: CACHE_LAYOUT_VERSION,
+      componentSha256: key.componentSha256,
+      translatorBuildHash: key.translatorBuildHash,
+      features: key.features,
+    };
+    await Deno.writeTextFile(`${tmp}/meta.json`, JSON.stringify(meta));
+    await Deno.writeTextFile(`${tmp}/plan.json`, JSON.stringify(artifacts.plan));
+    for (const [file, bytes] of artifacts.adapters) {
+      const name = safeRelName(file);
+      await Deno.writeFile(`${tmp}/adapters/${name}`, bytes);
+    }
+
+    await rmIfExists(dir);
+    await Deno.rename(tmp, dir);
+  }
+
+  async evict(key: CacheKey): Promise<void> {
+    await rmIfExists(await this.entryDir(key));
+  }
+}
+
+/** A filesystem-backed `ArtifactCache` rooted at `path` (created on first
+ * `put` if missing). Deno only. */
+export function dirCache(path: string): ArtifactCache {
+  return new DirCache(path);
+}

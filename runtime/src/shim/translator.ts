@@ -28,9 +28,24 @@ export interface TranslationResult {
 /** An instantiated translator shim. One instance is reusable across calls. */
 export class Translator {
   #exports: ShimExports;
+  /**
+   * sha256 of the shim wasm bytes this instance was built from, hex-encoded;
+   * `null` when constructed from a pre-compiled `WebAssembly.Module` with no
+   * bytes available (module identity can't be recovered post-compile).
+   *
+   * This is the honest translator "build hash" for the artifact cache
+   * (PLAN.md §10): the wire envelope's `producer` block records
+   * `{shimVersion, wasmtimeEnviron, features}`, which does NOT change when
+   * the shim wasm is rebuilt from the same source versions (e.g. a local
+   * patch or a different toolchain producing different codegen) — see the
+   * M3-B dispatch. Digesting the actual bytes is the only sound cache key
+   * component for translator identity.
+   */
+  readonly buildHash: string | null;
 
-  private constructor(instance: WebAssembly.Instance) {
+  private constructor(instance: WebAssembly.Instance, buildHash: string | null) {
     this.#exports = instance.exports as unknown as ShimExports;
+    this.buildHash = buildHash;
     for (const name of ["memory", "ts_alloc", "ts_dealloc", "ts_translate"]) {
       if (!(name in this.#exports)) {
         throw new PlanError(`shim module missing export '${name}'`);
@@ -42,11 +57,19 @@ export class Translator {
   static async create(
     source: WebAssembly.Module | Uint8Array,
   ): Promise<Translator> {
-    const module = source instanceof WebAssembly.Module
-      ? source
-      : await WebAssembly.compile(source.slice().buffer as ArrayBuffer);
+    let module: WebAssembly.Module;
+    let buildHash: string | null = null;
+    if (source instanceof WebAssembly.Module) {
+      module = source;
+    } else {
+      module = await WebAssembly.compile(source.slice().buffer as ArrayBuffer);
+      const digest = await crypto.subtle.digest("SHA-256", source.slice().buffer as ArrayBuffer);
+      buildHash = Array.from(new Uint8Array(digest)).map((b) =>
+        b.toString(16).padStart(2, "0")
+      ).join("");
+    }
     const instance = await WebAssembly.instantiate(module, {});
-    return new Translator(instance);
+    return new Translator(instance, buildHash);
   }
 
   /** Translate a component binary into plan v0 + adapter artifacts. */

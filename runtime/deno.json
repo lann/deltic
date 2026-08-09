@@ -2,6 +2,7 @@
   "name": "@component-engine/runtime",
   "exports": {
     "./cabi": "./src/cabi/mod.ts",
+    "./cache": "./src/cache/mod.ts",
     "./plan": "./src/plan/mod.ts",
     "./task": "./src/task/mod.ts",
     "./exec": "./src/exec/mod.ts",
@@ -11,7 +12,7 @@
     "./jspi": "./src/jspi/mod.ts"
   },
   "tasks": {
-    "test": "deno test --allow-read=..",
+    "test": "deno test --allow-read=..,/tmp --allow-write=/tmp",
     "check": "deno check src tests",
     "gen-fixtures": "python3 tests/fixtures/generate.py"
   }
