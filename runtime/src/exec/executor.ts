@@ -265,35 +265,25 @@ class Executor {
     this.adapterBytes = input.adapters ?? new Map();
     this.hostImports = input.imports ?? {};
     this.verifyHash = input.verifyHash ?? true;
-    // AUTO-DETECTION IS DELIBERATELY OFF (see the report / bridge.ts).
+    // AUTO-DETECTION IS DELIBERATELY OFF (jspi mode = explicit opt-in only).
     //
-    // `planNeedsSuspension(loaded.wire)` computes the right answer and is
-    // used by the opt-in path, but it must not fire automatically yet: a core
-    // module's **start function** is a JS→wasm entry that `WebAssembly.
-    // instantiate` gives us no way to `promising`-wrap, and a start function
-    // may legitimately call a blocking-capable built-in (the same shape
-    // `test/async/dont-block-start.wast` exercises). By jspi pin (c) a
-    // `Suspending` import called from that non-promising activation traps
-    // unconditionally — even on the plain-value fast path — so switching a
-    // component to jspi mode can break its *instantiation*. Observed exactly
-    // that on the async-probe/stream-echo guests.
+    // `planNeedsSuspension(loaded.wire)` computes the right answer and the
+    // opt-in path works, but detection stays off while 28 async commands still
+    // fail under it. The Fix-1 hang described here previously is GONE: that
+    // attempt made `async-start-call` wait for callee resolution, which parked
+    // the async-lowered CALLER -- precisely what async lowering exists to
+    // avoid -- and hung the handshake resume path. It has been reverted; a
+    // detection-on run now completes.
     //
-    // Until instantiation-time calls are separated from the suspendable
-    // import set, jspi mode stays an explicit embedder opt-in.
-    // Auto-detection OFF (still), now 28 failures (was 35). What moved:
-    // attaching the FACT sync-call bracket to the ACTIVATION
-    // (`Thread.syncCallStack`) and, decisively, aligning
-    // `maybeCurrentThread`'s precedence with `currentThread`'s -- the ambient
-    // round made the latter ALS-primary but left the former slot-primary, and
-    // the bracket sites go through the former. `exit-sync-call with an empty
-    // sync-call stack` went 16 -> 6 on that pair.
-    //
-    // What remains: cross-abi-calls' 6 (Fix 1 -- `async-start-call` must drive
-    // the callee one turn before reporting subtask status; root-caused and
-    // specified, not yet landed), big-interleaving's residue, and the known
-    // singletons.
+    // The 28, measured in one captured run:
+    //   big-interleaving-test.wast  20  (10 RuntimeError, 6 empty-stack,
+    //                                    3 NeedsJspi = unlit sites 2/3/5, 1)
+    //   cross-abi-calls.wast         6  (the callee `promising`-wrap defect,
+    //                                    characterized in
+    //                                    tests/jspi/cross_abi_differential_test.ts)
+    //   dont-block-start             1  (start-section singleton)
+    //   builtin-trap-poisons-instance 1
     this.suspensionMode = chooseMode(input.jspi);
-    void planNeedsSuspension;
   }
 
   async verifyComponent(): Promise<void> {

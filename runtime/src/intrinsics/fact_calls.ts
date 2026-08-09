@@ -664,6 +664,7 @@ export function createAsyncStartCall(
     const subtask = new Subtask();
 
     let onProgress: () => void = () => {};
+
     const { task, body } = mkCalleeTask({
       prepared,
       callee: callee as CoreFn,
@@ -733,14 +734,32 @@ export function createAsyncStartCall(
     }
     if (ok) prepared.calleeInst.leaveTo(prepared.callerInst);
 
-    if (subtask.resolved()) {
-      // Eager completion: no handle, no event (definitions.py line 2293).
-      subtask.deliverResolve();
-      return SubtaskState.RETURNED;
-    }
-    const subtaski = prepared.callerInst.handles.add(subtask);
-    onProgress = () => subtask.setSubtaskPendingEvent(subtaski);
-    return packSubtaskResult(subtask.state, subtaski);
+    const report = (): CoreValue => {
+      if (subtask.resolved()) {
+        // Eager completion: no handle, no event (definitions.py line 2293).
+        subtask.deliverResolve();
+        return SubtaskState.RETURNED;
+      }
+      const subtaski = prepared.callerInst.handles.add(subtask);
+      onProgress = () => subtask.setSubtaskPendingEvent(subtaski);
+      return packSubtaskResult(subtask.state, subtaski);
+    };
+
+    // NO WAIT HERE, deliberately. An async-lowered caller must not block on
+    // its callee -- that is the entire point of async lowering: it takes a
+    // subtask handle and learns of completion through events. An earlier
+    // attempt (M2 "Fix 1") parked the caller here until the callee resolved.
+    // It made cross-abi-calls agree in both modes, and it broke the thing it
+    // had no business touching: the caller's activation was now suspended, so
+    // the sync-lowered parked caller of `handshake_test.ts` was never resumed
+    // and the run hung. Correct-looking, semantically wrong.
+    //
+    // The residual defect this leaves is recorded in `mkCalleeTask`: a callee
+    // that would complete eagerly is `promising`-wrapped and so reports
+    // STARTED where an unwrapped run reports RETURNED. Fixing that needs the
+    // callee NOT to be wrapped when it cannot block -- a per-callee property,
+    // not a per-call one. See the report.
+    return report();
   };
 }
 

@@ -289,6 +289,31 @@ export function ambientResidue(): { stack: number; claim: boolean } {
   return { stack: threadStack.length, claim: resumingThread !== null };
 }
 
+/**
+ * THE ambient precedence, in one place. Every reader goes through this.
+ *
+ *   1. `threadStack` -- a synchronous bracket we pushed ourselves. Most
+ *      specific: we are literally inside that thread's `resume()`.
+ *   2. the ALS store -- the ACTIVATION-attached ambient (pin (h)). It travels
+ *      with the activation by construction, so it is right even when several
+ *      activations are in flight.
+ *   3. `resumingThread` -- the driver's global claim. Last resort: it names
+ *      whichever activation the driver claimed across an await, which is right
+ *      for that one and wrong for every other in-flight activation.
+ *
+ * Having TWO readers with different orders is not a hypothetical hazard: for
+ * two rounds `currentThread` used ALS-first while `maybeCurrentThread` still
+ * used slot-first, and since the FACT bracket sites read the latter, the
+ * bracket was attributed to the driver's claim instead of its own activation
+ * (`exit-sync-call with an empty sync-call stack`). Fixing the precedence in
+ * one reader measured as "no change" because the failing sites used the other.
+ * Do not add a third reader; extend this one.
+ */
+function resolveAmbient(): CurrentThreadLike | undefined {
+  return threadStack[threadStack.length - 1] ?? activationAls.getStore() ??
+    resumingThread ?? undefined;
+}
+
 export function currentThread<T = CurrentThreadLike>(): T {
   const stackTop = threadStack[threadStack.length - 1];
   const als = activationAls.getStore();
@@ -306,8 +331,7 @@ export function currentThread<T = CurrentThreadLike>(): T {
   // await, so while several activations are in flight it is simply wrong for
   // all but one of them, whereas the ALS store travels with the activation by
   // construction (pin (h)).
-  const t = threadStack[threadStack.length - 1] ?? als ?? resumingThread ??
-    undefined;
+  const t = resolveAmbient();
   if (t === undefined) {
     // Reaching this is not an internal invariant violation, so it must not be
     // an `AssertionError`: it is a *known incompleteness*. wasmtime lets a
@@ -334,11 +358,7 @@ export function currentThread<T = CurrentThreadLike>(): T {
 }
 
 export function maybeCurrentThread(): CurrentThreadLike | undefined {
-  return threadStack[threadStack.length - 1] ?? als2() ?? resumingThread ??
-    undefined;
-}
-function als2(): CurrentThreadLike | undefined {
-  return activationAls.getStore();
+  return resolveAmbient();
 }
 
 /** definitions.py `current_task()` (line 309). */
