@@ -278,6 +278,13 @@ spec repo's own CI.
   failing assertion (non-daemon threads; pre-existing, reproducible by
   injecting `assert(False)` into stock `test_async_backpressure`) — run
   under `timeout`, judge by traceback.
+- **`exams/wasmtime-exclusivity/spec-amendment.md`** — plain-language
+  sketch of the amendment itself: why the release-at-resolution rule
+  should win, the five spec-repo artifacts it touches, and the one real
+  cost — Invariant #3 (Explainer.md:3007–3011) needs its serialization
+  promise scoped to pre-resolution execution, a toolchain-visible carve-out
+  the other filing artifacts don't call out. Also records the authorship
+  fact (both corpora are Luke Wagner's; the wast side is the newer vintage).
 
 Net-net for the filing: definitions.py's unit tests and the repo's wast
 suite pin **opposite** entry-gating semantics for resolved tasks;
