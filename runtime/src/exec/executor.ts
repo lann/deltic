@@ -308,20 +308,19 @@ class Executor {
     //                                    -- see `suspendableFuncs`)
     //   dont-block-start             1  (start-section singleton)
     //   builtin-trap-poisons-instance 1
-    // The 291 -> 288 command-count drop under detection is EXPLAINED:
-    // `async/sync-barges-in.wast` (3 commands) STALLS. Its conformance test
-    // dies with "Promise resolution is still pending but the event loop has
-    // already resolved", which happens before `summary.add`, so the file
-    // contributes zero commands and the stall is invisible in the failure
-    // table. Read the detection-on figure as "26 failures + 1 stalled file
-    // over a 288-command corpus", not as 26 over 291.
+    // 26 failures over the FULL 291-command corpus (the `sync-barges-in`
+    // stall is fixed, so nothing is missing from the tally any more):
+    //   big-interleaving-test.wast  18  (11 RuntimeError, 4 NeedsJspi,
+    //                                    2 empty-stack, 1 other)
+    //   cross-abi-calls.wast         6  (per-FUNCTION reachability -- see
+    //                                    `suspendableFuncs`)
+    //   dont-block-start             1  (start-section singleton)
+    //   builtin-trap-poisons-instance 1
     //
-    // The stall has the same shape as the one `deadlock_test` caught
-    // (awaiting=2, one not-ready SuspensionPoint, no host calls, no claim) but
-    // survives the deadlock predicate added for that: the predicate is
-    // entered and produces neither progress nor a trap. Next step: find out
-    // why -- instrument inside the `store.awaiting.size > 0` branch of
-    // `driveAsync`, which currently emits no trace of its own.
+    // All 4 remaining NeedsJspi are ONE site: "FACT call into a stackful
+    // async-lifted export (async canonical options without a callback)".
+    // Not the stream/future copy sites -- those are lit now but this corpus
+    // never reaches them. Stackful lift is the last unlit site.
     this.suspensionMode = chooseMode(input.jspi);
   }
 

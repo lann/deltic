@@ -19,6 +19,8 @@
 // the rendezvous already happened and reports `NeedsJspi` otherwise — the same
 // rule already applied to `waitable-set.wait` and `sync-start-call`.
 
+import { blockCurrentActivation } from "../jspi/mod.ts";
+import type { SuspensionMode } from "../jspi/mod.ts";
 import { assert_, trapIf } from "../cabi/trap.ts";
 import { LiftLowerContext } from "../cabi/context.ts";
 import { loadStringFromRange, storeString } from "../cabi/strings.ts";
@@ -55,6 +57,8 @@ export interface StreamTrampolineContext {
   streamElem(index: number): ValType | null;
   /** Element type of a `TypeFutureTableIndex` (plan v2 `futureTables`). */
   futureElem(index: number): ValType | null;
+  /** Suspension discipline; decides whether site 4 blocks or signals. */
+  suspensionMode?: SuspensionMode;
 }
 
 // ---------------------------------------------------------------------------
@@ -115,8 +119,10 @@ function streamCopy(input: {
   i: number;
   ptr: number;
   n: number;
+  mode?: SuspensionMode;
 }): number {
   const { EndT, reading, eventCode, elem, opts, inst, i, ptr, n } = input;
+  const mode = input.mode ?? "plain";
   trapIf(!inst.mayLeave, "stream copy: cannot leave component instance");
   const e = inst.handles.get(i);
   trapIf(!(e instanceof EndT), "stream copy: wrong end type for this handle");
@@ -174,7 +180,7 @@ function streamCopy(input: {
   } else {
     (end as WritableStreamEnd).copy(inst, buffer, onCopy, onCopyDone);
   }
-  return finishCopy(end, eventCode, i, opts.async, "stream");
+  return finishCopy(end, eventCode, i, opts.async, "stream", inst, mode);
 }
 
 // ---------------------------------------------------------------------------
@@ -191,8 +197,10 @@ function futureCopy(input: {
   inst: ComponentInstanceState;
   i: number;
   ptr: number;
+  mode?: SuspensionMode;
 }): number {
   const { EndT, reading, eventCode, elem, opts, inst, i, ptr } = input;
+  const mode = input.mode ?? "plain";
   trapIf(!inst.mayLeave, "future copy: cannot leave component instance");
   const e = inst.handles.get(i);
   trapIf(!(e instanceof EndT), "future copy: wrong end type for this handle");
@@ -248,7 +256,7 @@ function futureCopy(input: {
   } else {
     (end as WritableFutureEnd).copy(inst, buffer, onCopyDone);
   }
-  return finishCopy(end, eventCode, i, opts.async, "future");
+  return finishCopy(end, eventCode, i, opts.async, "future", inst, mode);
 }
 
 /**
@@ -261,11 +269,38 @@ function finishCopy(
   i: number,
   async_: boolean,
   what: string,
+  inst?: ComponentInstanceState,
+  mode: SuspensionMode = "plain",
 ): number {
+  const take = (): number => {
+    const [code, index, payload] = end.getPendingEvent();
+    assert_(
+      code === eventCode && index === i,
+      `unexpected event delivered by a ${what} copy`,
+    );
+    return payload;
+  };
   if (!end.hasPendingEvent()) {
     if (!async_) {
       // definitions.py `e.wait_for_pending_event()`: block this wasm frame
       // until the other end shows up.
+      if (mode === "jspi" && inst !== undefined) {
+        // SITE 4 (lit). `hasSyncWaiter` marks the end as having a blocked
+        // synchronous reader/writer, which is what makes a concurrent
+        // `cancel-copy` on it a trap (see `cancelCopy`). Setting it only now
+        // is correct: before this point nothing was actually waiting.
+        end.hasSyncWaiter = true;
+        return blockCurrentActivation({
+          store: inst.store,
+          task: currentTask(),
+          readyFunc: () => end.hasPendingEvent(),
+          cancellable: false,
+          produce: () => {
+            end.hasSyncWaiter = false;
+            return take();
+          },
+        }) as unknown as number;
+      }
       needsJspi(
         `synchronous ${what} copy with no counterpart ready (the calling ` +
           `wasm frame must block until the other end arrives)`,
@@ -273,55 +308,24 @@ function finishCopy(
     }
     return BLOCKED;
   }
-  const [code, index, payload] = end.getPendingEvent();
-  assert_(
-    code === eventCode && index === i,
-    `unexpected event delivered by a ${what} copy`,
-  );
-  return payload;
+  return take();
 }
 
 // ---------------------------------------------------------------------------
 // cancel-{read,write}
 // ---------------------------------------------------------------------------
 
-/** definitions.py `cancel_copy` (line 2643). */
-function cancelCopy(input: {
-  EndT: EndCtor;
-  eventCode: EventCode;
-  elem: ValType | null;
-  inst: ComponentInstanceState;
-  async_: boolean;
-  i: number;
-  what: string;
-}): number {
-  const { EndT, eventCode, elem, inst, async_, i, what } = input;
-  trapIf(!inst.mayLeave, `${what}: cannot leave component instance`);
-  const e = inst.handles.get(i);
-  trapIf(!(e instanceof EndT), `${what}: wrong end type for this handle`);
-  const end = e as CopyEnd;
-  trapIf(!sameElem(end.shared.t, elem), `${what}: element type mismatch`);
-  trapIf(
-    end.state !== CopyState.COPYING || end.hasSyncWaiter,
-    `${what}: end is not in a cancellable copy`,
-  );
-  trapIf(
-    end.inWaitableSet() && !async_,
-    `${what}: synchronous cancel on an end that is in a waitable set`,
-  );
-  end.state = CopyState.CANCELLING_COPY;
-  if (!end.hasPendingEvent()) {
-    end.shared.cancel();
-    if (!end.hasPendingEvent()) {
-      if (!async_) {
-        needsJspi(
-          `synchronous ${what} whose copy did not settle immediately (the ` +
-            `calling wasm frame must block)`,
-        );
-      }
-      return BLOCKED;
-    }
-  }
+/**
+ * `cancel_copy`'s reporting tail, shared by its immediate and blocking exits.
+ * Kept verbatim (including the wasmtime divergence below) so the blocking form
+ * cannot drift from the non-blocking one.
+ */
+function takeCancelEvent(
+  end: CopyEnd,
+  eventCode: EventCode,
+  i: number,
+  what: string,
+): number {
   const [code, index, payload] = end.getPendingEvent();
   assert_(
     !end.copying() && code === eventCode && index === i,
@@ -351,6 +355,59 @@ function cancelCopy(input: {
     return ((payload & ~0xf) | CopyResult.CANCELLED) >>> 0;
   }
   return payload;
+}
+
+/** definitions.py `cancel_copy` (line 2643). */
+function cancelCopy(input: {
+  EndT: EndCtor;
+  eventCode: EventCode;
+  elem: ValType | null;
+  inst: ComponentInstanceState;
+  async_: boolean;
+  i: number;
+  what: string;
+  mode?: SuspensionMode;
+}): number {
+  const { EndT, eventCode, elem, inst, async_, i, what } = input;
+  const mode = input.mode ?? "plain";
+  trapIf(!inst.mayLeave, `${what}: cannot leave component instance`);
+  const e = inst.handles.get(i);
+  trapIf(!(e instanceof EndT), `${what}: wrong end type for this handle`);
+  const end = e as CopyEnd;
+  trapIf(!sameElem(end.shared.t, elem), `${what}: element type mismatch`);
+  trapIf(
+    end.state !== CopyState.COPYING || end.hasSyncWaiter,
+    `${what}: end is not in a cancellable copy`,
+  );
+  trapIf(
+    end.inWaitableSet() && !async_,
+    `${what}: synchronous cancel on an end that is in a waitable set`,
+  );
+  end.state = CopyState.CANCELLING_COPY;
+  if (!end.hasPendingEvent()) {
+    end.shared.cancel();
+    if (!end.hasPendingEvent()) {
+      if (!async_) {
+        if (mode === "jspi") {
+          // SITE 4b (lit): definitions.py `cancel_copy` blocks until the
+          // cancellation settles, then reports through the same tail.
+          return blockCurrentActivation({
+            store: inst.store,
+            task: currentTask(),
+            readyFunc: () => end.hasPendingEvent(),
+            cancellable: false,
+            produce: () => takeCancelEvent(end, eventCode, i, what),
+          }) as unknown as number;
+        }
+        needsJspi(
+          `synchronous ${what} whose copy did not settle immediately (the ` +
+            `calling wasm frame must block)`,
+        );
+      }
+      return BLOCKED;
+    }
+  }
+  return takeCancelEvent(end, eventCode, i, what);
 }
 
 // ---------------------------------------------------------------------------
@@ -452,6 +509,7 @@ export function createStreamRead(
   const elem = ctx.streamElem(d.streamTable);
   return (i?: number, ptr?: number, n?: number) =>
     streamCopy({
+      mode: ctx.suspensionMode ?? "plain",
       EndT: ReadableStreamEnd as unknown as EndCtor,
       reading: true,
       eventCode: EventCode.STREAM_READ,
@@ -473,6 +531,7 @@ export function createStreamWrite(
   const elem = ctx.streamElem(d.streamTable);
   return (i?: number, ptr?: number, n?: number) =>
     streamCopy({
+      mode: ctx.suspensionMode ?? "plain",
       EndT: WritableStreamEnd as unknown as EndCtor,
       reading: false,
       eventCode: EventCode.STREAM_WRITE,
@@ -494,6 +553,7 @@ export function createFutureRead(
   const elem = ctx.futureElem(d.futureTable);
   return (i?: number, ptr?: number) =>
     futureCopy({
+      mode: ctx.suspensionMode ?? "plain",
       EndT: ReadableFutureEnd as unknown as EndCtor,
       reading: true,
       eventCode: EventCode.FUTURE_READ,
@@ -514,6 +574,7 @@ export function createFutureWrite(
   const elem = ctx.futureElem(d.futureTable);
   return (i?: number, ptr?: number) =>
     futureCopy({
+      mode: ctx.suspensionMode ?? "plain",
       EndT: WritableFutureEnd as unknown as EndCtor,
       reading: false,
       eventCode: EventCode.FUTURE_WRITE,
@@ -533,6 +594,7 @@ export function createStreamCancelRead(
   const elem = ctx.streamElem(d.streamTable);
   return (i?: number) =>
     cancelCopy({
+      mode: ctx.suspensionMode ?? "plain",
       EndT: ReadableStreamEnd as unknown as EndCtor,
       eventCode: EventCode.STREAM_READ,
       elem,
@@ -551,6 +613,7 @@ export function createStreamCancelWrite(
   const elem = ctx.streamElem(d.streamTable);
   return (i?: number) =>
     cancelCopy({
+      mode: ctx.suspensionMode ?? "plain",
       EndT: WritableStreamEnd as unknown as EndCtor,
       eventCode: EventCode.STREAM_WRITE,
       elem,
@@ -569,6 +632,7 @@ export function createFutureCancelRead(
   const elem = ctx.futureElem(d.futureTable);
   return (i?: number) =>
     cancelCopy({
+      mode: ctx.suspensionMode ?? "plain",
       EndT: ReadableFutureEnd as unknown as EndCtor,
       eventCode: EventCode.FUTURE_READ,
       elem,
@@ -587,6 +651,7 @@ export function createFutureCancelWrite(
   const elem = ctx.futureElem(d.futureTable);
   return (i?: number) =>
     cancelCopy({
+      mode: ctx.suspensionMode ?? "plain",
       EndT: WritableFutureEnd as unknown as EndCtor,
       eventCode: EventCode.FUTURE_WRITE,
       elem,

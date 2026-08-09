@@ -547,18 +547,35 @@ async function driveAsync(
       // exactly what `tests/jspi/deadlock_test.ts` caught the moment site 2
       // was lit.
       if (store.pendingHostCalls.size === 0 && !hasResumingThread()) {
+        traceDrive("driveAsync", store, done, "deadlock-probe");
         const parked = [...store.awaiting] as AwaitWinner["t"][];
         const progressed = await Promise.race([
           ...parked.map((t) => tagAwait(t).then(() => true)),
           new Promise<boolean>((r) => setTimeout(() => r(false), 0)),
         ]);
-        if (!progressed && store.readyCandidates().length === 0) {
-          trapIf(
-            true,
-            `deadlock: ${what} cannot make progress (every suspended ` +
-              `activation is waiting on a suspension only this scheduler ` +
-              `could resume, and none is ready)`,
-          );
+        traceDrive(
+          "driveAsync",
+          store,
+          done,
+          `deadlock-probe:progressed=${progressed}`,
+        );
+        if (!progressed) {
+          if (store.readyCandidates().length === 0) {
+            trapIf(
+              true,
+              `deadlock: ${what} cannot make progress (every suspended ` +
+                `activation is waiting on a suspension only this scheduler ` +
+                `could resume, and none is ready)`,
+            );
+          }
+          // No promise settled, but a thread became READY while we waited --
+          // typically a suspension point whose `readyFunc` turned true because
+          // another activation ran during the macrotask turn. The way forward
+          // is `Store.tick`, not a promise: go back to the top and resume it.
+          // Falling through to the servicing block instead would await
+          // promises that nothing will settle while a runnable thread sits
+          // there -- the `async/sync-barges-in.wast` stall exactly.
+          continue;
         }
         // Progress IS possible: fall through to the normal servicing below,
         // which resumes the settled thread. Returning to the top instead would
