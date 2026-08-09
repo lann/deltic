@@ -44,12 +44,64 @@ and PLAN §17.
 | interface key in the imports/exports record | fully-qualified WIT id **verbatim, version included**: `wasi:clocks/monotonic-clock@0.3.0` |
 | world-level (bare) imports/exports | camelCase name at the record's top level |
 
-Version strings are never stripped or fuzzy-matched (C0 finding D-1:
-`monotonic-clock@0.3.0` names *different function sets* in different
-consumer artifact families — version-agnostic matching is a correctness
-bug, not an ergonomic shortcut). Serving multiple versions means providing
-multiple explicit entries; helpers may *expand* a wildcard over interface
-names within one exact version, never over versions.
+Version resolution follows the Component Model's **canonical interface
+names** design and wasmtime's linker semantics — see "Version
+canonicalization" below. What remains banned is *unversioned* folding
+(C0 finding D-1's actual defect: version-agnostic keys merged distinct
+semver tracks). Helpers may expand a wildcard over interface *names*
+within one track, never across tracks.
+
+## Version canonicalization
+
+> Correction (same day as v0.1): the initial draft ruled "version-exact
+> keys, never fuzzy-matched." That was stricter than both authorities and
+> would have forced the C2 shim to triplicate implementations the
+> ecosystem expects to unify. Authorities: Explainer.md §"canonical
+> interface names" (`canonversion`, 🔗-gated) and wasmtime's
+> `wasmtime-environ::component::names::{NameMap, alternate_lookup_key}`
+> (used by both `component::Linker` and `Component::get_export`).
+
+Every version belongs to a **compatibility track**, per the spec's
+canonicalization split (identical to wasmtime's `alternate_lookup_key`):
+
+| version | track key | notes |
+|---|---|---|
+| `1.2.3`, `1.0.0`, `2.1.2+abc` | `@1`, `@1`, `@2` | major > 0 → major is the track |
+| `0.2.6`, `0.2.12` | `@0.2` | major 0 → minor is the track |
+| `0.0.1` | none | patch-only versions are compatible with nothing |
+| any prerelease (`0.2.0-rc-…`) | none (resolution) | wasmtime treats prereleases as exact-only; the historical WASI `0.2.0-rc` snapshots differed at the same track, which is D-1's phenomenon with a tag |
+
+**Resolution rule (normative for `instantiate` and the C2 shim):** an
+import name is matched (1) **exactly** against provided entries, then
+(2) against the provider registered for the import's *track*, where a
+track slot is claimed by the **highest-versioned** entry registered on
+that track (wasmtime's max-wins rule). Structural type-checking of the
+resolved instance does the real safety work — backwards *and* limited
+forwards compatibility fall out of "the guest only uses functions the
+provider actually has", exactly as the spec describes.
+
+**Registration forms (providers):** register full-versioned keys
+(`…/monotonic-clock@0.2.12` — track alternate derived automatically), or
+register the **track key itself** (`…/monotonic-clock@0.2`) as an
+explicitly canonical provider serving the whole track. Registering both
+a track key and full-versioned keys on the same track is refused at
+registration (ambiguity is an error, not a precedence rule).
+
+**What this resolves from C0:** D-2 (p2 at `0.2.6`/`0.2.9`/`0.2.12`) —
+one `@0.2` provider serves all three, as WASI intends. D-1
+(`monotonic-clock@0.3.0` naming different function sets across artifact
+families) — same track, divergent drafts: served by a **union** provider,
+with per-leaf structural resolution selecting what each component
+actually imports; no version machinery can or should distinguish them.
+
+**Forward note (wasmtime-bump era):** the 🔗 canonical-names feature puts
+`canonversion` in binaries with the split-off `versionsuffix` carried as
+a separate field on imports/exports; wasmparser 0.252 predates it.
+When the pin moves: the plan format gains an optional `versionSuffix` on
+import/export entries, and resolution degenerates to the trivial string
+equality the spec intends (note `semver::Version::parse("0.2")` fails, so
+canonical names never generate alternates — the two mechanisms compose
+without interference).
 
 ## Value mapping (normative)
 
@@ -223,8 +275,10 @@ const instance = await instantiate(artifacts, {
   helper over the same record: a module's named export, camelCase of the
   interface short-name, provides that interface
   (`export const connections = { Websocket }` in websocket.js survives
-  as-is). The helper expands `"ns:pkg/*@1.2.3": mod` wildcards over
-  interface *names only* — the version is always exact (D-1).
+  as-is). The helper expands `"ns:pkg/*@0.2": mod` wildcards over
+  interface *names only*, at a single version or track key; resolution
+  across versions is solely the canonicalization rule above (never
+  unversioned folding).
 - `requiredImports(artifacts)` is a supported embedder API enumerating the
   component's linkable import leaves with kinds and types (C0 finding #8:
   `plan.imports` proved the right authority; blessing it removes every
@@ -337,12 +391,18 @@ wrappers can be deleted rather than ported; (2) jco `Stream` objects
 read `{ tag: "ok" | "err", val }`; (4) transpile-time flags
 (`--async-exports`/`--async-imports`, `check-flags.mjs`) have no
 equivalent — asyncness comes from the binary; (5) `--map` wildcards
-become the module-mapping helper with exact versions.
+become the module-mapping helper, with version handling per "Version
+canonicalization" (semver-track resolution, matching wasmtime's linker
+— strictly more capable than jco's exact `--map` keys).
 
 ## C2 implementation requirements (normative checklist)
 
-1. Version-exact import dispatch; no version-stripped matching anywhere
-   (C0 D-1 — "the single most concrete C2 requirement").
+1. Version resolution per "Version canonicalization": exact-first, then
+   track-alternate with max-wins; prerelease and `0.0.z` exact-only;
+   track-key registration supported; same-track mixed registration
+   refused; **unversioned folding banned** (C0 D-1). The shim ships one
+   provider per track (`@0.2`, `@0.3`), union-shaped where consumer
+   drafts diverge within a track.
 2. `requiredImports()` public API over `plan.imports`.
 3. Host-resource identity mapping (instance ↔ rep) in the runtime;
    `[Symbol.dispose]` dtor dispatch; ownership per the 2×4 table.
