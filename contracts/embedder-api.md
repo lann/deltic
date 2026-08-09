@@ -134,6 +134,20 @@ host modules already written against it), and `case` is a JS reserved
 word — legal as a property, but `v.case` reads like syntax. The value of
 `tag` is always the case name, kebab-case verbatim.
 
+**Why a discriminant property rather than `{ [case]: value }`** (the
+single-key form the internal definitions.py-shaped boundary uses):
+(1) exhaustiveness — `switch (v.tag)` + `assertNever` is compiler-checked
+case coverage; `in`-chains are not switchable and lose it; (2) payloadless
+cases get one uniform shape (`val` absent) instead of a null/undefined
+sentinel adjacent to `option` payloads; (3) generic code reads `v.tag`
+typed and allocation-free where single-key needs an untypeable
+`Object.keys(v)[0]` cast, and per-case key shapes make every
+variant-touching site polymorphic for the engine; (4) case names stay
+data (kebab-case verbatim) rather than entering the identifier-casing
+regime as keys. Conceded cost: literal construction is wordier —
+bindgen may emit per-variant constructor helpers (`Message.binary(bytes)`)
+as an optional nicety; the value shape is unaffected.
+
 **Option rule.** The *outermost* option in a chain maps to
 `T | undefined`; every option nested **directly inside another option**
 uses the variant family: `{ tag: "some", val: … } | { tag: "none" }`.
