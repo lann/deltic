@@ -182,7 +182,13 @@ In `cancel_copy`, when the pending event is a stream `COMPLETED`, deliver
 
 ## CM-4: entry-gating duration — definitions.py's `exclusive_thread` outlives wasmtime's "sync call in progress"
 
-**Status:** DRAFT — candidate upstream issue against `definitions.py`
+**Status:** DRAFT — candidate upstream issue against `definitions.py`.
+**Working assumption adopted** (operator decision, 2026-08-09): deltic
+proceeds on the **release rule** — the wast-suite/wasmtime semantics,
+entry-gating ends at resolution — as the expected upstream resolution.
+Already implemented (runtime/src/task/mod.ts, exec/boundary.ts,
+jspi/bridge.ts) and now codified in architecture.md §1's corpus-exception
+clause. Flip-back trigger: upstream adjudicating for the hold rule.
 **Found:** 2026-08-08, during the JSPI flip (M2 exit; `sync-streams.wast:208` is the arbiter)
 
 ### Evidence
