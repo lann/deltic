@@ -21,6 +21,7 @@ import {
   CANCELLED_TRUE,
   chooseCandidate,
   Store,
+  dbgId,
 } from "./scheduler.ts";
 import { Thread } from "./thread.ts";
 import { Waitable, WaitableSet } from "./waitable.ts";
@@ -198,6 +199,14 @@ export function liftOptionsEqual(
  * One export activation (definitions.py `class Task`, line 444). Also the
  * task-side borrow scope: `numBorrows` satisfies cabi's `TaskBorrowScope`.
  */
+const ADMIT_TRACE = (() => {
+  try {
+    return Deno.env.get("CE_SP_TRACE") === "1";
+  } catch {
+    return false;
+  }
+})();
+
 export class Task {
   state: TaskState = "initial";
   /** TaskBorrowScope (cabi/context.ts): live borrows lowered into this task. */
@@ -297,6 +306,9 @@ export class Task {
         );
         this.inst.exclusiveThread = thread;
       }
+    }
+    if (ADMIT_TRACE) {
+      console.error(`[admit] task=${dbgId(this)} thread=${dbgId(thread)}`);
     }
     this.registerThread(thread);
     return true;
