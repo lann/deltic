@@ -5,6 +5,7 @@
     "./plan": "./src/plan/mod.ts",
     "./task": "./src/task/mod.ts",
     "./exec": "./src/exec/mod.ts",
+    "./embedder": "./src/embedder/mod.ts",
     "./intrinsics": "./src/intrinsics/mod.ts",
     "./shim": "./src/shim/mod.ts",
     "./jspi": "./src/jspi/mod.ts"

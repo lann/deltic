@@ -151,6 +151,21 @@ export interface ComponentHandle {
    * always an error, never an omission (see `Executor.buildExport`).
    */
   omittedExports: Map<string, string>;
+  /**
+   * The plan as loaded for THIS instantiation.
+   *
+   * Exposed for the conventions layer (`src/embedder/`), which needs the two
+   * things only the executor's own `loadPlan` call can supply: the per-instance
+   * `ResourceTypeInfo` identity tokens (`resourceTokens`) — the same objects
+   * the `own`/`borrow` types in every signature point at, and the only route to
+   * a resource's destructor for a *host-initiated* drop of a guest handle
+   * (definitions.py `canon_resource_drop` runs `rt.dtor(rep)`; the host holds
+   * reps, never table indices, so there is no handle to drop through) — and the
+   * converted `types` table it reads function signatures from.
+   *
+   * Introspection only: mutating it is undefined behaviour.
+   */
+  loadedPlan: LoadedPlan;
 }
 
 export async function instantiateComponent(
@@ -603,6 +618,7 @@ class Executor {
       taskMayBlock: this.taskMayBlock,
       hostResourceTypes: this.hostResourceTypes,
       omittedExports: this.omittedExports,
+      loadedPlan: this.loaded,
     };
   }
 

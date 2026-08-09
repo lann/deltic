@@ -332,6 +332,14 @@ export interface HostWritableEnd<T> {
    * if the reader dropped.
    */
   writeAll(values: T[]): Promise<number>;
+  /**
+   * Cancel an in-flight `write`/`writeAll` (definitions.py
+   * `SharedStreamImpl.cancel` -> `CopyResult.CANCELLED`). No-op when nothing
+   * of ours is parked. Surfaced per the R-fix review's stream advisory 1: the
+   * cancel channel existed on the shared object but had no embedder-facing
+   * spelling, so a host writer could only be abandoned, never retracted.
+   */
+  cancelWrite(): void;
   /** definitions.py `SharedStreamImpl.drop`: notifies a parked reader. */
   drop(): void;
 }
@@ -340,6 +348,8 @@ export interface HostWritableEnd<T> {
 export interface HostReadableEnd<T> {
   /** Resolves with up to `max` values once the guest writes (or `[]` on drop). */
   read(max: number): Promise<T[]>;
+  /** Cancel an in-flight `read`; see `HostWritableEnd.cancelWrite`. */
+  cancelRead(): void;
   drop(): void;
 }
 
@@ -383,6 +393,21 @@ function mkStreamEnds<T>(
   shared: SharedStreamImpl,
   activity: HostActivity,
 ): { readable: HostReadableEnd<T>; writable: HostWritableEnd<T> } {
+  // Which of OUR operations is currently the shared object's pending side.
+  // `SharedBase.cancel` retires whatever is parked, so cancelling is only
+  // legal (and only meaningful) while the parked side is ours.
+  const parked = { read: false, write: false };
+  /**
+   * Settle bookkeeping for a completed copy. `DROPPED` means the peer end is
+   * gone: no further host activity on this end is possible, so the activity
+   * arm is *closed* rather than re-armed (R-fix review advisory 2 — a live arm
+   * after end-of-stream keeps `pendingHostCalls` non-empty forever and masks
+   * a genuine deadlock as "the embedder might still act").
+   */
+  const settle = (result: CopyResult): void => {
+    if (result === CopyResult.DROPPED) activity.close();
+    else activity.notify();
+  };
   return {
     writable: {
       write(values: T[]): Promise<number> {
@@ -392,6 +417,7 @@ function mkStreamEnds<T>(
           values.length,
         );
         return new Promise<number>((resolve) => {
+          parked.write = true;
           shared.write(
             HOST_INSTANCE,
             buf as never,
@@ -407,11 +433,13 @@ function mkStreamEnds<T>(
             (reclaim) => {
               if (buf.remain() > 0) return; // still parked; more to give
               reclaim();
+              parked.write = false;
               activity.notify();
               resolve(buf.progress);
             },
-            (_result: CopyResult) => {
-              activity.notify();
+            (result: CopyResult) => {
+              parked.write = false;
+              settle(result);
               resolve(buf.progress);
             },
           );
@@ -428,6 +456,13 @@ function mkStreamEnds<T>(
         }
         return sent;
       },
+      cancelWrite() {
+        if (!parked.write) return;
+        parked.write = false;
+        shared.cancel();
+        activity.notify();
+        activity.pump();
+      },
       drop() {
         shared.drop();
         activity.close();
@@ -438,22 +473,32 @@ function mkStreamEnds<T>(
       read(max: number): Promise<T[]> {
         const buf = new HostBuffer(shared.t, null, max);
         return new Promise<T[]>((resolve) => {
+          parked.read = true;
           shared.read(
             HOST_INSTANCE,
             buf as never,
             (reclaim) => {
               reclaim();
+              parked.read = false;
               activity.notify();
               resolve(buf.taken as unknown as T[]);
             },
-            (_result: CopyResult) => {
-              activity.notify();
+            (result: CopyResult) => {
+              parked.read = false;
+              settle(result);
               resolve(buf.taken as unknown as T[]);
             },
           );
           activity.notify();
           activity.pump();
         });
+      },
+      cancelRead() {
+        if (!parked.read) return;
+        parked.read = false;
+        shared.cancel();
+        activity.notify();
+        activity.pump();
       },
       drop() {
         shared.drop();
@@ -491,6 +536,17 @@ export interface HostFuture<T> {
   write(value: T): Promise<void>;
   /** Await the future's single value. */
   read(): Promise<T | undefined>;
+  /**
+   * `read`, but reporting *why* it settled. A future carries at most one
+   * value, so `read`'s `undefined` is ambiguous between "the value was
+   * `undefined`" (a `future<void>`) and "the write end dropped without ever
+   * writing" — the case the conventions layer must turn into a
+   * `DroppedError` (R-fix review advisory 4). `result` disambiguates:
+   * `COMPLETED` iff `value` is real.
+   */
+  readResult(): Promise<{ value: T | undefined; result: CopyResult }>;
+  /** Cancel an in-flight `read`/`write`; see `HostWritableEnd.cancelWrite`. */
+  cancel(): void;
   drop(): void;
   value: ComponentValue;
 }
@@ -520,30 +576,60 @@ function mkFuture<T>(
   activity: HostActivity,
   value: ComponentValue,
 ): HostFuture<T> {
-  return {
+  const parked = { any: false };
+  const settle = (result: CopyResult): void => {
+    parked.any = false;
+    if (result === CopyResult.DROPPED) activity.close();
+    else activity.notify();
+  };
+  const self: HostFuture<T> = {
     write(v: T): Promise<void> {
       // definitions.py `SharedFutureImpl.write` asserts `remain() == 1`: a
       // future carries exactly one element.
       const buf = new HostBuffer(shared.t, [v as unknown as ComponentValue], 1);
       return new Promise<void>((resolve) => {
-        shared.write(HOST_INSTANCE, buf as never, () => {
-          activity.notify();
+        parked.any = true;
+        shared.write(HOST_INSTANCE, buf as never, (result: CopyResult) => {
+          settle(result);
           resolve();
         });
         activity.notify();
         activity.pump();
       });
     },
-    read(): Promise<T | undefined> {
+    readResult(): Promise<{ value: T | undefined; result: CopyResult }> {
+      // definitions.py `SharedFutureImpl.read` asserts `not self.dropped`, so
+      // a read after the write end went away must be answered here rather
+      // than by tripping an internal assertion.
+      if (shared.dropped) {
+        return Promise.resolve({
+          value: undefined,
+          result: CopyResult.DROPPED,
+        });
+      }
       const buf = new HostBuffer(shared.t, null, 1);
-      return new Promise<T | undefined>((resolve) => {
-        shared.read(HOST_INSTANCE, buf as never, () => {
-          activity.notify();
-          resolve(buf.taken[0] as unknown as T | undefined);
+      return new Promise((resolve) => {
+        parked.any = true;
+        shared.read(HOST_INSTANCE, buf as never, (result: CopyResult) => {
+          settle(result);
+          resolve({
+            value: buf.taken[0] as unknown as T | undefined,
+            result,
+          });
         });
         activity.notify();
         activity.pump();
       });
+    },
+    async read(): Promise<T | undefined> {
+      return (await self.readResult()).value;
+    },
+    cancel(): void {
+      if (!parked.any) return;
+      parked.any = false;
+      shared.cancel();
+      activity.notify();
+      activity.pump();
     },
     drop() {
       shared.drop();
@@ -552,6 +638,7 @@ function mkFuture<T>(
     },
     value,
   };
+  return self;
 }
 
 /** Re-exported so embedders can build element types without importing cabi. */
