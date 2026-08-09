@@ -1,30 +1,36 @@
 // JSC trunk lane expectation — a findings lane (best-effort, non-gating;
-// issue #22). SEEDED, pending the first CI run: the `jsc-built-products`
-// channel is x86_64-only, and this track was implemented on an aarch64 host
-// (per issue #22: "first CI run should sanity-probe the jsc-built-products
-// binary … but never executed here; wrong local arch"). `totals: null` means
-// the driver (`tools/shell/run-lane.ts` -> `tools/browser/classify.ts`
-// `diffTotals`) skips the TOTAL-row check entirely until a real run seeds it
-// — verified: `diffTotals` only runs `if (exp.totals)`.
+// issue #22). Seeded from the first successful CI run (2026-08-09, GH
+// Actions ubuntu-24.04 x64, bundle rev `318852@main` built 2026-08-08):
+// **EXACT Deno-lane parity** — 1250 passed / 0 failed / 99 xfail (the Deno
+// lane's own classes, identical classification), zero jsc-specific deltas,
+// and the full capability matrix true: JSPI (round trip verified),
+// multi-memory, wasm-GC, exception-handling, memory64, tail-calls,
+// relaxed-simd. This corroborates the webkit-2342 browser measurement on
+// issue #11 (multi-memory default-on in trunk) from an independent channel,
+// and is now re-measured weekly by `.github/workflows/canary.yml`.
 //
-// MACHINERY VALIDATION (not a parity target — do NOT read this as JSC
-// trunk's expected shape): the driver, entry, bundler, and protocol were all
-// exercised end-to-end locally against a STABLE jsc 2.52 (GTK, extracted
-// from the Debian/Ubuntu `libjavascriptcoregtk-bin` .deb — recipe in
-// `tools/shell/run-lane.ts`'s header) via:
+// Trunk moves: a future drift in totals/capabilities is a FINDING to
+// triage (engine change vs harness assumption), not a failure — the driver
+// exits 0 either way and reports the diff.
+//
+// EXECUTION MODEL (the two first-run artifacts, fixed in fetch.ts —
+// details there): the bundle must stay intact and run via its shipped
+// compiled wrapper (`<bundle>/jsc`), because `bin/jsc` carries a RELATIVE
+// PT_INTERP resolved from the bundle root; and the zip's lib/*.so.N names
+// are symlink entries that must be materialized as real symlinks.
+//
+// MACHINERY VALIDATION on non-x86_64 hosts (not a parity target): the
+// driver, entry, bundler, and protocol can be exercised against a STABLE
+// jsc 2.52 (GTK, extracted from the Debian/Ubuntu `libjavascriptcoregtk-bin`
+// .deb — recipe in `tools/shell/run-lane.ts`'s header) via:
 //
 //   deno run -A tools/shell/run-lane.ts jsc \
 //     --shell-bin /path/to/jsc --lib-path /path/to/libdir
 //
-// Expected (and observed) on that stable build per issue #22's empirical
-// table: capability matrix shows jspi=false, multiMemory=false (both land
-// only in trunk); a large deviation report follows because JSPI-needing
-// commands fail outright rather than classifying pending. That is a stable-
-// build artifact of running the machinery early, not a jsc-trunk finding —
-// no overlay entries are seeded from it. The first real CI run against
-// jsc-built-products trunk is what populates `deltas`/`totals` here for
-// real, the same way `spidermonkey-nightly.ts` was seeded from an actual
-// nightly run.
+// Expected on that stable build: capability matrix shows jspi=false,
+// multiMemory=false (both land only in trunk) and a large deviation report
+// (JSPI-needing commands fail outright rather than classifying pending).
+// That is a stable-build artifact, not a jsc-trunk finding.
 //
 // SHELL-SURFACE FACTS specific to jsc (see `tools/shell/entry.ts`,
 // `tools/shell/polyfill.ts` for where these matter):
@@ -49,11 +55,21 @@ export const jscTrunk: ShellLaneExpectation = {
   lane: "jsc",
   required: false,
   notes:
-    "JSC trunk (jsc-built-products, x86_64 CI only). SEEDED — no CI run yet " +
-    "(implemented on an aarch64 host; see this file's header). totals: null " +
-    "so the driver skips the TOTAL-row check until the first real run.",
+    "JSC trunk (jsc-built-products, x86_64 CI only). Exact Deno-lane parity " +
+    "since rev 318852@main: zero deltas, all capabilities true (JSPI round " +
+    "trip, multi-memory, wasm-GC, EH, memory64, tail-calls, relaxed-simd). " +
+    "Trunk drift is a finding to triage, never a gate.",
   deltas: [],
-  totals: null,
+  totals: {
+    commands: 1395,
+    executed: 1349,
+    passed: 1250,
+    failed: 0,
+    xfail: 99,
+    pendingRuntime: 41,
+    pendingCapability: 0,
+    unsupportedDirective: 5,
+  },
 };
 
 export default jscTrunk;
