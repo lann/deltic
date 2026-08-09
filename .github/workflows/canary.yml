@@ -43,18 +43,12 @@ jobs:
         working-directory: harness
         run: deno task gen
 
-      - name: cache shell downloads
-        uses: actions/cache@v4
-        with:
-          path: .shell-cache
-          # No version pin in the key: nightly/trunk builds change daily by
-          # design, so this cache is a same-day rerun optimization only —
-          # fetch.ts/deno-canary.ts each check for an existing binary but a
-          # stale one just gets reused, matching a findings lane's tolerance
-          # for slight staleness between the cron tick and the job running.
-          key: shell-cache-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}
-          restore-keys: |
-            shell-cache-${{ runner.os }}-${{ runner.arch }}-
+      # Deliberately NO actions/cache for .shell-cache: trunk/nightly
+      # builds change daily by design (fetching fresh IS the lane's
+      # purpose), and a prefix-restored cache from a failed earlier run
+      # can resurrect a broken extraction that fetch.ts's existence
+      # check would then trust (bitten once: the first-run jsc layout
+      # bug would have been pinned in place by exactly that).
 
       - name: fetch SpiderMonkey nightly
         run: deno run -A tools/shell/fetch.ts spidermonkey
@@ -125,13 +119,12 @@ jobs:
         working-directory: harness
         run: deno task gen
 
-      - name: cache shell downloads
-        uses: actions/cache@v4
-        with:
-          path: .shell-cache
-          key: shell-cache-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}
-          restore-keys: |
-            shell-cache-${{ runner.os }}-${{ runner.arch }}-
+      # Deliberately NO actions/cache for .shell-cache: trunk/nightly
+      # builds change daily by design (fetching fresh IS the lane's
+      # purpose), and a prefix-restored cache from a failed earlier run
+      # can resurrect a broken extraction that fetch.ts's existence
+      # check would then trust (bitten once: the first-run jsc layout
+      # bug would have been pinned in place by exactly that).
 
       - name: fetch SpiderMonkey nightly
         run: deno run -A tools/shell/fetch.ts spidermonkey

@@ -36,19 +36,31 @@ export function defaultShellPaths(
 
 async function extractZip(zipPath: string, destDir: string): Promise<void> {
   await Deno.mkdir(destDir, { recursive: true });
-  // extractall() does not restore file modes; the second loop reapplies them
-  // from each entry's external_attr. Load-bearing for the JSC bundle, whose
-  // wrapper and bin/jsc must be executable (SpiderMonkey's `js` gets a
-  // belt-and-braces chmod at its call site too).
+  // Two things extractall() gets wrong that this loop fixes (both
+  // load-bearing for the JSC bundle; SpiderMonkey's zip has neither):
+  //   * file modes are dropped — reapplied from each entry's external_attr
+  //     (the wrapper and bin/jsc must be executable);
+  //   * SYMLINK entries are written as tiny regular files containing the
+  //     target path — the bundle's lib/ *.so.N names are symlinks to the
+  //     real *.so.N.x.y files, and the dynamic linker fails on the fake
+  //     ones with "file too short" (this lane's second CI failure).
   const cmd = new Deno.Command("python3", {
     args: [
       "-c",
-      "import sys, os, zipfile\n" +
+      "import sys, os, stat, zipfile\n" +
       "z = zipfile.ZipFile(sys.argv[1])\n" +
-      "z.extractall(sys.argv[2])\n" +
+      "dest = sys.argv[2]\n" +
       "for i in z.infolist():\n" +
-      "    m = (i.external_attr >> 16) & 0o7777\n" +
-      "    if m: os.chmod(os.path.join(sys.argv[2], i.filename), m)\n",
+      "    mode = i.external_attr >> 16\n" +
+      "    p = os.path.join(dest, i.filename)\n" +
+      "    if stat.S_ISLNK(mode):\n" +
+      "        os.makedirs(os.path.dirname(p), exist_ok=True)\n" +
+      "        if os.path.lexists(p): os.remove(p)\n" +
+      "        os.symlink(z.read(i).decode(), p)\n" +
+      "        continue\n" +
+      "    z.extract(i, dest)\n" +
+      "    m = mode & 0o7777\n" +
+      "    if m and not i.is_dir(): os.chmod(p, m)\n",
       zipPath,
       destDir,
     ],
