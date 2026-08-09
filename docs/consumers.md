@@ -39,13 +39,18 @@ Their jco blockers map one-for-one onto this project's proven strengths
   most important interfaces are exactly these. The embedder-api contract
   carries paper signatures for a representative WASI slice; the
   `wasi-shims/` package is the executable check.
-- **Their suites become our gates.** This family surfaced at least five
-  distinct jco defect classes that no WAST corpus expresses (long-lived
-  composed workloads, background pumps, cross-task wakeups, codegen-shape
-  triggers) — and two deltic runtime defects (smoke-c0's R-1/R-2) the same
-  way. The polymorph matrices and experiment-mosh gates run as release
-  gates ([#6](https://github.com/lann/deltic/issues/6)) —
-  necessary-not-sufficient discipline applied to ourselves.
+- **Their suites are engine sanity checks, not gates** (operator ruling,
+  2026-08-10; supersedes the earlier "their suites become our gates"
+  posture and the release-gate framing of the now-closed
+  [#6](https://github.com/lann/deltic/issues/6)). This family surfaced at
+  least five distinct jco defect classes that no WAST corpus expresses
+  (long-lived composed workloads, background pumps, cross-task wakeups,
+  codegen-shape triggers) — and five deltic runtime defects the same way
+  (smoke-c0's R-1/R-2; the tls smoke's three,
+  [#18](https://github.com/lann/deltic/issues/18)) — so running them is
+  high-yield. But everything on both sides is unstable and co-evolves in
+  tandem: a consumer-suite delta is a finding to triage, never a blocker
+  for upstreaming or release.
 - **What replacing jco does not replace**: componentize-js/-go (guest
   production — out of scope per [architecture.md §2](architecture.md); their
   output components are ordinary inputs to us) and the wasmtime host legs
