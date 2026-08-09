@@ -615,10 +615,97 @@ function unpackEvent(
   return event;
 }
 
-/** Structural ValType equality, for the `task.return` result-type check. */
+/**
+ * Structural `ValType` equality, for the `task.return` result-type check.
+ *
+ * CONTRACT (bugfix, TRACK C2-D): this used to be
+ * `JSON.stringify(a) === JSON.stringify(b)`, which recurses into `own`/
+ * `borrow`'s `ResourceTypeInfo` — a class whose `impl` field is documented
+ * "Compared by object identity everywhere" (cabi/types.ts `ResourceTypeInfo`
+ * doc comment) and which cycles back to the owning `ComponentInstanceState`
+ * (`impl.handles` holds live resource tables that reference their types),
+ * so `JSON.stringify` throws `TypeError: Converting circular structure to
+ * JSON` on ANY function whose async result type contains `own<R>`/
+ * `borrow<R>` at any depth (e.g. `list<own<test-case>>` — polymorph-test's
+ * `tests.all() -> list<test-case>`, ct-runner's fixture). Never previously
+ * exercised: no prior async-exported function in this repo's guest corpus
+ * returned a resource-bearing type. Fixed by a real recursive structural
+ * walk that compares `ResourceTypeInfo` (and any other object-identity
+ * type, `InstanceLike`) by reference, per the documented invariant.
+ */
 function valTypesEqual(a: ValType[], b: ValType[]): boolean {
-  return a.length === b.length &&
-    a.every((t, i) => JSON.stringify(t) === JSON.stringify(b[i]));
+  return a.length === b.length && a.every((t, i) => valTypeEqual(t, b[i]));
+}
+
+function valTypeEqual(a: ValType, b: ValType): boolean {
+  if (a === b) return true;
+  if (a.kind !== b.kind) return false;
+  switch (a.kind) {
+    case "list": {
+      const bb = b as typeof a;
+      return a.length === bb.length && valTypeEqual(a.element, bb.element);
+    }
+    case "record": {
+      const bb = b as typeof a;
+      return a.fields.length === bb.fields.length &&
+        a.fields.every((f, i) =>
+          f.label === bb.fields[i].label && valTypeEqual(f.type, bb.fields[i].type)
+        );
+    }
+    case "tuple": {
+      const bb = b as typeof a;
+      return a.elements.length === bb.elements.length &&
+        a.elements.every((e, i) => valTypeEqual(e, bb.elements[i]));
+    }
+    case "variant": {
+      const bb = b as typeof a;
+      return a.cases.length === bb.cases.length &&
+        a.cases.every((c, i) => {
+          const other = bb.cases[i];
+          if (c.label !== other.label) return false;
+          if (c.type === null || other.type === null) return c.type === other.type;
+          return valTypeEqual(c.type, other.type);
+        });
+    }
+    case "enum":
+    case "flags": {
+      const bb = b as typeof a;
+      return a.labels.length === bb.labels.length &&
+        a.labels.every((l, i) => l === bb.labels[i]);
+    }
+    case "option": {
+      const bb = b as typeof a;
+      return valTypeEqual(a.type, bb.type);
+    }
+    case "result": {
+      const bb = b as typeof a;
+      if ((a.ok === null) !== (bb.ok === null)) return false;
+      if ((a.error === null) !== (bb.error === null)) return false;
+      return (a.ok === null || valTypeEqual(a.ok, bb.ok!)) &&
+        (a.error === null || valTypeEqual(a.error, bb.error!));
+    }
+    case "map": {
+      const bb = b as typeof a;
+      return valTypeEqual(a.key, bb.key) && valTypeEqual(a.value, bb.value);
+    }
+    case "own":
+    case "borrow": {
+      const bb = b as typeof a;
+      // Object-identity type (documented invariant): reference equality only.
+      return a.rt === bb.rt;
+    }
+    case "stream":
+    case "future": {
+      const bb = b as typeof a;
+      if ((a.element === null) !== (bb.element === null)) return false;
+      return a.element === null || valTypeEqual(a.element, bb.element!);
+    }
+    case "error-context":
+      return true;
+    default:
+      // Remaining kinds (primitives) carry no extra fields beyond `kind`.
+      return true;
+  }
 }
 
 /** Unused-import guard: `trap` is re-exported for symmetry with cabi. */
