@@ -115,9 +115,12 @@ Notes:
   signatures are not available from `WebAssembly.Module.imports()`. The
   architecture below sidesteps this (the translator emits all type
   information), but no design may assume type reflection exists.
-- CSP: compiling from bytes requires `wasm-unsafe-eval`. The baseline design
-  requires nothing beyond that. Full `unsafe-eval` is only needed for the
-  optional generated-JS fast path (§8).
+- CSP: compiling from bytes requires `wasm-unsafe-eval`. The runtime
+  requires nothing beyond that — **a design invariant, not a default**
+  (decided 2026-08-10, [#8](https://github.com/lann/deltic/issues/8)): no
+  code path may require full `unsafe-eval`. The specialized-JS executor is
+  emission-only (§8) — a deploy-time AOT step or a server-side first-load
+  cache import — never runtime `eval`/`new Function`.
 - The runtime core is platform-neutral by contract (§4.3) and this is pinned
   by `runtime/tests/platform_purity_test.ts` — no `node:*` builtins, no Deno
   APIs (M3 removed the one violation, an `AsyncLocalStorage` ambient).
@@ -381,16 +384,28 @@ Requirement: not critical now; must become fast **without rearchitecting**.
   - v1: a generic interpreter walks descriptors. CSP-clean, everywhere.
     This is what ships today; it has been fast enough for every consumer
     gate so far.
-  - v2 (when needed, [#8](https://github.com/lann/deltic/issues/8)): generate
-    specialized JS from the same descriptors. Deno: always available.
-    Browsers: gated on CSP `unsafe-eval`, interpreter as fallback. Two
-    executors over one IR double as a differential-testing oracle.
+  - v2 (when a gap is measured — gated on
+    [#17](https://github.com/lann/deltic/issues/17), not the calendar;
+    [#8](https://github.com/lann/deltic/issues/8)): a generator from the
+    same descriptors to specialized JS **modules** — emission-only, never
+    `eval`/`new Function` (§3's CSP invariant). One mechanism, two
+    invocation times: a deploy-time AOT step, or — on server hosts
+    (Deno/Node, no CSP) — first-load emission into a cache directory and
+    `import()`; pre-warming and freezing that cache *is* the AOT step.
+    Browsers running dynamically-loaded components stay on the interpreter.
+    The generated-module contract is AOT-shaped from day one (explicit
+    linking context; no closure capture of live runtime state) so both
+    invocation times share one artifact. Two executors over one IR double
+    as a differential-testing oracle — exercised by importing emitted
+    modules, i.e. the production delivery mechanism itself.
 - Disciplines adopted from the start because they're hard to retrofit: slab
   handle tables; no per-call closure/object allocation on hot paths; view
   reuse with grow-aware invalidation; `encodeInto` for strings.
 - Future options, noted not planned: JS string builtins (now widely shipped)
-  for string-heavy host boundaries; deploy-time unbundling for engine code
-  caching (§10).
+  for string-heavy host boundaries. Deploy-time unbundling (real URLs per
+  module → engine code-cache hits) is a packaging concern independent of the
+  executor choice and moved to the caching track (§10,
+  [#7](https://github.com/lann/deltic/issues/7)).
 
 ## 9. Bindings generation
 
@@ -493,8 +508,9 @@ probe run weekly as findings-only canaries (`.github/workflows/canary.yml`)
 with a capability-probe preamble that surfaces wasm-proposal landings
 (multi-memory, GC, EH, memory64, …) before the corpus exercises them.
 
-Also planned: differential testing of interpreter vs generated-JS executors
-(§8, [#8](https://github.com/lann/deltic/issues/8)); differential fuzzing
+Also planned: differential testing of the interpreter vs emitted
+specialized-JS modules (§8, [#8](https://github.com/lann/deltic/issues/8));
+differential fuzzing
 against native wasmtime with `wasm-smith`-generated components
 ([#9](https://github.com/lann/deltic/issues/9)).
 
@@ -515,7 +531,7 @@ are kept as gates.
 | JSC/SpiderMonkey engine gaps | medium | Deno-first dev; file upstream. M3 evidence: SpiderMonkey JSPI clean over the full corpus (pref-flipped); **JSC's real gap was missing multi-memory** (capped the WebKit lane — the CABI routinely needs >1 memory per module), not JSPI. Resolved in WebKit trunk: default-on from the webkit-2342 playwright roll, lane at effective parity there ([#11](https://github.com/lann/deltic/issues/11)) |
 | Testing wasmtime-with-wasmtime blind spots | medium | official suite + definitions.py ports as independent checks; consumer suites as real-workload gates |
 | Testing-toolchain format skew: testgen assembles with `wast` 255 while the shim validates with wasmparser 0.252 (wasmtime-47 pin) — the 0.253–0.255 window re-arited 🧵 thread opcodes (byte-level desync) | low, bounded | known 5-entry xfail set; exits on the wasmtime bump ([#1](https://github.com/lann/deltic/issues/1)); testgen cannot downgrade (suite text syntax needs `wast` ≥255) |
-| CSP variance in embedders | low | baseline needs only `wasm-unsafe-eval`; JS codegen is optional |
+| CSP variance in embedders | low | baseline needs only `wasm-unsafe-eval` — an invariant, no path may require full `unsafe-eval` (§3); specialized JS is emission-only, deploy-time or server-side cache import ([#8](https://github.com/lann/deltic/issues/8)) |
 | Consumer coupling churn: 7+ downstream repos tracking pre-1.0 plan/contract formats | medium | versioned releases ([#16](https://github.com/lann/deltic/issues/16)); strict formatVersion equality already fails loud; consumer matrices as release gate (the wasmtime↔embedder relationship); both sides practice exact pinning |
 | Consumer scope creep pulling WASI implementations into the core | medium | shim package is a separate deliverable with consumer-driven scope; §2 non-goal stands; the L3 runner belongs in polymorph-test ([#14](https://github.com/lann/deltic/issues/14)) |
 | Host-boundary perf vs jco's generated JS (v1 interpreter) | low-medium | translation throughput measured (multi-MB components in tens of ms); cutover benches tracked with [#8](https://github.com/lann/deltic/issues/8); iroh's polling-workaround removal dominates first-consumer numbers regardless |
