@@ -168,6 +168,12 @@ export interface FactCallContext {
   /** Suspension discipline (jspi/bridge.ts). */
   suspensionMode: import("../jspi/mod.ts").SuspensionMode;
   /**
+   * Can this specific callee's code reach a suspension point? Computed per
+   * core instance at instantiation (see `Executor.suspendableFuncs`). Decides
+   * whether the callee gets its own `promising` entry.
+   */
+  calleeCanBlock?(fn: unknown): boolean;
+  /**
    * The single in-flight prepared call. wasmtime keeps this per *task*; a
    * single slot is equivalent here because `prepare-call` and its
    * `*-start-call` are emitted back-to-back in one adapter body
@@ -317,6 +323,8 @@ function mkCalleeTask(input: {
   calleeUsesAsyncAbi: boolean;
   /** Suspension discipline for this instantiation (jspi/bridge.ts). */
   mode?: import("../jspi/mod.ts").SuspensionMode;
+  /** Whether THIS callee can reach a suspension point. */
+  canBlock?: boolean;
   /**
    * Called when `[async-start]` has actually run, i.e. when the callee really
    * started. wasmtime sets its `Status::Started` event at exactly this point,
@@ -338,6 +346,10 @@ function mkCalleeTask(input: {
   // `jspi` may wrap, and wrapping a non-wasm callee throws outright, so the
   // conservative reading of an absent mode is "no suspension discipline".
   const mode = input.mode ?? "plain";
+  // CONTRACT: default false -- a context that cannot answer the question gets
+  // the non-wrapping (plain-shaped) behaviour, which is the conservative one:
+  // it never forces asynchrony that the ABI forbids.
+  const canBlock = input.canBlock ?? false;
   const memory = prepared.memory;
   const inst = prepared.calleeInst;
 
@@ -457,8 +469,22 @@ function mkCalleeTask(input: {
     // `async-start-call` should drive the callee one turn before reporting
     // status, so a callee that resolves immediately still reports STARTED.
     // Left for the closer; see the report.
+    // Wrap ONLY a callee that can actually reach a suspension point.
+    //
+    // The wrap is required when the callee blocks: without its own `promising`
+    // entry it would suspend inside whatever `Suspending` trampoline invoked
+    // us, with our JS frame in between (`SuspendError: trying to suspend JS
+    // frames`, jspi pin (b)). But `enterWasm` returns a Promise
+    // unconditionally, so wrapping a callee that CANNOT block forces
+    // asynchrony the ABI forbids: an eagerly-completing callee must report its
+    // subtask RETURNED, and a wrapped one reports STARTED. That broke all six
+    // `async-calls-sync-*` cases of cross-abi-calls.wast.
+    //
+    // There is no per-CALL discriminator -- the same call site serves both --
+    // so the answer is per-callee, derived from whether the callee's core
+    // instance imports any blocking trampoline (`Executor.suspendableFuncs`).
     const raw = yield* awaitCore(
-      enterWasm(callee, mode),
+      canBlock ? enterWasm(callee, mode) : callee,
       calleeArgs as CoreValue[],
       thread,
     );
@@ -544,6 +570,7 @@ export function createSyncStartCall(
       // export" (fact.rs:608), so the callee always uses the async ABI.
       calleeUsesAsyncAbi: true,
       mode: ctx.suspensionMode,
+      canBlock: ctx.calleeCanBlock?.(callee) ?? false,
       onCallerResults: (r) => {
         callerResults = r ?? [];
       },
@@ -677,6 +704,7 @@ export function createAsyncStartCall(
       // `compile_async_to_sync_adapter` passes 0 (trampoline.rs:508 and :764).
       calleeUsesAsyncAbi: ((flags ?? 0) & START_FLAG_ASYNC_CALLEE) !== 0,
       mode: ctx.suspensionMode,
+      canBlock: ctx.calleeCanBlock?.(callee) ?? false,
       onStarted: () => {
         if (subtask.state === SubtaskState.STARTING) {
           subtask.state = SubtaskState.STARTED;

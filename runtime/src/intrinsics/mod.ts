@@ -231,6 +231,8 @@ export interface TrampolineContext {
    * owned by the executor so all trampolines of one instantiation share it.
    */
   syncCallStack: SyncCallScope[];
+  /** See `FactCallContext.calleeCanBlock` (intrinsics/fact_calls.ts). */
+  calleeCanBlock?(fn: unknown): boolean;
   /** See `HostTrapState`. */
   trapState: HostTrapState;
   /**

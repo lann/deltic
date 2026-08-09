@@ -145,6 +145,8 @@ export interface ComponentHandle {
   stats: ExecutionStats;
   componentInstances: ComponentInstanceState[];
   coreInstances: WebAssembly.Instance[];
+  /** See `Executor.suspendableFuncs`. */
+  suspendableFuncs: WeakSet<object>;
   taskMayBlock: WebAssembly.Global;
   /** `ResourceIndex` -> the `HostResourceType` bound to it, if any. */
   hostResourceTypes: Map<number, HostResourceType>;
@@ -253,6 +255,29 @@ class Executor {
   readonly hostResourceTypes = new Map<number, HostResourceType>();
   /** In-flight sync cross-component calls (see intrinsics `SyncCallScope`). */
   readonly syncCallStack: SyncCallScope[] = [];
+
+  /**
+   * Core functions exported by a core instance that imports at least one
+   * blocking trampoline -- i.e. functions whose execution can reach a
+   * suspension point. FACT consults this to decide whether a callee needs its
+   * own `promising` entry; wrapping one that cannot block would force
+   * asynchrony the ABI forbids (an eagerly-completing callee must report
+   * RETURNED, not STARTED).
+   *
+   * Correct but CONSERVATIVE, and currently inert on the official corpus:
+   * instance granularity is too coarse for it. `async/cross-abi-calls.wast`
+   * exports all four lower/lift combinations from ONE core instance, and that
+   * instance (transitively, through its FACT adapter) imports
+   * `sync-start-call`, so every function it exports is marked potentially
+   * blocking -- including the sync-lifted callee that cannot block. Sharpening
+   * this needs per-FUNCTION reachability (which exported function can reach an
+   * imported blocking trampoline), i.e. a call-graph pass over the core
+   * module, which belongs in the translator where wasmparser already is.
+   */
+  readonly suspendableFuncs = new WeakSet<object>();
+
+  /** Scratch: set by `importValue` while one module's imports are resolved. */
+  private sawBlockingImport = false;
   /** Host trap held across a FACT exception barrier (see `HostTrapState`). */
   readonly trapState: HostTrapState = { pending: undefined };
   /** Export path -> why it has no runtime surface (see `buildExport`). */
@@ -275,12 +300,12 @@ class Executor {
     // avoid -- and hung the handshake resume path. It has been reverted; a
     // detection-on run now completes.
     //
-    // The 28, measured in one captured run:
+    // The 28, measured in one captured run (UNCHANGED by the per-callee
+    // suspendability feature below -- see `suspendableFuncs`):
     //   big-interleaving-test.wast  20  (10 RuntimeError, 6 empty-stack,
     //                                    3 NeedsJspi = unlit sites 2/3/5, 1)
-    //   cross-abi-calls.wast         6  (the callee `promising`-wrap defect,
-    //                                    characterized in
-    //                                    tests/jspi/cross_abi_differential_test.ts)
+    //   cross-abi-calls.wast         6  (blocked: instance granularity is too
+    //                                    coarse -- see suspendableFuncs)
     //   dont-block-start             1  (start-section singleton)
     //   builtin-trap-poisons-instance 1
     this.suspensionMode = chooseMode(input.jspi);
@@ -391,6 +416,19 @@ class Executor {
             );
           }
           const importObject: WebAssembly.Imports = {};
+          // Per-CORE-INSTANCE suspendability. `planNeedsSuspension` answers
+          // the question for a whole component; FACT needs it for the specific
+          // callee it is about to invoke, because that is what decides whether
+          // the callee must be `promising`-wrapped (see `mkCalleeTask`).
+          //
+          // The trampoline declarations cannot answer it: `sync-start-call`
+          // and `async-start-call` carry no `instance` field (verified against
+          // real plans). What CAN answer it is right here -- the import list
+          // of the module being instantiated. A core instance whose imports
+          // include a blocking trampoline is one whose code can reach a
+          // suspension point; every function it exports is therefore
+          // potentially-blocking, and everything else is not.
+          this.sawBlockingImport = false;
           declared.forEach((imp, i) => {
             const value = this.importValue(init.args[i]);
             (importObject[imp.module] ??=
@@ -398,6 +436,13 @@ class Executor {
                 value as WebAssembly.ImportValue;
           });
           const instance = await WebAssembly.instantiate(module, importObject);
+          if (this.sawBlockingImport) {
+            for (const exported of Object.values(instance.exports)) {
+              if (typeof exported === "function") {
+                this.suspendableFuncs.add(exported as unknown as object);
+              }
+            }
+          }
           this.instances.push(instance);
           break;
         }
@@ -507,6 +552,7 @@ class Executor {
       stats: this.stats,
       componentInstances,
       coreInstances: this.instances,
+      suspendableFuncs: this.suspendableFuncs,
       taskMayBlock: this.taskMayBlock,
       hostResourceTypes: this.hostResourceTypes,
       omittedExports: this.omittedExports,
@@ -620,6 +666,19 @@ class Executor {
    */
   importValue(def: WireCoreDef): Importable {
     const value = this.resolveCoreDef(def);
+    // Suspendability is TRANSITIVE. FACT does not put blocking trampolines in
+    // the guest's own module: it generates an adapter module that imports
+    // them, and the guest imports the adapter's exported function. So a core
+    // instance is suspendable if it imports a blocking trampoline OR imports a
+    // function from an already-suspendable instance. Missing this closure is
+    // what made `async-calls-sync`'s sync-lifted middle look non-blocking and
+    // broke the handshake pins.
+    if (
+      typeof value === "function" &&
+      this.suspendableFuncs.has(value as unknown as object)
+    ) {
+      this.sawBlockingImport = true;
+    }
     if (
       this.suspensionMode !== "jspi" || def.kind !== "trampoline" ||
       typeof value !== "function"
@@ -628,6 +687,7 @@ class Executor {
     }
     const kind = this.wire.trampolines[def.index]?.kind ?? "";
     if (!BLOCKING_TRAMPOLINES.has(kind)) return value;
+    this.sawBlockingImport = true;
     this.noteImport();
     return suspendingImport(
       value as (...a: never[]) => unknown,
@@ -756,6 +816,7 @@ class Executor {
       },
       prepared: this.preparedCall,
       suspensionMode: this.suspensionMode,
+      calleeCanBlock: (fn: unknown) => this.suspendableFuncs.has(fn as object),
       syncCallStack: this.syncCallStack,
       trapState: this.trapState,
       loweredImport: (d) => this.buildLoweredImport(d),
