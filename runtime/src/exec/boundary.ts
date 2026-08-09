@@ -497,6 +497,13 @@ function drive(
 /** A settled parked-thread promise, tagged with the thread that owns it. */
 type AwaitWinner = {
   t: { awaiting: Promise<unknown> | null; resumeWith(v: unknown, f?: { error: unknown }): void };
+  /**
+   * The promise this tag was minted from — i.e. what `t.awaiting` held at
+   * `tagAwait` time. Carried so a resumption site can check that the thread is
+   * still parked on THAT promise and not on a later one (see the guard at the
+   * race's resumption site).
+   */
+  p: Promise<unknown>;
   value: unknown;
   failure: { error: unknown } | undefined;
 };
@@ -513,12 +520,108 @@ function tagAwait(t: AwaitWinner["t"]): Promise<AwaitWinner> {
   let tag = taggedAwaits.get(p);
   if (tag === undefined) {
     tag = p.then(
-      (value): AwaitWinner => ({ t, value, failure: undefined }),
-      (e): AwaitWinner => ({ t, value: undefined, failure: { error: e } }),
+      (value): AwaitWinner => ({ t, p, value, failure: undefined }),
+      (e): AwaitWinner => ({ t, p, value: undefined, failure: { error: e } }),
     );
     taggedAwaits.set(p, tag);
   }
   return tag;
+}
+
+/**
+ * THE asynchronous driving loop, exported for the one other driver in the
+ * runtime: `HostActivity` in exec/host_streams.ts, which must pump the store
+ * BETWEEN export calls (when no lifted call is in flight) with exactly these
+ * semantics — service settled tails, tick to quiescence, then await the race
+ * of every outstanding promise (parked activations AND `pendingHostCalls`),
+ * repeat. Reimplementing it there diverged: that copy only drained
+ * `store.awaiting` and never awaited `pendingHostCalls`, so a guest parked on
+ * a Promise-returning host import was never resumed and the host's read of
+ * the stream it was feeding hung (C0 finding R-1).
+ *
+ * Callers that must not hit the deadlock traps below (the host pump: an
+ * embedder that never does its half is documented to hang, not trap) can
+ * exclude them entirely — BOTH trap sites require
+ * `store.pendingHostCalls.size === 0`, and both are reached only through the
+ * synchronous fall-through from `done()`, so a `done` that returns true
+ * whenever `pendingHostCalls` is empty provably never traps.
+ */
+export async function driveStoreAsync(
+  store: Store,
+  done: () => boolean,
+  what: string,
+): Promise<void> {
+  return await driveAsync(store, done, what);
+}
+
+/**
+ * How many `driveAsync` loops are live on a store.
+ *
+ * THE INVARIANT is not "only one loop may ever run" — concurrent export calls
+ * have always produced concurrent loops, and the host-stream pump's stand-down
+ * below is cooperative, so a *bounded overlap window* remains by construction
+ * (an export call can start while the pump is parked mid-`await`; the pump
+ * only notices at its next `done()` evaluation). The invariant is:
+ *
+ *   **no activation is resumed twice for one settlement, and no activation is
+ *   resumed with a value from a settlement it has already consumed.**
+ *
+ * Overlap is benign for that invariant because of three mechanisms, in
+ * decreasing order of how much weight they carry:
+ *
+ *   (a) LOAD-BEARING — `resumeWith` synchronously deletes the thread from
+ *       `store.awaiting` (task/thread.ts `Thread.resumeWith`), and every
+ *       resumption site here is guarded by an `store.awaiting.has(...)` test
+ *       evaluated synchronously immediately before the call. The loser of a
+ *       race therefore sees the deletion. The ordering that makes this
+ *       airtight is microtask FIFO: both loops' race continuations were
+ *       queued when the *tag* settled, which is strictly before the winner's
+ *       `resumeWith` can run and therefore strictly before any re-park the
+ *       resumed activation performs can queue a new settlement. So the loser
+ *       observes "deleted", never a re-park that restored membership.
+ *   (b) `tagAwait` memoizes per PROMISE (not per thread), so overlapping loops
+ *       racing the same parked thread await the *same* tag object and see one
+ *       settlement, not two independent ones. This is what makes (a)'s
+ *       "queued at tag settlement" premise hold across loops.
+ *   (c) The ambient resume claim (`setResumingThread`) serializes the claim
+ *       path: a second claimant while one is live is asserted against, and
+ *       every loop yields at its top while `hasResumingThread()`.
+ *
+ * (a) is the guarantee; (b) and (c) are what make (a) apply across loops
+ * rather than only within one. The one corner (a) does NOT cover — a thread
+ * resumed by the *other* loop's `tick`, re-parked on a NEW promise, whose OLD
+ * promise then settles late — is closed separately at the resumption site
+ * below by comparing promise identity, not just membership.
+ *
+ * What overlap is NOT benign for is throughput and blame: two loops ticking
+ * the same store interleave their `serviceSettled`/`tick` phases, and the
+ * host-stream pump was observed to trip `Trap: table entry empty` out of
+ * `runCallbackLoop` when it drove unconditionally alongside an export call's
+ * loop. Export calls own their loops and cannot yield to anyone; the pump is
+ * a *fallback* driver — it exists only for host operations that land BETWEEN
+ * export calls — so it is the side that stands down, using the two accessors
+ * below, narrowing the window to the cooperative residue described above.
+ * When an export call's loop is live it already races `pendingHostCalls` and
+ * `store.awaiting`, i.e. it pumps host activity on the embedder's behalf.
+ */
+const driverDepth = new WeakMap<Store, number>();
+const driverIdle = new WeakMap<Store, { p: Promise<void>; r: () => void }>();
+
+export function storeDriverDepth(store: Store): number {
+  return driverDepth.get(store) ?? 0;
+}
+
+/** Resolves once no `driveAsync` loop is live on `store`. */
+export function whenStoreDriverIdle(store: Store): Promise<void> {
+  if (storeDriverDepth(store) === 0) return Promise.resolve();
+  let w = driverIdle.get(store);
+  if (w === undefined) {
+    let r!: () => void;
+    const p = new Promise<void>((res) => (r = res));
+    w = { p, r };
+    driverIdle.set(store, w);
+  }
+  return w.p;
 }
 
 async function driveAsync(
@@ -526,6 +629,8 @@ async function driveAsync(
   done: () => boolean,
   what: string,
 ): Promise<void> {
+  driverDepth.set(store, storeDriverDepth(store) + 1);
+  try {
   let claimHops = 0;
   for (;;) {
     traceDrive("driveAsync", store, done, "top");
@@ -673,6 +778,16 @@ async function driveAsync(
         // spin -- the memoized tag is already settled, so the race would win
         // instantly, forever, without anyone being resumed.
       }
+      // Re-check membership: the deadlock probe above AWAITS, and everything
+      // below reads `[...store.awaiting][0]` as if the set were still
+      // non-empty. A thread resumed during the probe (its settle continuation
+      // runs `resumeWith`, which deletes it) can empty the set, and the
+      // snapshot's `parked[0]` is then `undefined` — the exact check-then-act
+      // shape that made the host pump's copy of this loop throw
+      // `TypeError: ... (reading 'awaiting')` into `store.hostFailure`, where
+      // it poisoned a later unrelated call (C0 finding R-2). Nothing to
+      // service ⇒ go back to the top and re-evaluate `done`.
+      if (store.awaiting.size === 0) continue;
       // Claim the ambient for ONE parked thread and await its promise -- as
       // before, so pin (i)'s window is covered exactly as it was -- but race
       // that promise against every other outstanding promise so this loop can
@@ -701,7 +816,15 @@ async function driveAsync(
       // an OOM, not a hang). The claim is cleared above before any resumption,
       // exactly as on the original single-promise path, so this does not widen
       // the ambient window; it only ensures the loop always makes progress.
-      if (winner !== null && store.awaiting.has(winner.t)) {
+      // Membership is not enough: the corner it misses is a thread the OTHER
+      // overlapping loop resumed via `tick`, which then re-parked on a NEW
+      // promise, after which its OLD promise settles late — membership is
+      // true again but the tag's value belongs to a settlement this thread
+      // has already consumed. Compare promise identity too.
+      if (
+        winner !== null && store.awaiting.has(winner.t) &&
+        winner.t.awaiting === winner.p
+      ) {
         winner.t.resumeWith(winner.value, winner.failure);
       }
       continue;
@@ -721,6 +844,15 @@ async function driveAsync(
     // (the reference has the same freedom in `Store.tick`). Everything
     // *inside* the component stays deterministic per scheduler.ts.
     await Promise.race([...store.pendingHostCalls]).catch(() => {});
+  }
+  } finally {
+    const left = storeDriverDepth(store) - 1;
+    driverDepth.set(store, left);
+    if (left === 0) {
+      const w = driverIdle.get(store);
+      driverIdle.delete(store);
+      w?.r();
+    }
   }
 }
 

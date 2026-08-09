@@ -49,10 +49,13 @@
 import { assert_ } from "../cabi/trap.ts";
 import type { ComponentValue, ValType } from "../cabi/types.ts";
 import {
-  clearResumingThread,
+  driveStoreAsync,
+  storeDriverDepth,
+  whenStoreDriverIdle,
+} from "./boundary.ts";
+import {
   type ComponentInstanceState,
   CopyResult,
-  setResumingThread,
   sameElemType,
   SharedFutureImpl,
   SharedStreamImpl,
@@ -112,6 +115,40 @@ export class HostBuffer {
 }
 
 /**
+ * Every live `HostActivity` arm, by identity. These are the promises this
+ * module parks in `store.pendingHostCalls` purely to say "the embedder may
+ * still act"; they are NOT outstanding work, so the host pump must not treat
+ * their presence as a reason to keep looping (that is the "activity keeps
+ * pendingHostCalls non-empty forever" hazard: a pump whose exit condition is
+ * `pendingHostCalls.size === 0` would never exit).
+ */
+const activityArms = new WeakSet<Promise<unknown>>();
+
+/**
+ * Is there anything left that only a turn of the event loop could advance?
+ * Activity arms do not count: they say "the embedder may still act", which is
+ * precisely the state in which the pump should stop and let the operation's
+ * promise stay pending (the documented hang).
+ *
+ * `store.settled` (an array of settled-but-unserviced activation tails) DOES
+ * count: it gates `tick`, so exiting with a tail queued is a lost wakeup —
+ * the store is wedged until some other driver appears, and between export
+ * calls there is none.
+ */
+function quiescent(store: Store): boolean {
+  return store.settled.length === 0 && store.awaiting.size === 0 &&
+    !hasRealHostCall(store);
+}
+
+/** Is there host-call work outstanding that is not just an activity arm? */
+function hasRealHostCall(store: Store): boolean {
+  for (const p of store.pendingHostCalls) {
+    if (!activityArms.has(p)) return true;
+  }
+  return false;
+}
+
+/**
  * Keeps `store.pendingHostCalls` non-empty while a host end is live, so the
  * driving loop treats "waiting for the embedder" as progress-is-possible
  * rather than deadlock. Re-arms after every notification.
@@ -121,6 +158,7 @@ class HostActivity {
   #promise: Promise<void> | null = null;
   #resolve: (() => void) | null = null;
   #closed = false;
+  #pumping = false;
 
   bind(store: Store): void {
     if (this.#store !== null || this.#closed) return;
@@ -131,6 +169,7 @@ class HostActivity {
   #arm(): void {
     if (this.#store === null || this.#promise !== null || this.#closed) return;
     this.#promise = new Promise<void>((r) => (this.#resolve = r));
+    activityArms.add(this.#promise);
     this.#store.pendingHostCalls.add(this.#promise);
   }
 
@@ -149,12 +188,20 @@ class HostActivity {
    *
    * A host operation that lands *between* export calls has no driving loop
    * running — `drive()` returned when the last export call resolved. So after
-   * initiating a host read/write (or a drop) we pump the store ourselves,
-   * which is the same `while (store.tick())` the host boundary runs. Without
-   * this a guest parked in a background forwarding task would never be
-   * resumed to consume what we just offered, and the host read would await
-   * forever. Traps propagate to the caller of the host operation, which is the
-   * only place that can report them.
+   * initiating a host read/write (or a drop) we pump the store ourselves.
+   * Synchronously first (the common case: the guest is merely waiting on a
+   * scheduler condition our rendezvous just satisfied, and the host op's
+   * promise resolves before we return), then — if anything is still
+   * outstanding — by handing the store to the *same* loop an export call
+   * would have used, `driveStoreAsync`. Without the asynchronous half a guest
+   * parked in a background forwarding task would never be resumed to consume
+   * what we just offered, and the host read would await forever (C0 finding
+   * R-1: the previous local drain only serviced `store.awaiting` and never
+   * awaited `store.pendingHostCalls`, so a writer parked on a
+   * Promise-returning host import stalled the reader).
+   *
+   * Traps from the synchronous half propagate to the caller of the host
+   * operation, which is the only place that can report them.
    */
   pump(): void {
     const store = this.#store;
@@ -167,65 +214,87 @@ class HostActivity {
       const ticked = store.tick();
       if (!serviced && !ticked) break;
     }
-    // In jspi mode a guest can be parked on a Promise rather than on a
-    // scheduler condition, and `tick` cannot move those — only awaiting them
-    // can. Kick off an asynchronous drain; the host operation the caller is
-    // awaiting resolves when the rendezvous completes, so this only has to
-    // keep the guest running, not report anything.
-    if (store.awaiting.size > 0) void this.#drainAsync(store);
+    if (this.#pumping) return;
+    // Nothing is outstanding that only an event-loop turn could advance ⇒ no
+    // asynchronous pump needed. In particular an embedder that lowered a host
+    // end into a guest and then never did its half lands here: we return, no
+    // spin and no deadlock trap, and the operation's promise simply stays
+    // pending — the documented "hangs rather than traps" behaviour (see the
+    // module header).
+    if (quiescent(store)) return;
+    this.#pumping = true;
+    void this.#pumpAsync(store);
   }
 
-  async #drainAsync(store: Store): Promise<void> {
+  async #pumpAsync(store: Store): Promise<void> {
     try {
-      while (store.awaiting.size > 0) {
-        // Give settle-lagged tails a microtask to land, then service them
-        // (they gate `tick`, and their bookkeeping is reference-atomic with
-        // the activation — see Store.settled).
-        await Promise.resolve();
-        if (store.serviceSettled()) {
-          for (;;) {
-            const serviced = store.serviceSettled();
-            const ticked = store.tick();
-            if (!serviced && !ticked) break;
-          }
+      // This pump is the FALLBACK driver — the one for host operations that
+      // land BETWEEN export calls — so it stands down whenever an export
+      // call's loop is live: that loop already races `pendingHostCalls` and
+      // `store.awaiting` and so pumps host activity on our behalf. When it
+      // exits, we take over. `whenStoreDriverIdle` is edge-triggered, not
+      // polled, so waiting costs no turns.
+      //
+      // The stand-down is COOPERATIVE, not exclusion: an export call can
+      // start while we are parked mid-`await`, and we only notice at the next
+      // `done()` evaluation, so a bounded overlap window remains by
+      // construction (concurrent export calls have always overlapped too).
+      // That is safe for the resume-once invariant — `resumeWith` deletes
+      // from `store.awaiting` synchronously and every resumption site
+      // re-checks membership *and* promise identity first; see the invariant
+      // write-up on `storeDriverDepth` in boundary.ts. Standing down is about
+      // not interleaving two loops' `serviceSettled`/`tick` phases, which is
+      // what tripped `Trap: table entry empty` out of `runCallbackLoop` when
+      // this pump first drove unconditionally alongside an export call.
+      while (!quiescent(store)) {
+        if (storeDriverDepth(store) > 0) {
+          await whenStoreDriverIdle(store);
           continue;
         }
-        const t = [...store.awaiting][0] as {
-          awaiting: Promise<unknown> | null;
-          resumeWith(v: unknown, f?: { error: unknown }): void;
-        };
-        store.awaiting.delete(t);
-        const p = t.awaiting!;
-        setResumingThread(t);
-        let value: unknown;
-        let failure: { error: unknown } | undefined;
-        try {
-          value = await p;
-        } catch (e) {
-          failure = { error: e };
-        }
-        clearResumingThread();
-        t.resumeWith(value, failure);
-        for (;;) {
-          const serviced = store.serviceSettled();
-          const ticked = store.tick();
-          if (!serviced && !ticked) break;
-        }
+        await driveStoreAsync(
+          store,
+          // Quiescence, not completion: this pump exists to keep the guest
+          // moving; the host operation's own promise is what the caller
+          // awaits. Three exit clauses:
+          //
+          //   * nothing left that a turn of the event loop could advance
+          //     (`quiescent`);
+          //   * `pendingHostCalls` empty, which is the precondition of BOTH
+          //     of `driveAsync`'s deadlock traps. Returning true there keeps
+          //     this between-calls pump from converting the documented
+          //     embedder-never-acts hang (module header) into a trap that
+          //     would surface, misattributed, on some later export call.
+          //     Deadlock detection for genuine component deadlock stays where
+          //     it belongs: in the driving loop of the export call the guest
+          //     is blocked in;
+          //   * another driver appeared (an export call started while we were
+          //     parked) — hand the store back to it, per the single-driver
+          //     rule. Our depth is 1 while we are inside, hence `> 1`.
+          () =>
+            store.pendingHostCalls.size === 0 ||
+            quiescent(store) ||
+            storeDriverDepth(store) > 1,
+          "host stream/future activity",
+        );
       }
     } catch (e) {
-      // Nothing is awaiting this drain, so park the failure where the next
-      // driving loop will surface it (same channel as a host-import rejection).
+      // Nothing is awaiting this pump, so park the failure where the next
+      // driving loop will surface it (same channel as a host-import
+      // rejection).
       store.hostFailure ??= e;
+    } finally {
+      this.#pumping = false;
     }
-    // The drain advanced the guest OUTSIDE any driving loop. A `driveAsync`
-    // parked on `Promise.race([...pendingHostCalls])` re-evaluates its `done`
-    // predicate only when something it raced settles — and everything the
-    // drain just did (resume the callback task, deliver the event, watch the
-    // guest `task.return`) settled nothing that race can see. Re-arm through
-    // `notify()` so the parked driver wakes and re-checks; without this the
-    // lifted call's Promise never resolves even though the task resolved
-    // (observed: future-user's `double-future` under jspi auto-detection —
-    // the guest finished, the embedder's await hung forever).
+    // The pump advanced the guest OUTSIDE any export call's driving loop. A
+    // `driveAsync` parked on `Promise.race([...pendingHostCalls])` re-evaluates
+    // its `done` predicate only when something it raced settles — and
+    // everything the pump just did (resume the callback task, deliver the
+    // event, watch the guest `task.return`) may have settled nothing that race
+    // can see. Re-arm through `notify()` so a parked driver wakes and
+    // re-checks; without this the lifted call's Promise never resolves even
+    // though the task resolved (observed: future-user's `double-future` under
+    // jspi auto-detection — the guest finished, the embedder's await hung
+    // forever).
     this.notify();
   }
 
