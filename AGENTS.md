@@ -101,6 +101,17 @@ Standing rules:
 
 - After any fan-out, reconcile launched-vs-completed before proceeding — a
   missing result is not missing work.
+- Never run one-off `npm:` specifiers (e.g. `deno run npm:yaml`) from the
+  workspace root: Deno records them into the root `deno.lock`, silently
+  dirtying the tree (bitten twice by YAML-parsing one-offs). Use python3 or
+  run from `/tmp`; check `git diff deno.lock` before staging.
+- `main` is branch-protected: required checks = the `core` CI matrix,
+  force-pushes and deletions blocked, auto-merge enabled. Admin direct
+  pushes still work (`enforce_admins: false`), but PR + auto-merge is the
+  preferred delivery: it gets the required checks for free. The `browser`
+  job is deliberately NOT a required PR check (it runs post-merge only,
+  gating the prerelease) — do not add it to the protection contexts or
+  PRs will never merge.
 - Consumer checkouts (the polymorph family, under `~/p/polymorph/`) are
   **strictly read-only**: verify `git status` in any consumer tree you ran
   commands near, before and after. Build artifacts go to `/tmp` or a
