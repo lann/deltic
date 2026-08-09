@@ -1,0 +1,12 @@
+{
+  "name": "@component-engine/smoke-c0",
+  "version": "0.0.0",
+  "exports": "./common.ts",
+  "tasks": {
+    "leg1": "deno run --allow-read leg1_tdz.ts",
+    "leg2": "deno run --allow-read leg2_exec_model.ts",
+    "leg3": "deno run --allow-read leg3_throughput.ts",
+    "leg4": "deno run --allow-read leg4_websocket.ts",
+    "repro": "deno run --allow-read repro_stream_pump.ts"
+  }
+}
