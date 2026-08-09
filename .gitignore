@@ -3,4 +3,6 @@ harness/generated/
 examples/guests/build/
 node_modules/
 dist/
+# M3 browser lane: playwright browser downloads (PLAYWRIGHT_BROWSERS_PATH)
+.browser-cache/
 *.tmp

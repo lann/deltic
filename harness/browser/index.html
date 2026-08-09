@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>component-engine conformance (browser lane)</title>
+  </head>
+  <body>
+    <h1>component-engine conformance — browser lane</h1>
+    <pre id="status">loading bundle…</pre>
+    <script type="module">
+    import "./dist/entry.js";
+    document.getElementById("status").textContent = "ready";
+    globalThis.__ceReady = true;
+    </script>
+  </body>
+</html>

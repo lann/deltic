@@ -1,0 +1,451 @@
+// ============================================================================
+// Browser conformance lane driver (PLAN §13 M3).
+//
+// Runs the FULL testgen conformance corpus (`harness/generated/**`) inside a
+// real browser and compares the outcome against the Deno lane.
+//
+//   RUN INSTRUCTIONS
+//   ----------------
+//   One-time browser download (into ./.browser-cache, gitignored):
+//
+//     PLAYWRIGHT_BROWSERS_PATH=$PWD/.browser-cache \
+//       deno run -A npm:playwright@1.62.1 install chromium
+//     # …and `firefox` / `webkit` for the stretch lanes.
+//
+//   Then, from the repo root:
+//
+//     deno task -c harness/deno.json browser:chromium     # required lane
+//     deno task -c harness/deno.json browser:firefox      # findings lane
+//     deno task -c harness/deno.json browser:webkit       # findings lane
+//
+//   or directly:
+//
+//     deno run -A tools/browser/run-lane.ts chromium [--headed] [--keep-open]
+//                                                    [--json <path>]
+//
+//   Prerequisites (both are also checked at startup):
+//     * `cd harness && deno task gen`        -> harness/generated/**
+//     * `cd harness && deno task shim-check` -> the translator shim wasm
+//
+//   What it does: bundles `harness/browser/entry.ts` for the browser
+//   (`tools/browser/bundle.ts`), starts a local static server
+//   (`tools/browser/serve.ts`) that serves the bundle + corpus + shim with
+//   correct MIME types, launches the browser headless, drives the in-page
+//   runner, ingests per-file results as they stream back, then classifies
+//   them with the SAME `harness/src/xfail.ts` the Deno lane uses plus the
+//   lane's overlay (`harness/browser/expectations/<lane>.ts`), prints the
+//   per-directory table, and exits non-zero when a required lane deviates.
+//
+//   Exit codes: 0 = lane matched its expectation; 1 = unexpected results in a
+//   required lane; 2 = infrastructure failure (no browser, no corpus, page
+//   crash).
+//
+//   LANE NOTES (measured 2026-08-09, linux-arm64, playwright 1.62.1)
+//   ---------------------------------------------------------------
+//   chromium  HeadlessChrome/151 — REQUIRED lane, ~23 s. JSPI on by default.
+//   firefox   Firefox/153 — runs the full corpus in ~26 s. JSPI works behind
+//             `javascript.options.wasm_js_promise_integration`, which this
+//             driver sets via `firefoxUserPrefs` (see FIREFOX_PREFS below).
+//   webkit    WebKit 26.5 (WPE headless) — runs the full corpus in ~10 s.
+//             JSPI works unflagged. On a host that is not Ubuntu 24.04 the
+//             bundled build will not launch until its Ubuntu-24.04-ABI
+//             libraries are supplied; the exact recipe (and why exporting
+//             `LD_LIBRARY_PATH` around this driver does NOT work) is in
+//             `harness/browser/expectations/webkit.ts`. Run that lane with
+//             `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS=1`.
+//
+//   Historical note: all three lanes originally carried FINDING M3A-1 (the
+//   scheduler's ambient rode `node:async_hooks`, absent in every browser —
+//   80 async/ commands). Fixed by explicit ambient threading in the
+//   scheduler; chromium now runs at exact Deno parity (deltas: []) and the
+//   stale-delta detector keeps it that way.
+// ============================================================================
+
+import { Summary } from "../../harness/src/summary.ts";
+import { isXfail } from "../../harness/src/xfail.ts";
+import type { FileResult } from "../../harness/src/runner.ts";
+import { startServer } from "./serve.ts";
+import { bundle } from "./bundle.ts";
+import type {
+  LaneExpectation,
+  LaneTotals,
+} from "../../harness/browser/expectations/types.ts";
+import { deltaKey } from "../../harness/browser/expectations/types.ts";
+import chromium from "../../harness/browser/expectations/chromium.ts";
+import firefox from "../../harness/browser/expectations/firefox.ts";
+import webkit from "../../harness/browser/expectations/webkit.ts";
+import { dirname, fromFileUrl, join, normalize } from "jsr:@std/path@1";
+
+const EXPECTATIONS: Record<string, LaneExpectation> = {
+  chromium,
+  firefox,
+  webkit,
+};
+
+const repoRoot = normalize(
+  join(dirname(fromFileUrl(import.meta.url)), "..", ".."),
+);
+
+/**
+ * Firefox ships JSPI behind a pref. Playwright's Firefox honours
+ * `firefoxUserPrefs` at launch, which is the documented path for
+ * `javascript.options.*` knobs.
+ */
+const FIREFOX_PREFS: Record<string, unknown> = {
+  "javascript.options.wasm_js_promise_integration": true,
+  // JSPI's implementation is gated on the exception-handling proposal in
+  // SpiderMonkey; set it explicitly so a default flip cannot silently
+  // disable the lane's whole point.
+  "javascript.options.wasm_exceptions": true,
+};
+
+interface Args {
+  lane: string;
+  headed: boolean;
+  keepOpen: boolean;
+  jsonOut: string | null;
+}
+
+function parseArgs(argv: string[]): Args {
+  const lane = argv.find((a) => !a.startsWith("-")) ?? "chromium";
+  const jsonIdx = argv.indexOf("--json");
+  return {
+    lane,
+    headed: argv.includes("--headed"),
+    keepOpen: argv.includes("--keep-open"),
+    jsonOut: jsonIdx >= 0 ? argv[jsonIdx + 1] ?? null : null,
+  };
+}
+
+type BrowserFile = {
+  path: string;
+  dir: string;
+  source: string;
+  // deno-lint-ignore no-explicit-any
+  results: any[];
+  ms: number;
+};
+// deno-lint-ignore no-explicit-any
+type Header = any;
+
+function fail(msg: string, code = 2): never {
+  console.error(`\n[browser-lane] ${msg}`);
+  Deno.exit(code);
+}
+
+async function preflight(): Promise<void> {
+  const manifest = join(repoRoot, "harness", "generated", "manifest.json");
+  try {
+    await Deno.stat(manifest);
+  } catch {
+    fail(`missing ${manifest} — run \`cd harness && deno task gen\` first`);
+  }
+  const shim = join(
+    repoRoot,
+    "target/wasm32-unknown-unknown/release/translator_shim.wasm",
+  );
+  try {
+    await Deno.stat(shim);
+  } catch {
+    fail(`missing ${shim} — run \`cd harness && deno task shim-check\` first`);
+  }
+}
+
+async function launch(
+  lane: string,
+  headed: boolean,
+  // deno-lint-ignore no-explicit-any
+): Promise<{ browser: any; name: string }> {
+  // `PLAYWRIGHT_BROWSERS_PATH` defaults to the in-repo cache so a bare
+  // `deno run -A tools/browser/run-lane.ts chromium` finds the download made
+  // by the install command in this file's header.
+  if (!Deno.env.get("PLAYWRIGHT_BROWSERS_PATH")) {
+    Deno.env.set("PLAYWRIGHT_BROWSERS_PATH", join(repoRoot, ".browser-cache"));
+  }
+  const pw = await import("npm:playwright@1.62.1");
+  const launcher = (pw as unknown as Record<string, {
+    // deno-lint-ignore no-explicit-any
+    launch(opts: any): Promise<any>;
+  }>)[lane];
+  if (!launcher) fail(`unknown lane '${lane}' (chromium | firefox | webkit)`);
+
+  // deno-lint-ignore no-explicit-any
+  const opts: any = { headless: !headed };
+  // Pass the driver's environment through explicitly: playwright does not
+  // forward ours by default under Deno's npm compat, and the WebKit lane on a
+  // non-Ubuntu-24.04 host needs `LD_LIBRARY_PATH` to reach the browser
+  // process (see the WebKit note in this file's header).
+  opts.env = Deno.env.toObject();
+  if (lane === "firefox") opts.firefoxUserPrefs = FIREFOX_PREFS;
+  if (lane === "chromium") {
+    // Belt and braces: JSPI is default-on from Chrome 137, but the flag is
+    // harmless on newer builds and rescues an older cached download.
+    opts.args = ["--enable-experimental-webassembly-jspi"];
+  }
+  try {
+    const browser = await launcher.launch(opts);
+    return { browser, name: lane };
+  } catch (e) {
+    fail(
+      `could not launch ${lane}: ${
+        e instanceof Error ? e.message : String(e)
+      }\n` +
+        `  install it with: PLAYWRIGHT_BROWSERS_PATH=$PWD/.browser-cache ` +
+        `deno run -A npm:playwright@1.62.1 install ${lane}`,
+    );
+  }
+}
+
+interface Classified {
+  summary: Summary;
+  /** Unexpected failures: failed, not xfail on Deno, not an expected delta. */
+  unexpectedFailures: {
+    file: string;
+    line: number;
+    type: string;
+    detail: string;
+  }[];
+  /** Deltas the overlay predicted but that did not occur (stale entries). */
+  staleDeltas: { file: string; line: number; kind: string; reason: string }[];
+}
+
+function classify(files: BrowserFile[], exp: LaneExpectation): Classified {
+  const summary = new Summary();
+  const expectedFail = new Map<string, string>();
+  const expectedPass = new Map<string, string>();
+  for (const d of exp.deltas) {
+    (d.kind === "expected-fail" ? expectedFail : expectedPass)
+      .set(deltaKey(d.file, d.line), d.reason);
+  }
+  const exemptFiles = new Map(
+    (exp.fileDeltas ?? []).map((f) => [f.file, f.reason]),
+  );
+  const hitFail = new Set<string>();
+  const hitPass = new Set<string>();
+
+  const unexpectedFailures: Classified["unexpectedFailures"] = [];
+
+  for (const f of files) {
+    const fileExempt = exemptFiles.has(f.path);
+    const fileResult: FileResult = { source: f.source, results: f.results };
+    // Lane xfail predicate: the Deno-lane xfail set, widened by this lane's
+    // `expected-fail` deltas and narrowed by its `expected-pass` deltas.
+    // Narrowing matters for the stale-xfail gate: an `expected-pass` delta
+    // says "this Deno xfail passes here", so it must NOT be reported stale.
+    summary.add(f.dir, fileResult, (r) => {
+      const key = deltaKey(f.path, r.line);
+      if (expectedPass.has(key)) {
+        hitPass.add(key);
+        return false;
+      }
+      if (expectedFail.has(key)) {
+        hitFail.add(key);
+        return true;
+      }
+      if (fileExempt && r.status === "failed") return true;
+      return isXfail(f.path, r.line);
+    });
+
+    for (const r of f.results) {
+      if (r.status !== "failed") continue;
+      const key = deltaKey(f.path, r.line);
+      if (expectedFail.has(key) || fileExempt || isXfail(f.path, r.line)) {
+        continue;
+      }
+      unexpectedFailures.push({
+        file: f.path,
+        line: r.line,
+        type: r.type,
+        detail: String(r.detail ?? ""),
+      });
+    }
+  }
+
+  const staleDeltas = exp.deltas.filter((d) => {
+    const key = deltaKey(d.file, d.line);
+    return d.kind === "expected-fail" ? !hitFail.has(key) : !hitPass.has(key);
+  }).map((d) => ({
+    file: d.file,
+    line: d.line,
+    kind: d.kind,
+    reason: d.reason,
+  }));
+
+  return { summary, unexpectedFailures, staleDeltas };
+}
+
+function totalsOf(summary: Summary): LaneTotals {
+  const t = summary.total();
+  return {
+    commands: t.commands,
+    executed: t.executed,
+    passed: t.passed,
+    failed: t.failed,
+    xfail: t.xfail,
+    pendingRuntime: t.pendingRuntime,
+    pendingCapability: t.pendingCapability,
+    unsupportedDirective: t.unsupportedDirective,
+  };
+}
+
+function diffTotals(got: LaneTotals, want: LaneTotals): string[] {
+  const out: string[] = [];
+  for (const k of Object.keys(want) as (keyof LaneTotals)[]) {
+    if (got[k] !== want[k]) {
+      out.push(`  ${k}: got ${got[k]}, expected ${want[k]}`);
+    }
+  }
+  return out;
+}
+
+async function main() {
+  const args = parseArgs(Deno.args);
+  const exp = EXPECTATIONS[args.lane];
+  if (!exp) fail(`unknown lane '${args.lane}' (chromium | firefox | webkit)`);
+
+  await preflight();
+  console.log(`[browser-lane] bundling…`);
+  await bundle();
+
+  const files: BrowserFile[] = [];
+  let header: Header = null;
+  const server = startServer((e) => {
+    if (e.kind === "header") header = e.header;
+    else if (e.kind === "file") files.push(e.file as BrowserFile);
+  });
+  console.log(`[browser-lane] serving ${server.origin}`);
+
+  const wall0 = performance.now();
+  const { browser } = await launch(args.lane, args.headed);
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  const consoleErrors: string[] = [];
+  page.on("console", (m: { type(): string; text(): string }) => {
+    if (m.type() === "error") consoleErrors.push(m.text());
+  });
+  page.on(
+    "pageerror",
+    (e: Error) => consoleErrors.push(`pageerror: ${e.message}`),
+  );
+  page.on("crash", () => consoleErrors.push("PAGE CRASHED"));
+
+  let runError: string | null = null;
+  try {
+    await page.goto(server.origin, { waitUntil: "load" });
+    // No playwright default timeout: the full corpus can take minutes and a
+    // silent 30s timeout would look like a corpus shrink.
+    await page.evaluate(
+      // deno-lint-ignore no-explicit-any
+      () => (globalThis as any).__ceRunAll(),
+      undefined,
+      { timeout: 0 },
+    );
+  } catch (e) {
+    runError = e instanceof Error ? e.message : String(e);
+  }
+  const wallMs = Math.round(performance.now() - wall0);
+
+  if (!args.keepOpen) await browser.close();
+  await server.shutdown();
+
+  // ---- report -------------------------------------------------------------
+  console.log(`\n=== lane: ${args.lane} ===`);
+  console.log(
+    `user agent : ${header?.userAgent ?? "(none — page never reported)"}`,
+  );
+  console.log(`JSPI       : ${JSON.stringify(header?.jspi ?? null)}`);
+  console.log(`shim sha256: ${header?.shimBuildHash ?? "?"}`);
+  console.log(`files ran  : ${files.length}/${header?.fileCount ?? "?"}`);
+  console.log(`wall clock : ${(wallMs / 1000).toFixed(1)}s`);
+  console.log(`notes      : ${exp.notes}`);
+
+  if (files.length === 0) {
+    for (const c of consoleErrors.slice(0, 20)) {
+      console.error(`  console: ${c}`);
+    }
+    fail(`no files ran${runError ? ` — ${runError}` : ""}`);
+  }
+
+  const { summary, unexpectedFailures, staleDeltas } = classify(files, exp);
+  console.log(`\n${summary.format()}\n`);
+
+  if (args.jsonOut) {
+    await Deno.writeTextFile(
+      args.jsonOut,
+      JSON.stringify({ lane: args.lane, header, wallMs, files }, null, 2),
+    );
+    console.log(`[browser-lane] raw results -> ${args.jsonOut}`);
+  }
+
+  let bad = false;
+
+  if (runError) {
+    console.error(`\nRUN ERROR: ${runError}`);
+    bad = true;
+  }
+  if (header && files.length !== header.fileCount) {
+    console.error(
+      `\nCORPUS SHRANK: ${files.length} of ${header.fileCount} files reported`,
+    );
+    bad = true;
+  }
+  if (unexpectedFailures.length > 0) {
+    console.error(`\n${unexpectedFailures.length} UNEXPECTED FAILURE(S):`);
+    for (const u of unexpectedFailures.slice(0, 60)) {
+      console.error(
+        `  ${u.file}:${u.line} ${u.type}: ${u.detail.slice(0, 300)}`,
+      );
+    }
+    if (unexpectedFailures.length > 60) {
+      console.error(`  … and ${unexpectedFailures.length - 60} more`);
+    }
+    bad = true;
+  }
+  if (summary.staleXfails.length > 0) {
+    console.error(
+      `\n${summary.staleXfails.length} STALE XFAIL(S) on this lane ` +
+        `(marked xfail on Deno but PASSING here — an engine delta worth an ` +
+        `\`expected-pass\` overlay entry, not an xfail.ts edit):`,
+    );
+    for (const s of summary.staleXfails.slice(0, 40)) {
+      console.error(`  ${s.file}:${s.line}`);
+    }
+    bad = true;
+  }
+  if (staleDeltas.length > 0) {
+    console.error(
+      `\n${staleDeltas.length} STALE OVERLAY DELTA(S) (predicted, did not occur):`,
+    );
+    for (const d of staleDeltas) {
+      console.error(`  ${d.file}:${d.line} [${d.kind}] ${d.reason}`);
+    }
+    bad = true;
+  }
+  if (exp.totals) {
+    const diff = diffTotals(totalsOf(summary), exp.totals);
+    if (diff.length > 0) {
+      console.error(`\nTOTALS DIFFER FROM EXPECTATION:`);
+      for (const d of diff) console.error(d);
+      bad = true;
+    }
+  }
+  if (consoleErrors.length > 0) {
+    console.log(`\n(${consoleErrors.length} console error(s); first few:)`);
+    for (const c of consoleErrors.slice(0, 10)) console.log(`  ${c}`);
+  }
+
+  if (!bad) {
+    console.log(`\n[browser-lane] ${args.lane}: OK (matches expectation)`);
+    Deno.exit(0);
+  }
+  console.error(
+    `\n[browser-lane] ${args.lane}: ${
+      exp.required
+        ? "FAILED"
+        : "deviations recorded (findings lane, not gating)"
+    }`,
+  );
+  Deno.exit(exp.required ? 1 : 0);
+}
+
+if (import.meta.main) await main();
