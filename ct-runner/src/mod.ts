@@ -22,3 +22,14 @@ export {
 } from "./import-analysis.ts";
 
 export { Context, TEST_CONTEXT_INTERFACE, testContextImportRecord } from "./context.ts";
+
+export {
+  applies,
+  collectTagsSections,
+  firstExcluding,
+  loadTagsInventory,
+  parseTagsRecords,
+  TAGS_SECTION,
+  type TagsInventory,
+  tagsOf,
+} from "./tags.ts";
