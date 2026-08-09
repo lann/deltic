@@ -328,3 +328,140 @@ export function contains(
       return p(d);
   }
 }
+
+// ---------------------------------------------------------------------------
+// Structural ValType equality and display
+// ---------------------------------------------------------------------------
+
+/**
+ * Structural `ValType` equality.
+ *
+ * CONTRACT (bugfix, TRACK C2-D; generalized during the #18 tls smoke): naive
+ * `JSON.stringify(a) === JSON.stringify(b)` recurses into `own`/`borrow`'s
+ * `ResourceTypeInfo` — a class whose `impl` field is documented "Compared by
+ * object identity everywhere" (see `ResourceTypeInfo` above) and which cycles
+ * back to the owning instance state (`impl.handles` holds live resource
+ * tables that reference their types), so `JSON.stringify` throws
+ * `TypeError: Converting circular structure to JSON` on ANY type containing
+ * `own<R>`/`borrow<R>` at any depth. First hit by `task.return` result types
+ * (C2-D, polymorph-test's `list<own<test-case>>`), then by stream/future
+ * element types (polymorph-tls streams carrying resource-bearing payloads).
+ * Object-identity types (`ResourceTypeInfo`) are compared by reference, per
+ * the documented invariant.
+ */
+export function valTypesEqual(a: ValType[], b: ValType[]): boolean {
+  return a.length === b.length && a.every((t, i) => valTypeEqual(t, b[i]));
+}
+
+export function valTypeEqual(a: ValType, b: ValType): boolean {
+  if (a === b) return true;
+  if (a.kind !== b.kind) return false;
+  switch (a.kind) {
+    case "list": {
+      const bb = b as typeof a;
+      return a.length === bb.length && valTypeEqual(a.element, bb.element);
+    }
+    case "record": {
+      const bb = b as typeof a;
+      return a.fields.length === bb.fields.length &&
+        a.fields.every((f, i) =>
+          f.label === bb.fields[i].label && valTypeEqual(f.type, bb.fields[i].type)
+        );
+    }
+    case "tuple": {
+      const bb = b as typeof a;
+      return a.elements.length === bb.elements.length &&
+        a.elements.every((e, i) => valTypeEqual(e, bb.elements[i]));
+    }
+    case "variant": {
+      const bb = b as typeof a;
+      return a.cases.length === bb.cases.length &&
+        a.cases.every((c, i) => {
+          const other = bb.cases[i];
+          if (c.label !== other.label) return false;
+          if (c.type === null || other.type === null) return c.type === other.type;
+          return valTypeEqual(c.type, other.type);
+        });
+    }
+    case "enum":
+    case "flags": {
+      const bb = b as typeof a;
+      return a.labels.length === bb.labels.length &&
+        a.labels.every((l, i) => l === bb.labels[i]);
+    }
+    case "option": {
+      const bb = b as typeof a;
+      return valTypeEqual(a.type, bb.type);
+    }
+    case "result": {
+      const bb = b as typeof a;
+      if ((a.ok === null) !== (bb.ok === null)) return false;
+      if ((a.error === null) !== (bb.error === null)) return false;
+      return (a.ok === null || valTypeEqual(a.ok, bb.ok!)) &&
+        (a.error === null || valTypeEqual(a.error, bb.error!));
+    }
+    case "map": {
+      const bb = b as typeof a;
+      return valTypeEqual(a.key, bb.key) && valTypeEqual(a.value, bb.value);
+    }
+    case "own":
+    case "borrow": {
+      const bb = b as typeof a;
+      // Object-identity type (documented invariant): reference equality only.
+      return a.rt === bb.rt;
+    }
+    case "stream":
+    case "future": {
+      const bb = b as typeof a;
+      if ((a.element === null) !== (bb.element === null)) return false;
+      return a.element === null || valTypeEqual(a.element, bb.element!);
+    }
+    case "error-context":
+      return true;
+    default:
+      // Remaining kinds (primitives) carry no extra fields beyond `kind`.
+      return true;
+  }
+}
+
+/**
+ * Cycle-safe display form for diagnostics. `JSON.stringify(t)` is UNSAFE on
+ * any resource-bearing type (see `valTypeEqual`'s contract note); this prints
+ * the structural shape and elides `ResourceTypeInfo` identities.
+ */
+export function fmtValType(t: ValType | null): string {
+  if (t === null) return "_";
+  switch (t.kind) {
+    case "list":
+      return t.length === undefined
+        ? `list<${fmtValType(t.element)}>`
+        : `list<${fmtValType(t.element)}, ${t.length}>`;
+    case "record":
+      return `record{${t.fields.map((f) => `${f.label}: ${fmtValType(f.type)}`).join(", ")}}`;
+    case "tuple":
+      return `tuple<${t.elements.map(fmtValType).join(", ")}>`;
+    case "variant":
+      return `variant{${
+        t.cases.map((c) => c.type === null ? c.label : `${c.label}(${fmtValType(c.type)})`)
+          .join(", ")
+      }}`;
+    case "enum":
+      return `enum{${t.labels.join(", ")}}`;
+    case "flags":
+      return `flags{${t.labels.join(", ")}}`;
+    case "option":
+      return `option<${fmtValType(t.type)}>`;
+    case "result":
+      return `result<${fmtValType(t.ok)}, ${fmtValType(t.error)}>`;
+    case "map":
+      return `map<${fmtValType(t.key)}, ${fmtValType(t.value)}>`;
+    case "own":
+    case "borrow":
+      return `${t.kind}<resource>`;
+    case "stream":
+    case "future":
+      return `${t.kind}<${fmtValType(t.element)}>`;
+    default:
+      return t.kind;
+  }
+}

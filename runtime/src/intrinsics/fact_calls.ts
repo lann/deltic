@@ -182,6 +182,8 @@ export interface FactCallContext {
    * preparations can never be outstanding at once. Asserted, not assumed.
    */
   prepared: { current: PreparedCall | null };
+  /** See `TrampolineContext.factStartScopes` (intrinsics/mod.ts). */
+  factStartScopes: import("./mod.ts").FactStartScope[];
 }
 
 /** definitions.py-shaped canonical options a FACT task must remember. */
@@ -340,6 +342,14 @@ function mkCalleeTask(input: {
    * `Task.cancel` -> `on_resolve(None)`).
    */
   onCallerResults: (r: CoreValue[] | null) => void;
+  /**
+   * Caller-side lender registrar for borrows transferred during
+   * `[async-start]` (definitions.py `lift_borrow` line 1517 adds lenders to
+   * the caller's Subtask). async-start-call passes its `Subtask` (whose
+   * `deliverResolve` releases them); sync-start-call passes a scope it
+   * releases when the blocked caller frame gets its results.
+   */
+  lenderScope: { addLender(h: import("../cabi/handles.ts").ResourceHandle): void };
 }): { task: Task; body: (t: Thread) => Generator<BlockRequest, void, Cancelled> } {
   const { prepared, callee, callback, postReturn, ctx, calleeUsesAsyncAbi } =
     input;
@@ -387,12 +397,24 @@ function mkCalleeTask(input: {
     // if they have a result, use the last parameter as a return pointer so
     // chop that off"). Sync callers forward everything directly.
     () => {
-      const calleeArgs = callCore(
-        prepared.start,
-        prepared.asyncCallerWithResult
-          ? prepared.params.slice(0, -1)
-          : prepared.params,
-      ) as CoreValue[];
+      // Open the FACT borrow window for the duration of the copy adapter:
+      // `[async-start]` is where argument resource transfers run, and it
+      // cannot block (see the WASM-ENTRY note below), so push/pop brackets a
+      // strictly synchronous window. Borrow bookkeeping lands on this
+      // (callee) task's `numBorrows` and the caller's lender scope — see
+      // intrinsics/mod.ts `FactStartScope`.
+      ctx.factStartScopes.push({ taskScope: task, lenders: input.lenderScope });
+      let calleeArgs: CoreValue[];
+      try {
+        calleeArgs = callCore(
+          prepared.start,
+          prepared.asyncCallerWithResult
+            ? prepared.params.slice(0, -1)
+            : prepared.params,
+        ) as CoreValue[];
+      } finally {
+        ctx.factStartScopes.pop();
+      }
       input.onStarted?.();
       return calleeArgs;
     },
@@ -557,6 +579,22 @@ export function createSyncStartCall(
       : ctx.callback(decl.callback);
 
     let callerResults: CoreValue[] | null = null;
+    // The caller's frame is blocked for the whole call, so resolution
+    // delivery = this intrinsic returning results: release lenders then
+    // (the sync analogue of `Subtask.deliver_resolve`, definitions.py 904).
+    // Inlined rather than reusing `SyncCallScope` to keep this module free
+    // of a value-level import cycle with intrinsics/mod.ts.
+    const lentHandles: { numLends: number }[] = [];
+    const lenderScope = {
+      addLender(h: { numLends: number }): void {
+        h.numLends += 1;
+        lentHandles.push(h);
+      },
+      releaseLenders(): void {
+        for (const h of lentHandles) h.numLends -= 1;
+        lentHandles.length = 0;
+      },
+    };
     const { task, body } = mkCalleeTask({
       prepared,
       callee: callee as CoreFn,
@@ -571,6 +609,7 @@ export function createSyncStartCall(
       onCallerResults: (r) => {
         callerResults = r ?? [];
       },
+      lenderScope,
     });
 
     // Reference `Store.lift`: the reentrance gate, with the *caller* as the
@@ -631,7 +670,10 @@ export function createSyncStartCall(
           task: currentTask(),
           readyFunc: () => callerResults !== null,
           cancellable: false,
-          produce: () => shapeResults(callerResults as CoreValue[] | null),
+          produce: () => {
+            lenderScope.releaseLenders();
+            return shapeResults(callerResults as CoreValue[] | null);
+          },
         });
       }
       needsJspi(
@@ -639,6 +681,7 @@ export function createSyncStartCall(
           "first activation (the caller's wasm frame must block)",
       );
     }
+    lenderScope.releaseLenders();
     return shapeResults(callerResults as CoreValue[] | null);
   };
 }
@@ -732,6 +775,9 @@ export function createAsyncStartCall(
         }
         onProgress();
       },
+      // Borrow lenders attach to the caller-side subtask, released by its
+      // `deliverResolve` (definitions.py `Subtask.deliver_resolve`, line 904).
+      lenderScope: subtask,
     });
     // Cross-component cancellation: `subtask.cancel` forwards to the callee
     // task's `request_cancellation` (definitions.py line 519), which delivers

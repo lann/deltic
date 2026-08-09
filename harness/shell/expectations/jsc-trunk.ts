@@ -1,7 +1,7 @@
 // JSC trunk lane expectation — a findings lane (best-effort, non-gating;
 // issue #22). Seeded from the first successful CI run (2026-08-09, GH
 // Actions ubuntu-24.04 x64, bundle rev `318852@main` built 2026-08-08):
-// **EXACT Deno-lane parity** — 1250 passed / 0 failed / 99 xfail (the Deno
+// **EXACT Deno-lane parity** — 1254 passed / 0 failed / 95 xfail (the Deno
 // lane's own classes, identical classification), zero jsc-specific deltas,
 // and the full capability matrix true: JSPI (round trip verified),
 // multi-memory, wasm-GC, exception-handling, memory64, tail-calls,
@@ -63,9 +63,9 @@ export const jscTrunk: ShellLaneExpectation = {
   totals: {
     commands: 1395,
     executed: 1349,
-    passed: 1250,
+    passed: 1254,
     failed: 0,
-    xfail: 99,
+    xfail: 95,
     pendingRuntime: 41,
     pendingCapability: 0,
     unsupportedDirective: 5,

@@ -210,6 +210,30 @@ export class SyncCallScope {
   }
 }
 
+/**
+ * The borrow bookkeeping of one FACT `[async-start]` argument-copy window —
+ * the prepare/start protocol's analogue of `SyncCallScope`. Live only for
+ * the synchronous `callCore(prepared.start, …)` call inside `mkCalleeTask`'s
+ * `on_start` (the copy adapters cannot block, so the window never suspends).
+ *
+ * Reference mapping (definitions.py): `taskScope` is the callee `Task` —
+ * `lower_borrow` (line 1821) counts `num_borrows` there, and
+ * `Task.return_`/`cancel` trap while it is non-zero; `lenders` is the
+ * caller-side `Subtask` (async-start-call) or a plain scope released when
+ * the caller's blocked frame gets its results (sync-start-call) —
+ * `lift_borrow` (line 1517) adds lenders there, released at
+ * `deliver_resolve` (line 904). Found by the #18 polymorph-tls smoke: the
+ * suite is the first corpus with borrow-carrying composed calls through
+ * prepare/start adapters, which previously asserted "transfer-borrow
+ * outside an enter-sync-call/exit-sync-call bracket".
+ */
+export interface FactStartScope {
+  /** The callee task (satisfies cabi's `TaskBorrowScope`). */
+  taskScope: import("../cabi/context.ts").TaskBorrowScope;
+  /** The caller-side lender registrar (satisfies `SubtaskBorrowScope`). */
+  lenders: { addLender(h: ResourceHandle): void };
+}
+
 /** Executor services a trampoline body needs (provided by executor.ts). */
 export interface TrampolineContext {
   componentInstance(index: number): ComponentInstanceState;
@@ -231,6 +255,15 @@ export interface TrampolineContext {
    * owned by the executor so all trampolines of one instantiation share it.
    */
   syncCallStack: SyncCallScope[];
+  /**
+   * Stack of in-flight FACT `[async-start]` argument-copy windows (innermost
+   * last; see `FactStartScope`). Separate from `syncCallStack` because the
+   * prepare/start protocol has no enter/exit-sync-call bracket — the borrow
+   * bookkeeping attaches to the callee `Task` and the caller-side subtask
+   * instead (definitions.py `lower_borrow` line 1821 / `lift_borrow` line
+   * 1517).
+   */
+  factStartScopes: FactStartScope[];
   /** See `FactCallContext.calleeCanBlock` (intrinsics/fact_calls.ts). */
   calleeCanBlock?(fn: unknown): boolean;
   /** See `HostTrapState`. */
@@ -744,11 +777,16 @@ function transferBorrow(
   const srcRt = ctx.resourceToken(srcTable);
   const dstRt = ctx.resourceToken(dstTable);
 
+  // Innermost-scope resolution. A FACT `[async-start]` copy window is
+  // strictly synchronous and innermost when present (the copy adapters
+  // cannot make nested calls), so it wins over any enclosing sync bracket.
+  const fact = ctx.factStartScopes[ctx.factStartScopes.length - 1];
   const stack = syncScopes(ctx);
   const scope = stack[stack.length - 1];
   assert_(
-    scope !== undefined,
-    "transfer-borrow outside an enter-sync-call/exit-sync-call bracket",
+    fact !== undefined || scope !== undefined,
+    "transfer-borrow outside an enter-sync-call/exit-sync-call bracket " +
+      "or FACT start window",
   );
 
   const h = src.handles.get(handle);
@@ -761,11 +799,12 @@ function transferBorrow(
   // definitions.py `lift_borrow`: the source handle becomes a lender of the
   // callee's activation, which is what makes lifting it as an `own` trap for
   // the duration of the call.
-  scope.addLender(rh);
+  (fact?.lenders ?? scope!).addLender(rh);
   // definitions.py `lower_borrow`: `if inst is t.rt.impl: return rep` — a
   // component that implements the resource is handed the rep directly and
   // gets no handle (and therefore no `num_borrows` obligation).
   if (dstRt.impl !== null && (dstRt.impl as unknown) === dst) return rh.rep;
-  scope.numBorrows += 1;
-  return dst.handles.add(new ResourceHandle(dstRt, rh.rep, false, scope));
+  const borrowScope = fact !== undefined ? fact.taskScope : scope!;
+  borrowScope.numBorrows += 1;
+  return dst.handles.add(new ResourceHandle(dstRt, rh.rep, false, borrowScope));
 }

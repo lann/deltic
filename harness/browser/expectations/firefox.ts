@@ -48,9 +48,9 @@ export const firefox: LaneExpectation = {
   totals: {
     commands: 1395,
     executed: 1349,
-    passed: 1250,
+    passed: 1254,
     failed: 0,
-    xfail: 99,
+    xfail: 95,
     pendingRuntime: 41,
     pendingCapability: 0,
     unsupportedDirective: 5,

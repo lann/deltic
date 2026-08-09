@@ -284,20 +284,8 @@ export const XFAIL: XfailEntry[] = [
   // flip: a start-function SuspendError maps to "cannot block a synchronous
   // task before returning"); entry pruned. ---
   // --- async/drop-cross-task-borrow.json: root cause: FACT-ASYNC ---
-  {
-    file: "async/drop-cross-task-borrow.json",
-    line: 305,
-    reason:
-      "observed: AssertionError: transfer-borrow outside an " +
-      "enter-sync-call/exit-sync-call bracket",
-  },
-  {
-    file: "async/drop-cross-task-borrow.json",
-    line: 307,
-    reason:
-      "observed: AssertionError: transfer-borrow outside an " +
-      "enter-sync-call/exit-sync-call bracket",
-  },
+  // lines 305/307 GREEN after the #18 tls-smoke fixes (FACT [async-start]
+  // borrow window + ResourceTypeInfo unification); entries pruned.
   {
     file: "async/drop-cross-task-borrow.json",
     line: 309,
@@ -321,23 +309,9 @@ export const XFAIL: XfailEntry[] = [
   // --- async/futures-must-write.json: root cause: STREAMS ---
   // --- async/partial-stream-copies.json: GREEN under jspi auto-detection
   // (M2 flip); entry pruned. ---
-  // --- async/passing-resources.json: root cause: STREAMS ---
-  {
-    file: "async/passing-resources.json",
-    line: 175,
-    reason:
-      "observed: TypeError: Converting circular structure to JSON " +
-      "--> starting at object with constructor 'Object' | " +
-      "property 'rt' -> object with constructor " +
-      "'ResourceTypeInfo' | property",
-  },
-  {
-    file: "async/passing-resources.json",
-    line: 176,
-    reason:
-      "observed: Error: expected trap \"unknown handle index 3\", " +
-      "got \"wasm trap: wasm `unreachable` instruction executed\"",
-  },
+  // --- async/passing-resources.json: lines 175/176 GREEN after the #18
+  // tls-smoke fixes (cycle-safe structural ValType equality + token
+  // unification); entries pruned. ---
   // --- async/same-component-stream-future.json: root cause: STREAMS ---
   // --- async/sync-barges-in.json: GREEN under jspi auto-detection (M2
   // flip); entry pruned. ---

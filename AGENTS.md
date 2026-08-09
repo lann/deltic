@@ -33,6 +33,7 @@ cargo test -p translator-shim -p bindgen -p testgen
 (cd wasi-shims && deno task test)
 (cd ct-runner && deno task test)
 (cd ports/websocket && deno task test)       # + deno task conformance (spawns their echod)
+deno run --allow-read tools/smoke-tls/run.ts --exec  # polymorph-tls suite (issue #18)
 (cd ports/webcrypto && deno test --allow-read tests/)
 (cd ports/webrtc && deno test -A webrtc.test.ts)
 deno run -A tools/browser/run-lane.ts chromium   # firefox / webkit likewise

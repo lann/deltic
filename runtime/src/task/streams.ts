@@ -49,14 +49,17 @@ import { LiftLowerContext } from "../cabi/context.ts";
 import { loadListFromValidRange } from "../cabi/load.ts";
 import { storeListIntoValidRange } from "../cabi/store.ts";
 import { alignTo, alignment, elemSize } from "../cabi/layout.ts";
-import { despecialize } from "../cabi/types.ts";
+import { despecialize, valTypeEqual } from "../cabi/types.ts";
 import type { ComponentValue, ValType } from "../cabi/types.ts";
 import { Waitable } from "./waitable.ts";
 
-/** Structural element-type equality (`null` = the zero-width payload). */
+/** Structural element-type equality (`null` = the zero-width payload).
+ * Delegates to `valTypeEqual`: naive `JSON.stringify` comparison throws on
+ * resource-bearing element types (cabi/types.ts `valTypeEqual` contract
+ * note; found by the #18 polymorph-tls smoke). */
 export function sameElemType(a: ValType | null, b: ValType | null): boolean {
   if (a === null || b === null) return a === b;
-  return JSON.stringify(a) === JSON.stringify(b);
+  return valTypeEqual(a, b);
 }
 
 /** definitions.py `Buffer.MAX_LENGTH`. */

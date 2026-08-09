@@ -50,6 +50,7 @@ import {
   createUnsafeIntrinsic,
   type PreparedCall,
   type HostTrapState,
+  type FactStartScope,
   type SyncCallScope,
   TranscodeMemory,
 } from "../intrinsics/mod.ts";
@@ -289,6 +290,8 @@ class Executor {
   readonly hostResourceTypes = new Map<number, HostResourceType>();
   /** In-flight sync cross-component calls (see intrinsics `SyncCallScope`). */
   readonly syncCallStack: SyncCallScope[] = [];
+  /** In-flight FACT `[async-start]` borrow windows (intrinsics `FactStartScope`). */
+  readonly factStartScopes: FactStartScope[] = [];
 
   /**
    * Core functions exported by a core instance that imports at least one
@@ -921,6 +924,7 @@ class Executor {
       suspensionMode: this.suspensionMode,
       calleeCanBlock: (fn: unknown) => this.suspendableFuncs.has(fn as object),
       syncCallStack: this.syncCallStack,
+      factStartScopes: this.factStartScopes,
       trapState: this.trapState,
       loweredImport: (d) => this.buildLoweredImport(d),
       stats: this.stats,

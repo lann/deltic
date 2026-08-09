@@ -74,6 +74,7 @@ function runPrepared(input: {
     memoryToken: () => null,
     stats: newStats(),
     prepared,
+    factStartScopes: [],
   };
 
   const start = (...a: CoreValue[]) => {
