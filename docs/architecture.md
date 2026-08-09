@@ -98,7 +98,7 @@ the `Suspender` object was removed).
 | Deno ≥ 2.3.2 | on by default | primary dev target |
 | Chrome/Chromium ≥ 137 | on by default | browser lane (exact Deno parity) |
 | Firefox | flag: `javascript.options.wasm_js_promise_integration` | browser lane (pref flipped by the driver) |
-| Safari / WebKit | works unflagged on WPE 26.5 (M3 finding); shipping-Safari status: [#11](https://github.com/lann/deltic/issues/11) | browser lane, capped by JSC's missing multi-memory (#11) |
+| Safari / WebKit | works unflagged on WPE 26.5 (M3 finding); shipping-Safari status: [#11](https://github.com/lann/deltic/issues/11) | browser lane; pinned build capped by JSC's missing multi-memory — implemented and default-on in WebKit trunk (webkit-2342+ rolls reach 1248/0, effective parity; #11) |
 | Node | on by default ≥ 26 | optional distribution target, not a lane — Deno substitutes across the consumer surface ([consumers.md](consumers.md)) |
 
 Notes:
@@ -499,7 +499,7 @@ are kept as gates.
 | wasmtime internal API churn (`wasmtime-environ` is internal/unstable) | medium, recurring | shim isolation + version pinning; upgrades are deliberate events ([#1](https://github.com/lann/deltic/issues/1)) |
 | JSPI phase-4 drift | medium | small trampoline surface, centralized; track proposal |
 | Safari: stable-channel JSPI status unverified | accepted | floor is explicit; JSPI unflagged on WPE 26.5 — re-check shipping Safari ([#11](https://github.com/lann/deltic/issues/11)); callback-ABI consumers don't need it |
-| JSC/SpiderMonkey engine gaps | medium | Deno-first dev; file upstream. M3 evidence: SpiderMonkey JSPI clean over the full corpus (pref-flipped); **JSC's real gap is missing multi-memory** (caps the WebKit lane — the CABI routinely needs >1 memory per module), not JSPI ([#11](https://github.com/lann/deltic/issues/11)) |
+| JSC/SpiderMonkey engine gaps | medium | Deno-first dev; file upstream. M3 evidence: SpiderMonkey JSPI clean over the full corpus (pref-flipped); **JSC's real gap was missing multi-memory** (capped the WebKit lane — the CABI routinely needs >1 memory per module), not JSPI. Resolved in WebKit trunk: default-on from the webkit-2342 playwright roll, lane at effective parity there ([#11](https://github.com/lann/deltic/issues/11)) |
 | Testing wasmtime-with-wasmtime blind spots | medium | official suite + definitions.py ports as independent checks; consumer suites as real-workload gates |
 | Testing-toolchain format skew: testgen assembles with `wast` 255 while the shim validates with wasmparser 0.252 (wasmtime-47 pin) — the 0.253–0.255 window re-arited 🧵 thread opcodes (byte-level desync) | low, bounded | known 5-entry xfail set; exits on the wasmtime bump ([#1](https://github.com/lann/deltic/issues/1)); testgen cannot downgrade (suite text syntax needs `wast` ≥255) |
 | CSP variance in embedders | low | baseline needs only `wasm-unsafe-eval`; JS codegen is optional |

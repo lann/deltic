@@ -29,15 +29,25 @@
 //    and excludes stable Safari; on this build the API is present and a real
 //    suspend/resume round trip completes. Worth re-checking against shipping
 // Safari before the exclusion in docs/architecture.md §12 (Risks) is relaxed.
-// 2. **JSC does not implement multi-memory** — 58 commands fail at
-//    `WebAssembly.Module` compile time with "there can at most be one Memory
-//    section for now". This is the substantive WebKit finding: the Component
-//    Model's canonical ABI routinely needs more than one memory in a single
-//    core module (transcoding, cross-component copies, realloc-into-another
-//    -instance), so a JSC lane is capped until multi-memory ships there. It
-//    is an engine capability gap, not a host defect: the same components run
-//    on V8 and SpiderMonkey. 111 further commands are CASCADE entries from
-//    those failed instantiations ("no current instance").
+// 2. **JSC does not implement multi-memory in this pinned build** — 58
+//    commands fail at `WebAssembly.Module` compile time with "there can at
+//    most be one Memory section for now". This is the substantive WebKit
+//    finding: the Component Model's canonical ABI routinely needs more than
+//    one memory in a single core module (transcoding, cross-component
+//    copies, realloc-into-another-instance), so a JSC lane is capped until
+//    multi-memory ships there. It is an engine capability gap, not a host
+//    defect: the same components run on V8 and SpiderMonkey. 111 further
+//    commands are CASCADE entries from those failed instantiations ("no
+//    current instance").
+//    RESOLVED UPSTREAM (measured 2026-08-09, deltic#11): webkit-2342
+//    (playwright 1.63 alpha roll) ships multi-memory ENABLED BY DEFAULT —
+//    the lane reaches 1248/0 against it and 173 of this file's 175 deltas
+//    collapse, leaving only the two wording entries of finding 3. This
+//    build's `JSC_useWasmMultiMemory` option is an inert stub (verified:
+//    the env route works — `JSC_useWasm=0` kills wasm — but the flag
+//    changes nothing). When the playwright pin reaches a webkit-2342+ roll,
+//    collapse this overlay to the wording entries; the stale-delta detector
+//    will insist. Details: https://github.com/lann/deltic/issues/11
 // 3. One trap-wording variance, same class as Firefox's: JSC says
 //    "Unreachable code should not be executed" where the suite expects the
 //    wasmtime/V8 wording (docs/architecture.md §1).
