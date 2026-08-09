@@ -24,7 +24,7 @@
 // jsc 2.52 (GTK, extracted from the Debian/Ubuntu `libjavascriptcoregtk-bin`
 // .deb — recipe in `tools/shell/run-lane.ts`'s header) via:
 //
-//   deno run -A tools/shell/run-lane.ts jsc \
+//   deno run -A tools/shell/run-lane.ts jsc-pinned \
 //     --shell-bin /path/to/jsc --lib-path /path/to/libdir
 //
 // Expected on that stable build: capability matrix shows jspi=false,
@@ -52,7 +52,7 @@
 import type { ShellLaneExpectation } from "./types.ts";
 
 export const jscTrunk: ShellLaneExpectation = {
-  lane: "jsc",
+  lane: "jsc-trunk",
   required: false,
   notes:
     "JSC trunk (jsc-built-products, x86_64 CI only). Exact Deno-lane parity " +

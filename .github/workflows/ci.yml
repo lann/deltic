@@ -61,6 +61,25 @@ jobs:
         working-directory: harness
         run: deno task gen
 
+      # --- Pinned engine-shell lanes (required; issue #22 follow-up) ---------
+      # Per-push/PR SpiderMonkey + JSC coverage at fixed, sha256-verified
+      # pins (tools/shell/pins.json) — NOT the always-moving nightly/trunk
+      # channels, which stay findings-only canaries in canary.yml. Both are
+      # `required: true` overlays; a deviation here exits 1 and fails this
+      # job (tools/shell/run-lane.ts's `exp.required ? 1 : 0` tail).
+      - name: fetch SpiderMonkey pinned (Firefox 153.0 jsshell)
+        run: deno run -A tools/shell/fetch.ts sm-pinned
+      - name: SpiderMonkey pinned lane (required)
+        run: deno run -A tools/shell/run-lane.ts sm-pinned
+      - name: fetch JSC pinned (rev 318852@main, x64 only)
+        # No arm64 channel for jsc-built-products (or its repo-owned mirror
+        # of this exact rev) — fetch.ts refuses cleanly on other arches.
+        if: runner.arch == 'X64'
+        run: deno run -A tools/shell/fetch.ts jsc-pinned
+      - name: JSC pinned lane (required, x64 only)
+        if: runner.arch == 'X64'
+        run: deno run -A tools/shell/run-lane.ts jsc-pinned
+
       # --- Deno suites -------------------------------------------------------
       - name: runtime
         working-directory: runtime
@@ -121,6 +140,18 @@ jobs:
   browser:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    # Post-merge only (operator decision, issue #22 follow-up): the
+    # conformance corpus is engine-shaped, and per-PR/per-push engine
+    # coverage now comes from the pinned shell lanes in the `core` job
+    # above (sm-pinned, jsc-pinned) at fixed, sha256-verified pins. The
+    # browser lanes verify something the shell lanes can't — the embedding
+    # (real DOM/Worker/fetch globals) plus the SHIPPED-CHANNEL config
+    # (e.g. Firefox's JSPI pref, which this lane sets explicitly — unlike
+    # the jsshell, which has JSPI on by default; see
+    # harness/shell/expectations/sm-pinned.ts) — so they stay as the gate
+    # for the post-merge prerelease (`release`, below), which is the compat
+    # matrix for now (revisit when real releases exist).
+    if: github.event_name == 'push'
     steps:
       - uses: actions/checkout@v4
         with:

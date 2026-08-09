@@ -45,8 +45,8 @@
 
 import type { ShellLaneExpectation } from "./types.ts";
 
-export const spidermonkeyNightly: ShellLaneExpectation = {
-  lane: "spidermonkey",
+export const smNightly: ShellLaneExpectation = {
+  lane: "sm-nightly",
   required: false,
   notes:
     "SpiderMonkey nightly (linux-aarch64 jsshell). Full Deno parity: " +
@@ -65,4 +65,4 @@ export const spidermonkeyNightly: ShellLaneExpectation = {
   },
 };
 
-export default spidermonkeyNightly;
+export default smNightly;

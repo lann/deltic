@@ -10,12 +10,13 @@ export type { LaneDelta, LaneTotals };
 export { deltaKey } from "../../browser/expectations/types.ts";
 
 export interface ShellLaneExpectation {
-  lane: "spidermonkey" | "jsc";
+  lane: "sm-pinned" | "sm-nightly" | "jsc-pinned" | "jsc-trunk";
   /** Human summary printed with the table. */
   notes: string;
   /** `true` = a red lane is a gate failure; `false` = findings-only lane.
-   * Every canary lane in this track is `false` (issue #22: "findings lanes,
-   * never gating"). */
+   * Pinned lanes (sm-pinned, jsc-pinned) are `true` — promoted to per-push
+   * gates in ci.yml's `core` job. Canary lanes (sm-nightly, jsc-trunk) stay
+   * `false` (issue #22: "findings lanes, never gating"). */
   required: boolean;
   /** Expected per-file/line deltas against the Deno lane. */
   deltas: LaneDelta[];

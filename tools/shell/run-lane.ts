@@ -10,39 +10,50 @@
 //
 //   RUN INSTRUCTIONS
 //   ----------------
+//   LANE IDS: sm-pinned, sm-nightly (SpiderMonkey); jsc-pinned, jsc-trunk
+//   (JSC). Pinned lanes (sm-pinned, jsc-pinned) are REQUIRED gates in
+//   ci.yml's `core` job; nightly/trunk lanes stay findings-only canaries in
+//   canary.yml.
+//
 //   One-time shell fetch (into ./.shell-cache, gitignored):
 //
-//     deno run -A tools/shell/fetch.ts spidermonkey
-//     deno run -A tools/shell/fetch.ts jsc        # x86_64 CI only
+//     deno run -A tools/shell/fetch.ts sm-pinned
+//     deno run -A tools/shell/fetch.ts sm-nightly
+//     deno run -A tools/shell/fetch.ts jsc-pinned  # x86_64 CI only
+//     deno run -A tools/shell/fetch.ts jsc-trunk   # x86_64 CI only
 //
 //   Then:
 //
-//     deno run -A tools/shell/run-lane.ts spidermonkey [--json <path>]
-//     deno run -A tools/shell/run-lane.ts jsc [--json <path>]
+//     deno run -A tools/shell/run-lane.ts sm-pinned [--json <path>]
+//     deno run -A tools/shell/run-lane.ts jsc-pinned [--json <path>]
 //
-//   Machinery validation against a LOCAL stable jsc (not jsc-trunk; see
-//   `harness/shell/expectations/jsc-trunk.ts`'s header for the recipe that
-//   produces a local build from the distro's .deb):
+//   Machinery validation against a LOCAL stable jsc (not jsc-pinned/-trunk;
+//   see `harness/shell/expectations/jsc-trunk.ts`'s header for the recipe
+//   that produces a local build from the distro's .deb):
 //
-//     deno run -A tools/shell/run-lane.ts jsc \
+//     deno run -A tools/shell/run-lane.ts jsc-pinned \
 //       --shell-bin /path/to/jsc --lib-path /path/to/libdir
 //
 //   Prerequisites (checked at startup, same as the browser lane):
 //     * `cd harness && deno task gen`        -> harness/generated/**
 //     * `cd harness && deno task shim-check` -> the translator shim wasm
 //
-//   Exit codes — FINDINGS LANE POLICY (issue #22: "findings lanes, never
-//   gating"): 0 = ran to completion, deviations (if any) recorded in the
-//   report; 2 = infrastructure failure ONLY (shell binary missing, zero
-//   files ran, the shell crashed mid-corpus with no results at all). A red
-//   diff against the overlay is NOT an infrastructure failure and does not
-//   change the exit code — that's what distinguishes "canary lane" from
-//   "gate".
+//   Exit codes — same `required`-gated policy as the browser driver
+//   (`tools/browser/run-lane.ts`): 0 = ran to completion with no deviations,
+//   OR ran with deviations on a `required: false` (findings/canary) lane;
+//   1 = deviations on a `required: true` (pinned, per-push-gate) lane; 2 =
+//   infrastructure failure ONLY (shell binary missing, zero files ran, the
+//   shell crashed mid-corpus with no results at all), regardless of
+//   `required`. sm-nightly/jsc-trunk are `required: false` (issue #22:
+//   "findings lanes, never gating"); sm-pinned/jsc-pinned are
+//   `required: true` (this track: promoted to per-push gates).
 
 import { dirname, fromFileUrl, join, normalize } from "jsr:@std/path@1";
 import { classify, diffTotals, totalsOf } from "../browser/classify.ts";
 import type { ShellLaneExpectation } from "../../harness/shell/expectations/types.ts";
-import spidermonkeyNightly from "../../harness/shell/expectations/spidermonkey-nightly.ts";
+import smPinned from "../../harness/shell/expectations/sm-pinned.ts";
+import smNightly from "../../harness/shell/expectations/sm-nightly.ts";
+import jscPinned from "../../harness/shell/expectations/jsc-pinned.ts";
 import jscTrunk from "../../harness/shell/expectations/jsc-trunk.ts";
 import { bundle } from "./bundle.ts";
 import { defaultShellPaths } from "./fetch.ts";
@@ -52,8 +63,10 @@ const repoRoot = normalize(
 );
 
 const EXPECTATIONS: Record<string, ShellLaneExpectation> = {
-  spidermonkey: spidermonkeyNightly,
-  jsc: jscTrunk,
+  "sm-pinned": smPinned,
+  "sm-nightly": smNightly,
+  "jsc-pinned": jscPinned,
+  "jsc-trunk": jscTrunk,
 };
 
 interface Args {
@@ -64,7 +77,7 @@ interface Args {
 }
 
 function parseArgs(argv: string[]): Args {
-  const lane = argv.find((a) => !a.startsWith("-")) ?? "spidermonkey";
+  const lane = argv.find((a) => !a.startsWith("-")) ?? "sm-pinned";
   const get = (flag: string) => {
     const i = argv.indexOf(flag);
     return i >= 0 ? argv[i + 1] ?? null : null;
@@ -133,7 +146,7 @@ async function runShell(
   libPath: string | null,
 ): Promise<{ code: number; stdout: string; stderr: string }> {
   const bundlePath = join(repoRoot, "tools", "shell", "dist", "entry.js");
-  const args = lane === "spidermonkey"
+  const args = lane.startsWith("sm-")
     ? [`--module=${bundlePath}`]
     : ["-m", bundlePath];
   const env: Record<string, string> = {};
@@ -192,7 +205,7 @@ function parseProtocol(stdout: string): { header: Header; files: ShellFile[] } {
 async function main() {
   const args = parseArgs(Deno.args);
   const exp = EXPECTATIONS[args.lane];
-  if (!exp) fail(`unknown lane '${args.lane}' (spidermonkey | jsc)`);
+  if (!exp) fail(`unknown lane '${args.lane}' (sm-pinned | sm-nightly | jsc-pinned | jsc-trunk)`);
 
   await preflight();
 
@@ -298,11 +311,16 @@ async function main() {
     Deno.exit(0);
   }
   console.error(
-    `\n[shell-lane] ${args.lane}: deviations recorded (findings lane, not gating)`,
+    `\n[shell-lane] ${args.lane}: ${
+      exp.required ? "FAILED" : "deviations recorded (findings lane, not gating)"
+    }`,
   );
-  // Findings lanes never gate on deviations — only infrastructure failure
-  // (caught above via `fail(...)`, exit 2) does.
-  Deno.exit(0);
+  // Required lanes (sm-pinned, jsc-pinned) gate the per-push core job — a
+  // deviation exits 1, mirroring tools/browser/run-lane.ts's
+  // `exp.required ? 1 : 0` tail. Non-required canary lanes (sm-nightly,
+  // jsc-trunk) stay findings-only: exit 0 regardless of deviations; only
+  // infrastructure failure (caught above via `fail(...)`, exit 2) gates them.
+  Deno.exit(exp.required ? 1 : 0);
 }
 
 if (import.meta.main) await main();

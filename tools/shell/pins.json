@@ -1,0 +1,17 @@
+{
+  "spidermonkey": {
+    "channel": "release",
+    "version": "153.0",
+    "urlTemplate": "https://archive.mozilla.org/pub/firefox/releases/153.0/jsshell/jsshell-linux-{arch}.zip",
+    "sha256": {
+      "aarch64": "ecab6ddab68293e8915e42d4099f9fabb563172b65a958b0f11c6cfe410eb430",
+      "x86_64": "e728c301386f7ae390470dc46c25fe4d9d58a260e993b19f12c11204a3421404"
+    }
+  },
+  "jsc": {
+    "rev": "318852@main",
+    "url": "https://github.com/lann/deltic/releases/download/shell-pins/jsc-built-products-x86_64-318852.zip",
+    "sha256": "cab182120ca7efb4c238538f73eb0d457c44b0c581709b8e9d67cc4816646470",
+    "arch": "x86_64-only"
+  }
+}

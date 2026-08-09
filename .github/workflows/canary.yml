@@ -1,13 +1,19 @@
 name: Canary
 
-# Weekly + on-demand only: SpiderMonkey nightly, JSC trunk, and a Deno-canary
-# probe run trunk-fresh engine builds against the conformance corpus (issue
-# #22). These are FINDINGS lanes, never gates — every driver here exits 0
-# even with recorded deviations, per each lane's `required: false` overlay
-# and the drivers' own exit policy (`tools/shell/run-lane.ts`,
-# `tools/shell/deno-canary.ts`: exit 2 is reserved for infrastructure
-# failure, e.g. a missing shell binary or a channel unreachable). Nothing
-# here feeds `ci.yml`'s release gate.
+# Weekly + on-demand only: SpiderMonkey nightly (`sm-nightly`), JSC trunk
+# (`jsc-trunk`), and a Deno-canary probe run trunk-fresh engine builds
+# against the conformance corpus (issue #22). These are FINDINGS lanes,
+# never gates — every driver here exits 0 even with recorded deviations,
+# per each lane's `required: false` overlay and the drivers' own exit
+# policy (`tools/shell/run-lane.ts`, `tools/shell/deno-canary.ts`: exit 2
+# is reserved for infrastructure failure, e.g. a missing shell binary or a
+# channel unreachable). Nothing here feeds `ci.yml`'s release gate.
+#
+# The PINNED counterparts (`sm-pinned`, `jsc-pinned`; `required: true`) are
+# NOT run here — they're per-push/PR REQUIRED gates in `ci.yml`'s `core`
+# job now (this track's promotion), fetched from fixed, sha256-verified
+# artifacts (tools/shell/pins.json) rather than the always-moving
+# nightly/trunk channels this workflow tracks.
 
 on:
   schedule:
@@ -51,14 +57,14 @@ jobs:
       # bug would have been pinned in place by exactly that).
 
       - name: fetch SpiderMonkey nightly
-        run: deno run -A tools/shell/fetch.ts spidermonkey
+        run: deno run -A tools/shell/fetch.ts sm-nightly
       - name: SpiderMonkey nightly lane
-        run: deno run -A tools/shell/run-lane.ts spidermonkey --json sm-results.json
+        run: deno run -A tools/shell/run-lane.ts sm-nightly --json sm-results.json
 
       - name: fetch JSC trunk (x86_64)
-        run: deno run -A tools/shell/fetch.ts jsc
+        run: deno run -A tools/shell/fetch.ts jsc-trunk
       - name: JSC trunk lane
-        run: deno run -A tools/shell/run-lane.ts jsc --json jsc-results.json
+        run: deno run -A tools/shell/run-lane.ts jsc-trunk --json jsc-results.json
 
       - name: Deno canary probe (V8-trailing-edge substitute for a d8 lane)
         run: deno run -A tools/shell/deno-canary.ts --json deno-canary-results.json
@@ -127,9 +133,9 @@ jobs:
       # bug would have been pinned in place by exactly that).
 
       - name: fetch SpiderMonkey nightly
-        run: deno run -A tools/shell/fetch.ts spidermonkey
+        run: deno run -A tools/shell/fetch.ts sm-nightly
       - name: SpiderMonkey nightly lane
-        run: deno run -A tools/shell/run-lane.ts spidermonkey --json sm-results.json
+        run: deno run -A tools/shell/run-lane.ts sm-nightly --json sm-results.json
 
       - name: Deno canary probe
         run: deno run -A tools/shell/deno-canary.ts --json deno-canary-results.json

@@ -36,6 +36,8 @@ cargo test -p translator-shim -p bindgen -p testgen
 (cd ports/webcrypto && deno test --allow-read tests/)
 (cd ports/webrtc && deno test -A webrtc.test.ts)
 deno run -A tools/browser/run-lane.ts chromium   # firefox / webkit likewise
+deno run -A tools/shell/run-lane.ts sm-pinned    # pinned engine shells (required
+                                                 # gates; jsc-pinned is x64-only)
 deno run -A --unstable-net exams/iroh-endpoint/run.ts   # needs iroh-relay on PATH
 ```
 

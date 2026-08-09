@@ -481,7 +481,17 @@ tag every artifact `core` vs `component`, which the harness needs since V8
 cannot even validate component binaries). The TS harness executes the JSON
 identically under `deno test` and in browsers (`tools/browser/run-lane.ts`:
 static server + automated Chromium / Firefox-with-pref / WebKit, with
-per-lane expectation overlays and stale-delta detection).
+per-lane expectation overlays and stale-delta detection) — and directly
+under engine *shells* (`tools/shell/run-lane.ts`: SpiderMonkey `js`, JSC
+`jsc`; same classification machinery, no browser). Because the corpus is
+engine-shaped, the per-push/PR engine gates are the **pinned shell lanes**
+(`sm-pinned` = the Firefox-release shell matching the browser lane,
+`jsc-pinned` = a sha256-mirrored trunk build; `tools/shell/pins.json`);
+browser lanes run post-merge, verifying the embedding and shipped-channel
+configs and gating the prerelease. Trunk/nightly shells and a Deno-canary
+probe run weekly as findings-only canaries (`.github/workflows/canary.yml`)
+with a capability-probe preamble that surfaces wasm-proposal landings
+(multi-memory, GC, EH, memory64, …) before the corpus exercises them.
 
 Also planned: differential testing of interpreter vs generated-JS executors
 (§8, [#8](https://github.com/lann/deltic/issues/8)); differential fuzzing
