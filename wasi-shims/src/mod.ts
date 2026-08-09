@@ -1,6 +1,6 @@
 // wasi-shims — the minimal WASI shim package (contracts/embedder-api.md
 // C2 checklist item 7): the executable check that the embedder conventions
-// (`@component-engine/runtime/embedder`) serve WASI. Scope: p2 baseline +
+// (`@deltic/runtime/embedder`) serve WASI. Scope: p2 baseline +
 // p3 clocks (mission scope; wasi:sockets/wasi:http deferred).
 //
 // `wasiShims(options)` returns one flat imports-record fragment, keyed by

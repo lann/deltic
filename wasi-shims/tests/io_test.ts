@@ -2,7 +2,7 @@
 // stream-error cases (contracts/embedder-api.md §"WASI examination").
 
 import { assertEq, assertRejects, assertTrue } from "./asserts.ts";
-import { WitError } from "@component-engine/runtime/embedder";
+import { WitError } from "@deltic/runtime/embedder";
 import { InputStream, io, OutputStream, Pollable, poll } from "../src/io.ts";
 import type { StreamErrorValue } from "../src/io.ts";
 

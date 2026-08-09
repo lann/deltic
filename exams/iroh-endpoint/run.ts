@@ -1,6 +1,6 @@
 // C3-IROH — the iroh endpoint exit exam (PLAN §13, track C3).
 //
-// Runs the polymorph-iroh ENDPOINT COMPONENT under component-engine on Deno,
+// Runs the polymorph-iroh ENDPOINT COMPONENT under deltic on Deno,
 // with the committed ports supplying every non-WASI import. This is the
 // workload that is structurally dead under jco (lann/jco#11: a detached pump
 // task holding in-flight imports deadlocks every later export call; #13:
@@ -37,7 +37,7 @@
 // handshake, ~40% with the accept deferred (each parked poller re-arms every
 // POLL_NS = 5 ms, and the signing window is comparable).
 //
-// Whose bug: the guest's, and it is latent on every host. component-engine
+// Whose bug: the guest's, and it is latent on every host. deltic
 // makes it reachable more often because a RESOLVED task that blocks mid-frame
 // releases `inst.exclusiveThread` here (runtime/src/jspi/bridge.ts:349-394, a
 // documented wasmtime-tracking divergence from definitions.py `canon_lift`,
@@ -271,7 +271,7 @@ async function echoWithRetries(
 
 async function main(): Promise<number> {
   installPanicWatchdog();
-  console.log("C3-IROH — iroh endpoint exit exam (component-engine / Deno)");
+  console.log("C3-IROH — iroh endpoint exit exam (deltic / Deno)");
 
   const relay = await startRelay();
   try {

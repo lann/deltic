@@ -5,7 +5,7 @@
 // read-only reference). Enums are kebab-case string literal unions; variants
 // are `{ tag, val? }`; records are plain camelCase objects.
 
-import type { Stream, StreamSource } from "@component-engine/runtime/embedder";
+import type { Stream, StreamSource } from "@deltic/runtime/embedder";
 
 // --- error -----------------------------------------------------------------
 

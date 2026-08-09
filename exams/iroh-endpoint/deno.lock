@@ -582,10 +582,10 @@
       ]
     },
     "links": {
-      "jsr:@component-engine/ct-runner@0.1.0": {},
-      "jsr:@component-engine/harness": {},
-      "jsr:@component-engine/runtime": {},
-      "jsr:@component-engine/wasi-shims@0.1.0": {}
+      "jsr:@deltic/ct-runner@0.1.0": {},
+      "jsr:@deltic/harness": {},
+      "jsr:@deltic/runtime": {},
+      "jsr:@deltic/wasi-shims@0.1.0": {}
     }
   }
 }

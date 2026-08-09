@@ -23,7 +23,7 @@
 // branch). Reproducible schedules are worth a great deal when debugging a
 // concurrency bug, and FIFO is also the fairest of the cheap policies.
 //
-// Setting `CE_SCHED_SEED=<integer>` switches to a **seeded shuffle**: the same
+// Setting `DELTIC_SCHED_SEED=<integer>` switches to a **seeded shuffle**: the same
 // choice points become pseudo-random but reproducible from the seed, which is
 // how we explore the schedule space that the FIFO default deliberately pins.
 // A test that passes under FIFO but fails under some seed has found a real
@@ -124,7 +124,7 @@ export class PendingCapability extends Error {
 function readSeed(): number | null {
   let raw: string | undefined;
   try {
-    raw = Deno.env.get("CE_SCHED_SEED");
+    raw = Deno.env.get("DELTIC_SCHED_SEED");
   } catch {
     // No env permission: FIFO. Never fail to *run* because we could not read
     // a debugging knob.

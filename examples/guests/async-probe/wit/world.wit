@@ -1,4 +1,4 @@
-package component-engine:async-probe;
+package deltic:async-probe;
 
 /// Component Model 0.3 async probe. Exercises the async-lift ABI
 /// (callback + task.return), the canonical `yield` builtin, and the

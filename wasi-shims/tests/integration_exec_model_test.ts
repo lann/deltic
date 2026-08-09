@@ -8,8 +8,8 @@
 // checked in here.
 
 import { assertEq, assertTrue } from "./asserts.ts";
-import { Translator } from "@component-engine/runtime/shim";
-import { instantiate, Stream } from "@component-engine/runtime/embedder";
+import { Translator } from "@deltic/runtime/shim";
+import { instantiate, Stream } from "@deltic/runtime/embedder";
 import { wasiShims } from "../src/mod.ts";
 
 const ARTIFACT =

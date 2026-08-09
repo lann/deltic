@@ -1,4 +1,4 @@
-package component-engine:values;
+package deltic:values;
 
 /// Lift/lower exerciser: one echo function per WIT type shape.
 /// Every export returns its input unchanged, so the host can assert

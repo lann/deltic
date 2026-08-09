@@ -1,4 +1,4 @@
-package component-engine:future-user;
+package deltic:future-user;
 
 /// Exercises both future directions: awaiting a host-provided (imported)
 /// future value, and producing/resolving an exported one.

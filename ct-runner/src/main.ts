@@ -42,7 +42,7 @@ function parseArgs(argv: string[]): Cli {
   const positional: string[] = [];
   let out: string | undefined;
   let importsModule: string | undefined;
-  let target = "component-engine/host";
+  let target = "deltic/host";
   let suiteName: string | undefined;
   let only: string | undefined;
   let caseTimeoutMs: number | undefined;

@@ -26,7 +26,7 @@
 // this file is where the bounded `Deno.listenDatagram` fallback would go;
 // see the report for the recorded verdict on which strategy was needed.
 
-import { WitError } from "@component-engine/runtime/embedder";
+import { WitError } from "@deltic/runtime/embedder";
 
 /** `wasi:sockets/types@0.3.0`'s `ip-address-family` enum. */
 export type IpAddressFamily = "ipv4" | "ipv6";

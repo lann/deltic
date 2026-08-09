@@ -391,11 +391,11 @@ function isPromiseLike(v: unknown): v is PromiseLike<unknown> {
 // first *lit* suspension site, so the `SuspensionPoint` <-> `Store.tick` <->
 // `driveAsync` handshake had never executed before it; a pure-microtask stall
 // there is invisible from the outside (no trap, no rejection -- just an await
-// nothing settles). Off unless CE_DRIVE_TRACE is set, and the getter is read
+// nothing settles). Off unless DELTIC_DRIVE_TRACE is set, and the getter is read
 // once at module load so normal runs pay a boolean test.
 const DRIVE_TRACE = (() => {
   try {
-    return Deno.env.get("CE_DRIVE_TRACE") === "1";
+    return Deno.env.get("DELTIC_DRIVE_TRACE") === "1";
   } catch {
     return false;
   }

@@ -9,7 +9,7 @@
 // synchronously from host-side buffers, so their fast path never blocks.
 // Tier (c) (JSPI suspension) is never implemented in this package.
 
-import { WitError } from "@component-engine/runtime/embedder";
+import { WitError } from "@deltic/runtime/embedder";
 
 /** A p2 `stream-error` value (variant): `closed` or `last-operation-failed`. */
 export type StreamErrorValue =

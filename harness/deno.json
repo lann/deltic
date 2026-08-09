@@ -1,5 +1,5 @@
 {
-  "name": "@component-engine/harness",
+  "name": "@deltic/harness",
   "exports": {
     "./executor": "./src/executor.ts",
     "./runner": "./src/runner.ts",

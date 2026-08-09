@@ -44,6 +44,7 @@ import type {
   WireValType,
 } from "../plan/format.ts";
 
+// cewd = component-engine world digest, the project's pre-rebrand name; kept as an opaque wire constant.
 export const CEWD_VERSION = 1;
 
 export class DigestError extends Error {

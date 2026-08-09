@@ -20,7 +20,7 @@ import { InvalidHandleError } from "./errors.ts";
 import { camelCase, pascalCase } from "./casing.ts";
 
 /** Internal state of a guest-resource wrapper. Keyed off a module symbol. */
-const STATE = Symbol("component-engine.resource-state");
+const STATE = Symbol("deltic.resource-state");
 
 interface WrapperState {
   rep: number;

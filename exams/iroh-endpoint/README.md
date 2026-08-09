@@ -1,13 +1,13 @@
 # C3-IROH — the iroh endpoint exit exam
 
-Runs the **real polymorph-iroh endpoint component** under component-engine on
+Runs the **real polymorph-iroh endpoint component** under deltic on
 Deno: the workload that is structurally dead under jco
 ([lann/jco#11](https://github.com/lann/jco/issues/11) — a detached pump task
 holding in-flight imports deadlocks every later export call; #13 cross-task
 wakeups). Their JS consumer driver
 (`polymorph-iroh/host-jco/src/run-endpoint.mjs`) is, in their README's words,
 "ready for when it lands". This exam ports that driving logic — not the jco
-wiring — onto `@component-engine/runtime/embedder` plus the committed
+wiring — onto `@deltic/runtime/embedder` plus the committed
 `ports/{websocket,webcrypto,webrtc}` and `wasi-shims`.
 
 ```sh
@@ -62,7 +62,7 @@ Confirmed directly by instrumenting `ports/webcrypto`'s `SigningKey.sign`: the
 trap always lands **between the enter and exit of the TLS CertificateVerify
 signature**, never elsewhere.
 
-This is latent on every host. component-engine reaches it more often because
+This is latent on every host. deltic reaches it more often because
 a RESOLVED task that blocks mid-frame releases `inst.exclusiveThread`
 (`runtime/src/jspi/bridge.ts:349-394` — a documented wasmtime-tracking
 divergence from `definitions.py`'s `canon_lift`, which holds the slot across

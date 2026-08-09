@@ -1,4 +1,4 @@
-{"component-test-results":"0.1","target":"wasmtime/component-engine","suite":{"name":"test_suite","artifact-sha256":"<sha256>"},"run":{"segment":0,"scheduling":"none"}}
+{"component-test-results":"0.1","target":"wasmtime/deltic","suite":{"name":"test_suite","artifact-sha256":"<sha256>"},"run":{"segment":0,"scheduling":"none"}}
 {"case":"suite/basic/pass","status":"pass","provenance":"returned"}
 {"case":"suite/basic/fail","status":"fail","provenance":"returned","detail":"expected 2 + 2 = 4, got 5"}
 {"case":"suite/basic/skip","status":"skipped","provenance":"returned","detail":"declared hardware token unavailable at run time"}

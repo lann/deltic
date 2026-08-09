@@ -565,7 +565,7 @@ Deno.test("task: finishing all threads without resolving traps", () => {
 // ---------------------------------------------------------------------------
 
 Deno.test("scheduler: the default policy is deterministic FIFO", () => {
-  // Pin the policy rather than reading whatever CE_SCHED_SEED happens to be:
+  // Pin the policy rather than reading whatever DELTIC_SCHED_SEED happens to be:
   // this test is about what FIFO *means*, and the suite is also run under
   // seeds to explore alternative schedules.
   schedulerSeedForTesting(null);

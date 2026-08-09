@@ -1,4 +1,4 @@
-package component-engine:stream-echo;
+package deltic:stream-echo;
 
 /// Consumes AND produces a stream in one export — reports wit-bindgen 0.60's
 /// stream-producer-side viability (`wit_stream::new()`) for the streams

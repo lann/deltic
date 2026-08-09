@@ -1,5 +1,5 @@
 // Host module for `polymorph:websocket/connections@0.1.0`, ported to the
-// component-engine embedder conventions (contracts/embedder-api.md).
+// deltic embedder conventions (contracts/embedder-api.md).
 //
 // PORT PROVENANCE. This is a faithful translation of the consumer's
 // browser-first reference host,

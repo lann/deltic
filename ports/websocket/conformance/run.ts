@@ -1,5 +1,5 @@
 // The flagship gate: execute the consumer's REAL conformance suite
-// (`polymorph-websocket/conformance/guest-ct`) under component-engine, with
+// (`polymorph-websocket/conformance/guest-ct`) under deltic, with
 // this port supplying `polymorph:websocket/connections@0.1.0` and
 // `wasi-shims` supplying WASI.
 //
@@ -10,7 +10,7 @@
 // conformance` supplies it. NO cases are excluded: the TLS leg runs
 // headlessly under Deno exactly as the ws: leg does.
 //
-// This is the component-engine analogue of the consumer's own jco Node leg,
+// This is the deltic analogue of the consumer's own jco Node leg,
 // `conformance/driver-ct/jco/run-node.mjs`, and mirrors it exactly:
 //
 //   run-node.mjs                              | this runner
@@ -65,7 +65,7 @@ function parseArgs(argv: string[]): Cli {
   const cli: Cli = {
     jspi: false,
     out: new URL("./results.jsonl", import.meta.url).pathname,
-    target: "component-engine",
+    target: "deltic",
   };
   for (let i = 0; i < argv.length; i++) {
     switch (argv[i]) {

@@ -10,7 +10,7 @@ wit_bindgen::generate!({
     world: "resources",
 });
 
-use exports::component_engine::resources::counters::{
+use exports::deltic::resources::counters::{
     Counter, CounterBorrow, Guest, GuestCounter,
 };
 

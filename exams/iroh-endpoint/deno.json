@@ -2,7 +2,7 @@
   "nodeModulesDir": "auto",
   "//": "Standalone (non-workspace) exam package, mirroring ports/webrtc: everything in the repo is imported by RELATIVE path, and the single alias below is the one ports/{websocket,webrtc,webcrypto} and wasi-shims use internally. It resolves to the SAME file URL as the relative imports here, so there is exactly one `WitError`/`Stream`/`GuestResource` module instance and `instanceof` holds across the boundary (contracts/embedder-api.md's error-model brand hazard).",
   "imports": {
-    "@component-engine/runtime/embedder": "../../runtime/src/embedder/mod.ts",
+    "@deltic/runtime/embedder": "../../runtime/src/embedder/mod.ts",
     "node-datachannel/polyfill": "npm:node-datachannel@0.32.3/polyfill",
     "node-datachannel": "npm:node-datachannel@0.32.3",
     "werift": "npm:werift@0.22.2"

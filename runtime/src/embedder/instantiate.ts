@@ -144,7 +144,7 @@ export const instantiateEmbedder = instantiate;
  * generated code may depend on it.
  */
 export const INTERNAL_HOST_REGISTRIES = Symbol(
-  "component-engine.embedder.hostRegistries",
+  "deltic.embedder.hostRegistries",
 );
 
 class Facade {

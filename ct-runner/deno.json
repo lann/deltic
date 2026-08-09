@@ -1,5 +1,5 @@
 {
-  "name": "@component-engine/ct-runner",
+  "name": "@deltic/ct-runner",
   "version": "0.1.0",
   "exports": {
     ".": "./src/mod.ts",

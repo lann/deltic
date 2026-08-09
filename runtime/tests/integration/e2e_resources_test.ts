@@ -35,7 +35,7 @@ Deno.test("resources: instantiate + counter lifecycle + dtor observation", async
     adapters,
   });
 
-  const counters = component.exports["component-engine:resources/counters"] as
+  const counters = component.exports["deltic:resources/counters"] as
     Record<string, (...args: unknown[]) => unknown>;
   assertEq(typeof counters, "object");
   const names = Object.keys(counters).sort();

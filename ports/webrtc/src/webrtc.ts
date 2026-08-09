@@ -17,7 +17,7 @@
 //     messages) / `ReadableStream` (produced, e.g. `receive-via-stream`'s
 //     result — one of the natural JS producers the conventions accept where
 //     a `stream<T>` is expected). Imported from
-//     `@component-engine/runtime/embedder` (aliased in this package's
+//     `@deltic/runtime/embedder` (aliased in this package's
 //     `deno.json` to the exact same file the runtime and every other port
 //     use), NOT reimplemented locally: `WitError` is a plain branded class
 //     with no `Store` involvement, so a local clone would produce a second
@@ -34,7 +34,7 @@
 //     interpretation the reference authors made; the WIT gives no accessor
 //     for it, so there is no guest-facing shape to convert.
 
-import { Stream, type StreamSource, WitError } from "@component-engine/runtime/embedder";
+import { Stream, type StreamSource, WitError } from "@deltic/runtime/embedder";
 import type {
   ConfigError,
   ConnectionState,

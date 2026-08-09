@@ -1,5 +1,5 @@
 {
-  "name": "@component-engine/wasi-shims",
+  "name": "@deltic/wasi-shims",
   "version": "0.1.0",
   "exports": { ".": "./src/mod.ts" },
   "tasks": {

@@ -1,5 +1,5 @@
 // Gate 2: run the consumer's REAL echo-demo component end-to-end through
-// component-engine, with `ports/webrtc` supplying
+// deltic, with `ports/webrtc` supplying
 // `polymorph:webrtc-datachannels/connections@0.1.0` — mirroring
 // `ports/websocket/conformance/run.ts`'s pattern (Translator.create + the
 // shim wasm32 module, run AT RUNTIME under Deno, not a build-time step).
@@ -20,8 +20,8 @@
 //   deno run -A ports/webrtc/conformance/echo-demo.ts
 
 import { Translator } from "../../../runtime/src/shim/mod.ts";
-import type { ComponentArtifacts } from "@component-engine/runtime/embedder";
-import { instantiate } from "@component-engine/runtime/embedder";
+import type { ComponentArtifacts } from "@deltic/runtime/embedder";
+import { instantiate } from "@deltic/runtime/embedder";
 import { webrtcImports } from "../src/webrtc.ts";
 
 const CE_ROOT = new URL("../../../", import.meta.url).pathname;
@@ -152,7 +152,7 @@ async function main() {
   }) as DemoStats;
   const elapsed = performance.now() - started;
 
-  console.error("echo-demo (component-engine / ports/webrtc host) result:");
+  console.error("echo-demo (deltic / ports/webrtc host) result:");
   console.error(`  messages sent:     ${stats.messagesSent}`);
   console.error(`  messages received: ${stats.messagesReceived}`);
   console.error(`  bytes echoed:      ${stats.bytesEchoed}`);

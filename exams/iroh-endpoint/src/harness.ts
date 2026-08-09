@@ -8,8 +8,8 @@
 // `bindEndpoint(...)` over `instantiate` + the embedder facade.
 
 import { Translator } from "../../../runtime/src/shim/mod.ts";
-import type { ComponentArtifacts } from "@component-engine/runtime/embedder";
-import { instantiate, WitError } from "@component-engine/runtime/embedder";
+import type { ComponentArtifacts } from "@deltic/runtime/embedder";
+import { instantiate, WitError } from "@deltic/runtime/embedder";
 import { wasiShims } from "../../../wasi-shims/src/mod.ts";
 import { webcryptoImports } from "../../../ports/webcrypto/src/mod.ts";
 import { websocketImports } from "../../../ports/websocket/src/websocket.ts";

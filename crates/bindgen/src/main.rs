@@ -12,7 +12,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "bindgen", about = "component-engine WIT -> TS bindgen (kickoff)")]
+#[command(name = "bindgen", about = "deltic WIT -> TS bindgen (kickoff)")]
 struct Cli {
     #[command(subcommand)]
     cmd: Option<Command>,

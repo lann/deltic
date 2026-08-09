@@ -1,9 +1,9 @@
 # `ports/websocket` — the `polymorph:websocket` host module
 
 The consumer host module for `polymorph:websocket/connections@0.1.0`,
-ported to the component-engine embedder conventions
+ported to the deltic embedder conventions
 (`contracts/embedder-api.md`), plus the runner that executes the
-consumer's **real** conformance suite under component-engine.
+consumer's **real** conformance suite under deltic.
 
 This package is deliberately **not** a member of the root Deno workspace
 (like `tools/smoke-c0`): it imports the runtime, `wasi-shims` and

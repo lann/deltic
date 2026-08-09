@@ -2,7 +2,7 @@
 
 Single source for issues/PRs to file against the **polymorph consumer
 repositories** (PLAN §17) discovered while running their artifacts under
-component-engine. Mirrors the conventions of
+deltic. Mirrors the conventions of
 `upstream-component-model-repo-findings.md`: entries carry status
 (`DRAFT` → `FILED #n` → `RESOLVED`), evidence, and proposed fixes. All
 filing is the operator's (foreign repos).
@@ -27,11 +27,11 @@ borrow is live. Every other endpoint task parks in `wait_until`
 (`endpoint_impl.rs:939`) whose first act is `shared.borrow_mut()` →
 `RefCell already borrowed` → `unreachable` trap.
 
-**Evidence:** found by `exams/iroh-endpoint/` (component-engine C3 exam).
+**Evidence:** found by `exams/iroh-endpoint/` (deltic C3 exam).
 Instrumenting the host's `SigningKey.sign` shows the trap always lands
 inside the TLS CertificateVerify signature window; relay-auth signs
 (at bind, no poller parked yet) never trip it. Measured under
-component-engine: ~90% of runs with `accept` parked across the
+deltic: ~90% of runs with `accept` parked across the
 handshake. The 5 ms bounded-polling cadence (their jco workaround)
 re-arms `wait_until` on the same timescale as the signing window, making
 the collision near-certain on any host that interleaves there.
@@ -39,7 +39,7 @@ the collision near-certain on any host that interleaves there.
 **Why jco/wasmtime legs didn't surface it:** scheduling luck, not
 absence — holding a `RefCell` borrow across a yield is illegal on any
 conforming host. wasmtime's interleaving choices happen not to run the
-poller inside that window (their matrix row is green); component-engine's
+poller inside that window (their matrix row is green); deltic's
 do (see PLAN §16 open question on the `bridge.ts` exclusivity
 divergence, which widens — but does not create — the window).
 

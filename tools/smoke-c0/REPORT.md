@@ -9,7 +9,7 @@ changed by this track. Everything below is reproducible from
 - Translator shim: `shimVersion 0.1.0`, `wasmtimeEnviron 47.0.3`, features
   `cm-async, cm-async-stackful, cm-more-async-builtins, cm-error-context,
   cm-fixed-length-lists, cm-map, cm-implements, cm-threading`
-- component-engine commit: `5f7868c`
+- deltic commit: `5f7868c`
 - wasm-tools CLI 1.247.0 (cross-check only)
 
 > **Post-C0 addendum (same day):** findings R-1 and R-2 were fixed and
@@ -487,7 +487,7 @@ gates):
 | 2 | `deno check *.ts` in `tools/smoke-c0` | **PASS** — 6/6 files clean (the "not a member of the workspace" notice is the expected standalone-`deno.json` warning, per `tools/probes/webrtc-deno`) |
 | 3 | each leg via `deno run` | **PASS** — leg1 PASS; leg2 PASS with 2 named xfails (exit 0); leg3 PASS; leg4 PASS; repro reproduces R-1 and R-2 |
 | 4 | `cd runtime && deno task test` | **PASS** — `ok | 224 passed | 0 failed | 3 ignored (1s)`, `EXIT=0` |
-| 5 | `git status --short` in component-engine | **PASS** — `?? tools/smoke-c0/` only |
+| 5 | `git status --short` in deltic | **PASS** — `?? tools/smoke-c0/` only |
 
 ## Remaining work / handoff
 

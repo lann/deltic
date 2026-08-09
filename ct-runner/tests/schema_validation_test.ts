@@ -42,7 +42,7 @@ Deno.test({
     const artifacts = await artifactsOf(TEST_SUITE_WASM);
     const lines: string[] = [];
     await runSuite(artifacts, {
-      target: "wasmtime/component-engine",
+      target: "wasmtime/deltic",
       suiteName: "test-suite",
       caseTimeoutMs: 5000,
       emit: (l) => lines.push(l),

@@ -124,7 +124,7 @@ parser; the runner records them as skip(`unsupported-directive`).
 ## Executor contract (provisional)
 
 `src/executor.ts` defines `CommandExecutor` — the interface a future
-component-engine runtime must implement to make this harness execute for
+deltic runtime must implement to make this harness execute for
 real. It is deliberately minimal and **will change**; it exists so runner
 and runtime evolve against one concrete seam:
 
@@ -156,7 +156,7 @@ pinned by a unit test in `tests/runner_unit_test.ts`. It stays available via
 build required).
 
 `RuntimeExecutor` (`src/runtime-executor.ts`) is the real thing, driving
-`runtime/`'s public API (`@component-engine/runtime/{shim,exec,cabi,plan}`,
+`runtime/`'s public API (`@deltic/runtime/{shim,exec,cabi,plan}`,
 consumed read-only — this is Track A's territory):
 
 - `validate` / component `instantiate`: `Translator.translate` (the wasm32

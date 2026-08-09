@@ -94,7 +94,7 @@ async function readEnvelope(name: string) {
 const EXPECTED = {
   hello: "sha256:04ae5eb2633ff22f5af8c5e9234c18d089e80a99e04b0946929f0a2e3f5ad7c9",
   values: "sha256:e0791536cb4b9731057b82831150611eed64f22d665130a02f247d3227e2e4a7",
-  resources: "sha256:b518eda0084b7bbf4e490aa50137cd579b443e1fe6a2c5d52132f2b020b02dc8",
+  resources: "sha256:c2444a79c689cb3d11a78206e1dfa9df58d06723535738941a65c3aaa67c994d",
 };
 
 for (const world of ["hello", "values", "resources"] as const) {

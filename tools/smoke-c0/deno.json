@@ -1,5 +1,5 @@
 {
-  "name": "@component-engine/smoke-c0",
+  "name": "@deltic/smoke-c0",
   "version": "0.0.0",
   "exports": "./common.ts",
   "tasks": {

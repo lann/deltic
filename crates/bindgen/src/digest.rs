@@ -114,6 +114,8 @@ use wit_parser::{
 
 /// Version tag folded into the canonical JSON so a future incompatible
 /// renormalization can't silently collide with v1 digests.
+///
+/// cewd = component-engine world digest, the project's pre-rebrand name; kept as an opaque wire constant.
 pub const CEWD_VERSION: u32 = 1;
 
 pub struct WorldDigest {

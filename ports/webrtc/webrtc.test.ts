@@ -23,7 +23,7 @@ import {
   resetMaxInboundBufferBytes,
   setMaxInboundBufferBytes,
 } from "./src/webrtc.ts";
-import { WitError } from "@component-engine/runtime/embedder";
+import { WitError } from "@deltic/runtime/embedder";
 import type { IceCandidate, Message, WebrtcError } from "./src/types.ts";
 
 const NO_SANITIZE = { sanitizeResources: false, sanitizeOps: false };

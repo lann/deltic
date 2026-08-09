@@ -1,4 +1,4 @@
-package component-engine:hello;
+package deltic:hello;
 
 /// Smallest possible guest: one exported function, string in, string out.
 /// First target for the host's lift/lower of strings (utf8, realloc path).
