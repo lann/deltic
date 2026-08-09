@@ -44,8 +44,11 @@
 import { assert_ } from "../cabi/trap.ts";
 import { isSupported, makePromising, makeSuspending } from "./mechanics.ts";
 import {
-  clearResumingThread,
+  withActivation,
+  claimActivationAmbient,
   consumeClaimIfRunning,
+  maybeCurrentThread,
+  releaseActivationAmbient,
   setResumingThread,
 } from "../task/mod.ts";
 import type { Cancelled, SchedulableThread, Store } from "../task/mod.ts";
@@ -204,6 +207,25 @@ export function enterWasm<T extends (...a: never[]) => unknown>(
 /**
  * Wrap a blocking-capable trampoline so that returning a Promise suspends the
  * calling wasm activation. Only legal in `jspi` mode — see the invariant.
+ *
+ * The wrapper around `fn` is ambient claim site (ii) (scheduler.ts), and the
+ * one that is easy to miss: **every** call through a `Suspending` import returns to
+ * wasm through a microtask hop, even when the import produced its value
+ * synchronously and nothing suspended (jspi pin (j),
+ * `tests/jspi/fastpath_hop_test.ts`). The rest of the guest's frame therefore
+ * runs after our JS frames — `awaitCore`'s `withActivation` bracket included —
+ * have unwound, with no `SuspensionPoint` anywhere in sight to have claimed
+ * it. Measured signature when this is missing: a FACT adapter's
+ * `enter-sync-call` runs bracketed and its `exit-sync-call` runs with no
+ * ambient at all ("exit-sync-call with an empty sync-call stack",
+ * `trap-if-done.wast:448`, `big-interleaving-test.wast`). This is the site the
+ * async-context store used to cover for free, because the engine
+ * captured the context when it registered the hop.
+ *
+ * The claim is only taken on the NON-suspending outcomes. A returned Promise
+ * is a genuine suspension whose resumption `SuspensionPoint.resume` claims
+ * exactly, and `blockCurrentActivation` has just released this activation's
+ * claim on the way in — re-adding it here would strand it.
  */
 export function suspendingImport<T extends (...a: never[]) => unknown>(
   fn: T,
@@ -211,7 +233,33 @@ export function suspendingImport<T extends (...a: never[]) => unknown>(
 ): T | WebAssembly.Suspending {
   if (mode === "plain") return fn;
   assert_(isSupported(), "jspi mode selected on an engine without JSPI");
-  return makeSuspending(fn as unknown as (...a: unknown[]) => unknown);
+  const claimingFn = (...args: unknown[]): unknown => {
+    // The activation calling us — read while its bracket (or its hop claim)
+    // is still the ambient.
+    const owner = maybeCurrentThread() ?? null;
+    const invoke = () => (fn as unknown as (...a: unknown[]) => unknown)(...args);
+    let r: unknown;
+    try {
+      // Bracket our own JS frame with the caller. Without this, a built-in
+      // that synchronously enters ANOTHER activation's wasm (`async-start-call`
+      // running its callee through `awaitCore`) leaves that callee's hop claim
+      // on top when the callee suspends, and the rest of OUR frame — still the
+      // caller's — then reads the callee as the ambient (measured on
+      // `fact_calls.ts:820`'s determinacy wait). The nesting is a stack, and
+      // this is the frame that owns it.
+      r = owner === null ? invoke() : withActivation(owner, invoke);
+    } catch (e) {
+      // A synchronous trap out of a built-in also unwinds the guest through
+      // the hop, and the guest's trap-path built-ins run there.
+      claimActivationAmbient(owner);
+      throw e;
+    }
+    if (r === null || typeof (r as { then?: unknown })?.then !== "function") {
+      claimActivationAmbient(owner);
+    }
+    return r;
+  };
+  return makeSuspending(claimingFn);
 }
 
 /**
@@ -272,6 +320,21 @@ export class SuspensionPoint<T = unknown> implements SchedulableThread {
   #done = false;
   #store: Store;
 
+  /**
+   * WHO the engine will resume when this point's promise settles.
+   *
+   * Captured HERE, at construction, and not derived at resume time: the
+   * blocking built-in that mints this point is running under the suspending
+   * activation's own ambient, so the ambient names that activation exactly.
+   * This is the replacement for the async-context store the scheduler
+   * used to rely on (M3A-1): same value, obtained by construction instead of
+   * by asking the platform to carry a context across the engine's resumption.
+   * `task.implicitThread` is the fallback for the one shape that has no
+   * ambient at all — a built-in reached during instantiation.
+   */
+  // deno-lint-ignore no-explicit-any
+  readonly owner: any;
+
   constructor(
     store: Store,
     // deno-lint-ignore no-explicit-any
@@ -281,8 +344,11 @@ export class SuspensionPoint<T = unknown> implements SchedulableThread {
     readonly cancellable: boolean,
     /** Produces the value to hand back to wasm at resume time. */
     private readonly produce: (cancelled: Cancelled) => T,
+    // deno-lint-ignore no-explicit-any
+    owner?: any,
   ) {
     this.#store = store;
+    this.owner = owner ?? maybeCurrentThread() ?? task?.implicitThread ?? null;
     this.promise = new Promise<T>((res, rej) => {
       this.#settle = res;
       this.#fail = rej;
@@ -311,19 +377,40 @@ export class SuspensionPoint<T = unknown> implements SchedulableThread {
       // trapping one) must reach the guest as a rejection of the import's
       // Promise, which the engine turns back into a wasm trap — empirical
       // fact (e): post-resume traps arrive as ordinary rejections.
+      //
+      // This is a RESUMPTION too: the engine hands control back to the wasm
+      // activation (to unwind it), and the guest's FACT adapter runs its
+      // trap-path built-ins — `exit-sync-call` among them — before our own
+      // continuation regains control. So it takes the ambient claim exactly
+      // like the value path. Missing it here is what `trap-if-done.wast:448`
+      // and the `assert_trap` rows of `big-interleaving-test.wast` detect
+      // ("exit-sync-call with an empty sync-call stack").
+      if (maybeCurrentThread() === undefined) claimActivationAmbient(this.owner);
+      setResumingThread(this.task?.implicitThread ?? null);
       this.#fail(e);
       return;
     }
     // Claim the ambient for this activation across the engine's resumption:
     // settling the import's Promise hands control to wasm, which will call
-    // built-ins with an empty bracket stack. See `setResumingThread`.
+    // built-ins with an empty bracket stack. The claim names `owner` — the
+    // activation captured when this point was minted — not a guess derived
+    // now; see `owner` and `setResumingThread`.
     //
-    // If a claim is live for the activation CURRENTLY EXECUTING (it is the
-    // code that called us — a running guest's `subtask.cancel` delivering a
-    // cancellation settles the callee's suspension from inside its own
-    // frame), that claim has served its purpose; consume it rather than
-    // false-positive the one-claimant assert. See `consumeClaimIfRunning`.
+    // If the DRIVER's slot is live for the activation currently executing (it
+    // is the code that called us — a running guest's `subtask.cancel`
+    // delivering a cancellation settles the callee's suspension from inside
+    // its own frame), that claim has served its purpose; consume it rather
+    // than false-positive the one-claimant assert.
     consumeClaimIfRunning();
+    // The activation-ambient claim (site (i) in scheduler.ts). Taken only when
+    // NOBODY is running right now: if a guest activation is executing, `owner`
+    // does not run until that activation yields, and pushing onto a
+    // LAST-IN-FIRST-OUT stack now would make `owner` the ambient for the
+    // caller's remaining frame. In that shape `owner` is picked up either by
+    // its own first `Suspending` call (site (ii)) or, before that, by the
+    // driver's `resumingThread` slot at the bottom tier — exactly as it always
+    // was.
+    if (maybeCurrentThread() === undefined) claimActivationAmbient(this.owner);
     setResumingThread(this.task?.implicitThread ?? null);
     this.#settle(value);
   }
@@ -393,17 +480,27 @@ export function blockCurrentActivation<T>(input: {
   ) {
     task.inst.exclusiveThread = null;
   }
+  // WHO is parking — read BEFORE anything below disturbs the ambient. This
+  // one value serves both purposes: it is the activation the engine will
+  // resume when this point settles (`SuspensionPoint.owner`, the replacement
+  // for the retired async-context store), and it is the activation whose
+  // ambient claim ends here. Reading it after the release yields `undefined`
+  // and strands the point with no owner (measured: `cancellable.wast:322`
+  // then reported `pending-capability: instantiation-time task context`).
+  const owner = maybeCurrentThread() ?? input.task?.implicitThread ?? null;
   // The activation is parking: if it still carried the resumed-ambient claim
   // from the settle that resumed it, that claim's window closes here (the
   // other closing edge — the activation FINISHING — is handled by
   // `Store.noteAwaiting`'s settle continuation).
   consumeClaimIfRunning();
+  releaseActivationAmbient(owner);
   const point = new SuspensionPoint<T>(
     input.store,
     input.task,
     input.readyFunc,
     input.cancellable,
     input.produce,
+    owner,
   );
   return point.promise;
 }

@@ -46,7 +46,6 @@
 // subtask) genuinely requires JSPI and is M2 phase 3; those sites fail loudly
 // rather than pretending (see `needsJspi`).
 
-import { AsyncLocalStorage } from "node:async_hooks";
 import { assert_, trapIf } from "../cabi/trap.ts";
 
 /** definitions.py `Cancelled` (line 248). */
@@ -207,53 +206,180 @@ export function popCurrentThread(t: CurrentThreadLike): void {
   assert_(top === t, "current-thread stack imbalance");
 }
 
-/** definitions.py `current_thread()` (line 306). */
 /**
- * The activation whose suspension we have just resolved, if any.
+ * Run `fn` with `t` as the ambient, for `fn`'s SYNCHRONOUS extent.
  *
- * JSPI resumption happens in a microtask of the engine's own, outside every JS
- * frame we control, so the `threadStack` bracket is empty when the resumed
- * wasm calls a built-in. Empirically (pinned in
- * `runtime/tests/jspi/ambient_test.ts`) the ordering is:
+ * This is the wasm-entry bracket (`awaitCore`). It is the same `threadStack`
+ * the scheduler's own `resume()` bracket uses, deliberately: a wasm entry made
+ * from *inside* an engine-driven resumption (a FACT callee reached from a
+ * resumed activation — fact_calls.ts) has an empty scheduler bracket, and the
+ * entry itself is then the most specific statement of who is running.
+ */
+// deno-lint-ignore no-explicit-any
+export function withActivation<T>(t: any, fn: () => T): T {
+  threadStack.push(t);
+  entryStack.push(t);
+  try {
+    return fn();
+  } finally {
+    entryStack.pop();
+    const top = threadStack.pop();
+    assert_(top === t, "withActivation: current-thread stack imbalance");
+  }
+}
+
+/**
+ * The WASM-ENTRY brackets alone — a subset of `threadStack`.
  *
- *     resolve(T's suspension)  ->  T's wasm resumes and calls its built-ins
- *                              ->  T's promising Promise settles
- *                              ->  our own await continuation
+ * Kept separately because it is the exact analogue of what the retired
+ * async-context store held: the store was written by `withActivation` and by
+ * nothing else, so a built-in reached under a scheduler `resume()` bracket
+ * that had not (yet) entered wasm saw NO store, even though `threadStack`
+ * named a thread. `consumeClaimIfRunning` — the driver-gate
+ * release whose scheduling effects the corpus pins precisely — asked exactly
+ * that question, so it must keep asking exactly that question — measured:
+ * routing it through the full `threadStack` instead moved 64 conformance
+ * commands. Ambient *resolution* is a different question and uses the full
+ * `threadStack`.
+ */
+// deno-lint-ignore no-explicit-any
+const entryStack: any[] = [];
+
+/**
+ * "Whose wasm frame are we lexically inside, or running on behalf of?" — the
+ * async-context store's replacement, used only by `consumeClaimIfRunning`.
+ */
+// deno-lint-ignore no-explicit-any
+function activationOf(): any {
+  return entryStack[entryStack.length - 1] ??
+    activationClaims[activationClaims.length - 1] ?? undefined;
+}
+
+// ---------------------------------------------------------------------------
+// Engine-driven resumptions: the explicit activation-ambient stack
+// ---------------------------------------------------------------------------
+
+/**
+ * ACTIVATIONS THE ENGINE IS RUNNING OUTSIDE OUR FRAMES — innermost last.
  *
- * so between resolving T and regaining control ourselves, **any** built-in
- * call that finds an empty bracket belongs to T. JS being single-threaded is
- * what makes that airtight: no other activation can be executing in that
- * window. `resumingThread` is that claim, and it is asserted rather than
- * assumed — a second claimant while one is live is a bug, never a guess.
+ * ===========================================================================
+ * WHAT REPLACED THE ASYNC-CONTEXT STORE, AND WHY IT NEEDS NO ENGINE MAGIC
+ * ===========================================================================
+ *
+ * A wasm activation under JSPI does not stay inside our JS frames. Two
+ * distinct mechanics take it outside them, and BOTH are ours to observe:
+ *
+ *   (i)  A GENUINE SUSPENSION. A `Suspending`-wrapped built-in returned a
+ *        Promise; the engine parks the activation and resumes it in a
+ *        microtask of its own when that Promise settles. There is exactly one
+ *        source of such a Promise in this runtime — `blockCurrentActivation`
+ *        mints it, `SuspensionPoint.resume`/`.abandon` settle it — so the
+ *        moment of resumption is ours, including for a **background
+ *        activation** whose lifted call already returned (that resumption
+ *        still runs through `SuspensionPoint.resume`, from `Store.tick`).
+ *
+ *   (ii) THE MICROTASK HOP ON EVERY `Suspending` CALL — jspi pin (j),
+ *        `tests/jspi/fastpath_hop_test.ts`. Even when the built-in produced
+ *        its value synchronously and nothing suspended, the guest's frame
+ *        resumes through a microtask, i.e. AFTER our `withActivation` bracket
+ *        (and `callCore`, and the whole driving frame) has unwound. This one
+ *        is easy to overlook because nothing looks asynchronous at the call
+ *        site; it is nonetheless the dominant case, and the one that produced
+ *        `exit-sync-call with an empty sync-call stack` when it was missed
+ *        (trap-if-done.wast:448, big-interleaving-test.wast).
+ *
+ * Both are claimed explicitly — (i) in `SuspensionPoint.resume`, (ii) in the
+ * wrapper `suspendingImport` puts around every blocking-capable trampoline —
+ * naming the activation captured from the ambient while its bracket was still
+ * live. That is exactly the value the async-context store used to
+ * reproduce: the store was set by `withActivation` around the wasm entry, and
+ * the engine restored it because it had captured the context when it
+ * registered the continuation. We now record the same activation ourselves,
+ * at the same instant, by construction — no Node `async_hooks` builtin, no
+ * `AsyncContext` proposal, nothing beyond Promises (PLAN §4.3; M3A-1).
+ *
+ * NOTE ON ORDINARY `await`s. Nothing here needs a context to survive a plain
+ * `await` any more, and nothing ever did on its own merits: the driving loops
+ * (`drive`/`driveAsync` in exec/boundary.ts, the host-stream pump) run outside
+ * every activation and read no ambient. What they do is *resume* threads, and
+ * every resumption re-establishes the ambient explicitly — a scheduler-driven
+ * one through `Thread.#resumeInternal`'s `pushCurrentThread` bracket, an
+ * engine-driven one through this queue.
+ *
+ * LIFO, TOP-IS-CURRENT — and that direction is load-bearing, not incidental.
+ * Activations NEST: an outer activation's built-in can synchronously enter an
+ * inner activation's wasm (`async-start-call` running its callee through
+ * `awaitCore`), and the inner one is the one executing. Reading the OLDEST
+ * claim instead of the newest was measured at 45 conformance failures.
+ *
+ * The opposite shape — A settles B's suspension so B runs AFTER A — is
+ * deliberately NOT represented here: `SuspensionPoint.resume` pushes only when
+ * nothing is currently running, so B never shadows A. B is picked up by its
+ * own first `Suspending` call, or before that by the driver's `resumingThread`
+ * slot at the bottom tier.
+ *
+ * An activation leaves this stack when it parks again
+ * (`blockCurrentActivation`) or finishes (its `awaitValue` promise settles —
+ * `Store.noteAwaiting`).
+ */
+// deno-lint-ignore no-explicit-any
+const activationClaims: any[] = [];
+
+/**
+ * Record that the engine will run `t`'s wasm outside our frames.
+ *
+ * Idempotent: an activation that makes ten non-suspending `Suspending` calls
+ * in a row claims once. A null/undefined activation is "no claim" — the
+ * instantiation-time shape that has no thread at all.
+ */
+// deno-lint-ignore no-explicit-any
+export function claimActivationAmbient(t: any): void {
+  if (t === null || t === undefined) return;
+  if (activationClaims.includes(t)) return;
+  activationClaims.push(t);
+}
+
+/**
+ * Drop `t`'s activation-ambient claim, if it holds one.
+ *
+ * The two closing edges: the activation PARKS on a fresh suspension
+ * (`blockCurrentActivation`), or it FINISHES — its `awaitValue` promise
+ * settles, normally or by rejection, and `Store.noteAwaiting`'s eager settle
+ * continuation calls this. The `task.implicitThread` indirection covers the
+ * second edge for claims taken against a task's implicit thread.
+ */
+// deno-lint-ignore no-explicit-any
+export function releaseActivationAmbient(t: any): void {
+  if (t === null || t === undefined) return;
+  let i = activationClaims.indexOf(t);
+  if (i === -1) {
+    const implicit = (t as { task?: { implicitThread?: unknown } })?.task
+      ?.implicitThread;
+    if (implicit === undefined || implicit === null) return;
+    i = activationClaims.indexOf(implicit);
+    if (i === -1) return;
+  }
+  activationClaims.splice(i, 1);
+}
+
+// ---------------------------------------------------------------------------
+// The driver's resume claim (a SEPARATE concern from the ambient above)
+// ---------------------------------------------------------------------------
+
+/**
+ * The activation whose suspension we have just resolved and which has not run
+ * yet — the DRIVER's serialization gate, not an ambient.
+ *
+ * Keeping this distinct from `activationClaims` matters. This slot answers
+ * "may I schedule something else right now?" (`Store.tick` and both driving
+ * loops refuse while it is live, which is what forces a microtask yield so the
+ * resumed activation actually runs). `activationClaims` answers "whose code is
+ * this?". Conflating them — driving off the ambient queue — wedges the loops,
+ * because an activation that merely hopped (case (ii) above) legitimately
+ * holds an ambient while the scheduler is free to proceed.
  */
 // deno-lint-ignore no-explicit-any
 let resumingThread: any = null;
-
-/**
- * Activation-attached ambient (jspi pin (h)).
- *
- * The `resumingThread` slot below covers resumptions *we* drive. It cannot
- * cover the ones we do not: a **background activation** — one whose lifted
- * call has already returned — is resumed by the engine whenever its
- * suspension settles, outside every frame and every driving loop we own.
- * Tracing a FACT sync-call bracket that spanned a suspension showed exactly
- * that: `enter-sync-call` ran under a task, the matching `exit-sync-call` ran
- * with no ambient at all.
- *
- * An ambient that survives an undriven resumption has to travel *with the
- * activation*, which is what an async-context store does: the engine registers
- * its resumption continuation on our Promise at suspension time, inside our
- * frame, so the context is captured and restored. Pinned by
- * `runtime/tests/jspi/ambient_test.ts` pin (h).
- */
-// deno-lint-ignore no-explicit-any
-const activationAls = new AsyncLocalStorage<any>();
-
-/** Run `fn` with `t` as the activation-attached ambient. */
-// deno-lint-ignore no-explicit-any
-export function withActivation<T>(t: any, fn: () => T): T {
-  return activationAls.run(t, fn);
-}
 
 /** Claim the ambient for `t` across an engine-driven resumption. */
 // deno-lint-ignore no-explicit-any
@@ -277,20 +403,22 @@ export function clearResumingThread(): void {
 }
 
 /**
- * Release the claim iff its activation is demonstrably RUNNING — i.e. the
- * claim names the same thread the activation-attached ambient (ALS, pin (h))
- * names for the code calling us. The claim exists to cover the window
- * between settling a suspension and the resumed activation running; once
- * that activation's own code is on the stack the window is closed, and
- * holding the claim would falsely trip the one-claimant assert when the
- * running activation's built-in settles ANOTHER activation's suspension —
- * `subtask.cancel` delivering a cancellation to a parked callee
- * (cancellable.wast) is exactly that shape. When ALS and the claim disagree
- * (or no ALS context is present) the claim stays, and the assert keeps
- * guarding the genuine two-unruned-claimants bug it was built for.
+ * Release the driver's claim iff its activation is demonstrably RUNNING —
+ * i.e. the claim names the same thread the ACTIVATION AMBIENT names for the
+ * code calling us. The claim exists to cover the window between settling a
+ * suspension and the resumed activation running; once that activation's own
+ * code is on the stack the window is closed, and holding the claim would
+ * falsely trip the one-claimant assert when the running activation's built-in
+ * settles ANOTHER activation's suspension — `subtask.cancel` delivering a
+ * cancellation to a parked callee (cancellable.wast) is exactly that shape.
+ * When the two disagree (or no ambient is present) the claim stays, and the
+ * assert keeps guarding the genuine two-unrun-claimants bug it was built for.
+ *
+ * The comparison used to be against the async-context store; it is now
+ * against `activationOf()`, which is the same statement made explicitly.
  */
 export function consumeClaimIfRunning(): void {
-  if (resumingThread !== null && activationAls.getStore() === resumingThread) {
+  if (resumingThread !== null && activationOf() === resumingThread) {
     resumingThread = null;
   }
 }
@@ -301,9 +429,12 @@ export function consumeClaimIfRunning(): void {
  * activation finishes (its `awaitValue` promise settles; `Store.noteAwaiting`
  * calls this from the eager settle continuation) or parks again
  * (`blockCurrentActivation` consumes via `consumeClaimIfRunning`).
+ *
+ * `t` FINISHING also ends its activation ambient, so both are dropped here.
  */
 // deno-lint-ignore no-explicit-any
 export function releaseClaimOf(t: any): void {
+  releaseActivationAmbient(t);
   if (
     resumingThread !== null &&
     (resumingThread === t ||
@@ -324,51 +455,61 @@ const AMBIENT_TRACE = (() => {
 
 /** Diagnostic: module-scope state that must NOT survive a completed call. */
 export function ambientResidue(): { stack: number; claim: boolean } {
-  return { stack: threadStack.length, claim: resumingThread !== null };
+  return {
+    stack: threadStack.length,
+    claim: resumingThread !== null || activationClaims.length > 0,
+  };
 }
 
 /**
  * THE ambient precedence, in one place. Every reader goes through this.
  *
- *   1. `threadStack` -- a synchronous bracket we pushed ourselves. Most
- *      specific: we are literally inside that thread's `resume()`.
- *   2. the ALS store -- the ACTIVATION-attached ambient (pin (h)). It travels
- *      with the activation by construction, so it is right even when several
- *      activations are in flight.
- *   3. `resumingThread` -- the driver's global claim. Last resort: it names
- *      whichever activation the driver claimed across an await, which is right
- *      for that one and wrong for every other in-flight activation.
+ *   1. `threadStack` -- a synchronous bracket we pushed ourselves: either
+ *      `Thread.#resumeInternal`'s `resume()` bracket, `withActivation`'s
+ *      wasm-entry bracket, or `suspendingImport`'s built-in-call bracket.
+ *      Most specific: we are literally inside that activation's execution.
+ *   2. the TOP of `activationClaims` -- the innermost activation the engine
+ *      is running outside our frames (a `Suspending` hop or a resumption).
+ *      LIFO, because activations nest: an outer activation's built-in can
+ *      synchronously enter an inner one's wasm.
+ *   3. `resumingThread` -- the driver's claim. Last resort: it names whichever
+ *      activation the driver settled or claimed across an await, which is
+ *      right for that one and wrong for every other in-flight activation.
+ *
+ * Tier 2 replaced an async-context store (M3A-1). The store held
+ * precisely "the innermost wasm activation currently executing, across the
+ * engine's hops and resumptions", because it was written by `withActivation`
+ * around the wasm entry and the engine restored it on every continuation it
+ * had captured inside that extent. Tiers 1+2 now state that directly. The
+ * equivalence is not asserted from the armchair: it was established
+ * differentially, by running the whole conformance corpus with both the store
+ * and this queue live and comparing them at every read (zero disagreements
+ * over 1395 commands), and the corpus pins the result.
  *
  * Having TWO readers with different orders is not a hypothetical hazard: for
- * two rounds `currentThread` used ALS-first while `maybeCurrentThread` still
+ * two rounds `currentThread` used store-first while `maybeCurrentThread` still
  * used slot-first, and since the FACT bracket sites read the latter, the
  * bracket was attributed to the driver's claim instead of its own activation
  * (`exit-sync-call with an empty sync-call stack`). Fixing the precedence in
  * one reader measured as "no change" because the failing sites used the other.
- * Do not add a third reader; extend this one.
+ * Do not add a third reader; extend this one. (`activationOf` above is not a
+ * second reader -- it answers a different question, "whose wasm frame are we
+ * running on behalf of", and is used only by `consumeClaimIfRunning`.)
  */
 function resolveAmbient(): CurrentThreadLike | undefined {
-  return threadStack[threadStack.length - 1] ?? activationAls.getStore() ??
-    resumingThread ?? undefined;
+  return threadStack[threadStack.length - 1] ??
+    activationClaims[activationClaims.length - 1] ?? resumingThread ??
+    undefined;
 }
 
 export function currentThread<T = CurrentThreadLike>(): T {
-  const stackTop = threadStack[threadStack.length - 1];
-  const als = activationAls.getStore();
-  if (AMBIENT_TRACE && stackTop === undefined && resumingThread !== null) {
+  if (AMBIENT_TRACE && threadStack.length === 0) {
     console.error(
-      `[ambient] slot-vs-als agree=${resumingThread === als} ` +
-        `slot=${resumingThread?.constructor?.name ?? "null"} ` +
-        `als=${als?.constructor?.name ?? "undefined"} ` +
-        `alsPresent=${als !== undefined}`,
+      `[ambient] bracket empty; claims=${activationClaims.length} ` +
+        `head=${activationClaims[0]?.constructor?.name ?? "none"} ` +
+        `resuming=${resumingThread?.constructor?.name ?? "none"}`,
     );
   }
-  // Precedence: synchronous bracket, then the ACTIVATION-ATTACHED ambient,
-  // then the global claim as a last resort. ALS must outrank the slot: the
-  // slot names whichever activation the driver happened to claim across an
-  // await, so while several activations are in flight it is simply wrong for
-  // all but one of them, whereas the ALS store travels with the activation by
-  // construction (pin (h)).
   const t = resolveAmbient();
   if (t === undefined) {
     // Reaching this is not an internal invariant violation, so it must not be

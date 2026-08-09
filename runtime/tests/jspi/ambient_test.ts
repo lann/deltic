@@ -3,8 +3,15 @@
 // experimentally in M2 phase 3d; pinning them here so the next change to the
 // ambient mechanism cannot silently invalidate its premise.
 //
-// See `setResumingThread` in runtime/src/task/scheduler.ts for the mechanism
-// these two facts justify.
+// See the "engine-driven resumptions" section of runtime/src/task/scheduler.ts
+// for the mechanism these two facts justify.
+//
+// NOTE ON THE `node:async_hooks` IMPORT BELOW. It is deliberate and confined
+// to this file: pin (h) is a statement ABOUT the platform ("an async-context
+// store would survive a JSPI resumption"), so measuring it requires the store.
+// Nothing in `runtime/src` imports it — that dependency was FINDING M3A-1 and
+// was removed, because no browser provides it (PLAN §4.3). This test therefore
+// runs on Deno only, and is not part of the browser lanes.
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import { assertEq } from "../support/asserts.ts";
@@ -31,10 +38,16 @@ Deno.test({
     // "context lost" — which is how an earlier probe of this reached the
     // opposite (wrong) conclusion.
     //
-    // The runtime does not currently depend on this: the `resumingThread`
-    // mechanism (task/scheduler.ts) rests on pin (i) below, which needs no
-    // async-context support at all. This pin records that ALS is a viable
-    // alternative, and guards the claim if we ever switch to it.
+    // The runtime does NOT use this, and deliberately: it did for one round
+    // (as `activationAls`), and that is FINDING M3A-1 — the store is a
+    // Node/Deno builtin with no browser equivalent, so it cost 80 `async/`
+    // commands in every browser lane. The replacement claims the same
+    // activation explicitly at the two moments wasm leaves our frames (the
+    // `Suspending` microtask hop and a settled suspension); see
+    // `explicit_ambient_test.ts`. This pin stays because it documents WHY the
+    // old design worked, which is what makes the replacement checkable: the
+    // store's answer and the explicit claim's answer were compared at every
+    // ambient read across all 1395 conformance commands and never differed.
     const als = new AsyncLocalStorage<string>();
     const seen: Record<string, string | undefined> = {};
     let n = 0;

@@ -802,6 +802,12 @@ async function driveAsync(
       for (const h of store.pendingHostCalls) {
         others.push(h.then(() => null, () => null));
       }
+      // A SPECULATIVE claim: the chosen thread is a promising-wrapped
+      // activation, and the engine may run its wasm during this await (pin
+      // (i)). It is released unconditionally on the way out — if the
+      // activation is genuinely mid-resumption its own exact claim (minted by
+      // `SuspensionPoint.resume`) is what carries it, and releasing a claim
+      // that names a thread already gone from the queue is a no-op.
       setResumingThread(chosen);
       let winner: AwaitWinner | null;
       try {
