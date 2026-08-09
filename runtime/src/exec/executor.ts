@@ -308,19 +308,21 @@ class Executor {
     //                                    -- see `suspendableFuncs`)
     //   dont-block-start             1  (start-section singleton)
     //   builtin-trap-poisons-instance 1
-    // 26 failures over the FULL 291-command corpus (the `sync-barges-in`
-    // stall is fixed, so nothing is missing from the tally any more):
-    //   big-interleaving-test.wast  18  (11 RuntimeError, 4 NeedsJspi,
-    //                                    2 empty-stack, 1 other)
-    //   cross-abi-calls.wast         6  (per-FUNCTION reachability -- see
-    //                                    `suspendableFuncs`)
-    //   dont-block-start             1  (start-section singleton)
-    //   builtin-trap-poisons-instance 1
-    //
-    // All 4 remaining NeedsJspi are ONE site: "FACT call into a stackful
-    // async-lifted export (async canonical options without a callback)".
-    // Not the stream/future copy sites -- those are lit now but this corpus
-    // never reaches them. Stackful lift is the last unlit site.
+    // 20 failures over the full 291-command corpus, and NO UNLIT SITES
+    // REMAIN -- every blocking built-in now blocks for real. What is left is
+    // genuine defect or named blocker:
+    //   big-interleaving-test.wast  12  11 x guest `expect-code` mismatch
+    //                                   (the .wast scripts an instruction list
+    //                                   and asserts exact return codes, so
+    //                                   these are VALUE differences under
+    //                                   jspi, not scheduling), plus 1
+    //                                   "table entry empty" trap at :1481
+    //   cross-abi-calls.wast         6  per-FUNCTION reachability (see
+    //                                   `suspendableFuncs`) -- translator-side
+    //   dont-block-start             1  start-section singleton
+    //   builtin-trap-poisons-instance 1 wrong trap text ("cannot drop busy
+    //                                   stream" vs "cannot enter component
+    //                                   instance")
     this.suspensionMode = chooseMode(input.jspi);
   }
 
