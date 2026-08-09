@@ -6,7 +6,7 @@
 //!
 //! Regenerate after an intentional codegen change:
 //! ```text
-//! for w in hello values resources; do
+//! for w in hello values resources async-probe stream-echo future-user; do
 //!   cargo run -p bindgen -- generate examples/guests/$w/wit --world $w \
 //!     --out runtime/tests/bindgen/generated/$w.ts
 //! done
@@ -56,4 +56,19 @@ fn values_snapshot() {
 #[test]
 fn resources_snapshot() {
     check_snapshot("resources", "resources");
+}
+
+#[test]
+fn async_probe_snapshot() {
+    check_snapshot("async-probe", "async-probe");
+}
+
+#[test]
+fn stream_echo_snapshot() {
+    check_snapshot("stream-echo", "stream-echo");
+}
+
+#[test]
+fn future_user_snapshot() {
+    check_snapshot("future-user", "future-user");
 }

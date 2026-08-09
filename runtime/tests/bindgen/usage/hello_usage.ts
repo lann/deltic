@@ -1,14 +1,22 @@
 // Hand-written usage sample exercising the generated `hello.ts` facade
-// (PLAN.md §9 gate: "a hand-written usage sample per world must pass `deno
-// check` against the generated types"). This file is type-checked by
-// `deno task check`; it is not executed as a test (no runtime component
-// here, just call-site type shape verification).
+// (track C2-B gate: "a hand-written usage sample per world must pass `deno
+// check` against the generated types"). Type-check only — no runtime
+// component here, just call-site type shape verification against the C1
+// embedder conventions (contracts/embedder-api.md).
 
 import type { WirePlan } from "../../../src/plan/mod.ts";
 import { bind, verify, WORLD_DIGEST } from "../generated/hello.ts";
-import type { ComponentHandle } from "../../../src/exec/mod.ts";
+import type { HelloExports } from "../generated/hello.ts";
+import type { EmbedderInstance } from "../../../src/embedder/mod.ts";
+import type { Equal, Expect } from "./type_assert.ts";
 
-export async function useHello(handle: ComponentHandle, plan: WirePlan) {
+// Exports are uniformly Promise-shaped (contracts/embedder-api.md
+// §"Functions and async"), even though `greet` is a sync WIT func.
+type _GreetIsPromiseShaped = Expect<
+  Equal<HelloExports["greet"], (name: string) => Promise<string>>
+>;
+
+export async function useHello(instance: EmbedderInstance, plan: WirePlan) {
   const mismatch = await verify(plan);
   if (mismatch) {
     throw new Error(
@@ -16,7 +24,7 @@ export async function useHello(handle: ComponentHandle, plan: WirePlan) {
         (mismatch.firstDivergence ? ` (${mismatch.firstDivergence})` : ""),
     );
   }
-  const exports = bind(handle);
-  const greeting: string = exports["greet"]("component model");
+  const exports = bind(instance);
+  const greeting: string = await exports.greet("component model");
   return { greeting, digest: WORLD_DIGEST };
 }

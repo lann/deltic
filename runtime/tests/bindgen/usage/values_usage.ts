@@ -1,6 +1,8 @@
-// Hand-written usage sample for the generated `values.ts` facade — exercises
-// every host-value shape mapping (records, variants, enums, flags, options,
-// results, tuples, lists) against the generated types, at `deno check` time.
+// Hand-written usage sample for the generated `values.ts` facade — pins
+// every host-value shape mapping (records, variants, enums, flags, options
+// incl. nested boxing, results-as-function-result, tuples, lists) against
+// the generated C1-convention types (contracts/embedder-api.md value
+// mapping table), at `deno check` time.
 
 import { bind } from "../generated/values.ts";
 import type {
@@ -10,79 +12,132 @@ import type {
   Shape,
   ValuesExports,
 } from "../generated/values.ts";
-import type { ComponentHandle } from "../../../src/exec/mod.ts";
+import type { EmbedderInstance, WitError } from "../../../src/embedder/mod.ts";
+import type { Equal, Expect } from "./type_assert.ts";
 
-export function useValues(handle: ComponentHandle) {
-  const exports: ValuesExports = bind(handle);
+// --- record: camelCase fields -------------------------------------------
+type _MixedFields = Expect<
+  Equal<Mixed, { a: number; b: string; c: number; d: boolean }>
+>;
 
-  const b: boolean = exports["echo-bool"](true);
-  const u: bigint = exports["echo-u64"](18446744073709551615n);
-  const s: bigint = exports["echo-s64"](-1n);
-  const f32: number = exports["echo-f32"](1.5);
-  const f64: number = exports["echo-f64"](1.5);
-  const ch: string = exports["echo-char"]("x");
-  const str: string = exports["echo-string"]("hi");
+// --- variant: `{tag}` | `{tag,val}`, val ABSENT (not undefined) for the
+// payloadless case ---------------------------------------------------------
+type _ShapeIsTagVal = Expect<
+  Equal<
+    Shape,
+    | { tag: "point" }
+    | { tag: "circle"; val: number }
+    | { tag: "label"; val: string }
+    | { tag: "rect"; val: Size_ }
+  >
+>;
+interface Size_ {
+  w: number;
+  h: number;
+}
+// Payloadless case really has no `val` key at all (not `val: undefined`):
+// a value assignable to the point case must not require providing `val`,
+// and `val` must not be a legal key on it.
+const point: Shape = { tag: "point" };
+// @ts-expect-error val is not a valid property on the payloadless case
+const _pointWithVal: Shape = { tag: "point", val: 1 };
+void point;
 
-  const mixed: Mixed = { a: 1, b: "x", c: 1.5, d: true };
-  const mixedOut: Mixed = exports["echo-record"](mixed);
+// --- enum: kebab string literal union, NOT `{tag}` objects --------------
+type _ColorIsStringUnion = Expect<Equal<Color, "red" | "green" | "blue">>;
+const _colorLiteral: Color = "red";
 
-  const shape: Shape = { circle: 1.5 };
-  const shapeOut: Shape = exports["echo-variant"](shape);
-  const shapePoint: Shape = { point: null };
+// --- flags: object of camelCase booleans ---------------------------------
+type _PermsFields = Expect<
+  Equal<Perms, { read: boolean; write: boolean; exec: boolean; admin: boolean }>
+>;
 
-  const color: Color = { red: null };
-  const colorOut: Color = exports["echo-enum"](color);
+export function useValues(instance: EmbedderInstance) {
+  const exports: ValuesExports = bind(instance);
 
-  const perms: Perms = { read: true, write: false, exec: false, admin: true };
-  const permsOut: Perms = exports["echo-flags"](perms);
+  // Exports are uniformly Promise-shaped.
+  type _EchoBoolIsPromise = Expect<
+    Equal<ValuesExports["echoBool"], (v: boolean) => Promise<boolean>>
+  >;
 
-  // option<string> — current interpreter shape: single-key variant object.
-  const some: { some: string } | { none: null } = exports["echo-option"](
-    { some: "x" },
-  );
-  const none: { some: string } | { none: null } = exports["echo-option"](
-    { none: null },
-  );
+  // u64/s64 -> bigint.
+  type _EchoU64IsBigint = Expect<
+    Equal<ValuesExports["echoU64"], (v: bigint) => Promise<bigint>>
+  >;
+  type _EchoS64IsBigint = Expect<
+    Equal<ValuesExports["echoS64"], (v: bigint) => Promise<bigint>>
+  >;
 
-  // option<option<u32>> nests the same shape one level deeper.
-  const nested = exports["echo-option-nested"]({ some: { some: 1 } });
+  // list<u8> -> Uint8Array (never a view — always a copy per the contract,
+  // untestable at the type level, only the shape is pinned here).
+  type _EchoListU8 = Expect<
+    Equal<ValuesExports["echoListU8"], (v: Uint8Array) => Promise<Uint8Array>>
+  >;
+  type _EchoListString = Expect<
+    Equal<ValuesExports["echoListString"], (v: string[]) => Promise<string[]>>
+  >;
 
-  // result<u32, string> — {ok}/{error}.
-  const ok: { ok: number } | { error: string } = exports["echo-result"](
-    { ok: 1 },
-  );
-  const err: { ok: number } | { error: string } = exports["echo-result"](
-    { error: "boom" },
-  );
+  // tuple<u32,string,f64> -> real TS tuple, not a despecialized record.
+  type _EchoTuple = Expect<
+    Equal<
+      ValuesExports["echoTuple"],
+      (v: [number, string, number]) => Promise<[number, string, number]>
+    >
+  >;
 
-  const bytes: Uint8Array = exports["echo-list-u8"](new Uint8Array([1, 2, 3]));
-  const strings: Array<string> = exports["echo-list-string"](["a", "b"]);
+  // option<string>: outermost option -> T | undefined.
+  type _EchoOption = Expect<
+    Equal<
+      ValuesExports["echoOption"],
+      (v: string | undefined) => Promise<string | undefined>
+    >
+  >;
 
-  // tuple<u32,string,f64> — despecialized record shape `{0,1,2}`.
-  const tuple: { 0: number; 1: string; 2: number } = exports["echo-tuple"](
-    { 0: 1, 1: "x", 2: 1.5 },
-  );
+  // option<option<u32>>: outer option -> T | undefined; the option nested
+  // directly inside another option boxes into the {tag:"some"|"none"}
+  // variant family instead of a second `undefined` — this is the
+  // values-fixture Some(None) edge the contract calls out by name.
+  type _EchoOptionNested = Expect<
+    Equal<
+      ValuesExports["echoOptionNested"],
+      (
+        v: { tag: "some"; val: number } | { tag: "none" } | undefined,
+      ) => Promise<{ tag: "some"; val: number } | { tag: "none" } | undefined>
+    >
+  >;
+  const none: ReturnType<ValuesExports["echoOptionNested"]> extends
+    Promise<infer T> ? T : never = undefined; // none(): bare undefined
+  const someNone: { tag: "none" } = { tag: "none" }; // some(none)
+  const someSome: { tag: "some"; val: number } = { tag: "some", val: 7 }; // some(some(7))
+  void none;
+  void someNone;
+  void someSome;
 
-  return {
-    b,
-    u,
-    s,
-    f32,
-    f64,
-    ch,
-    str,
-    mixedOut,
-    shapeOut,
-    shapePoint,
-    colorOut,
-    permsOut,
-    some,
-    none,
-    nested,
-    ok,
-    err,
-    bytes,
-    strings,
-    tuple,
-  };
+  // result<u32,string> AS A FUNCTION RESULT: resolves to the ok payload,
+  // `@throws {WitError<string>}` documents the err channel (never part of
+  // the resolved value) — contracts/embedder-api.md §"Error model". As a
+  // *parameter*, `result` is not in return position, so it keeps the plain
+  // `{tag,val}` value shape (same family as `variant`).
+  type _EchoResultParamIsTagVal = Expect<
+    Equal<
+      Parameters<ValuesExports["echoResult"]>[0],
+      { tag: "ok"; val: number } | { tag: "err"; val: string }
+    >
+  >;
+  type _EchoResultReturnsOkOnly = Expect<
+    Equal<ReturnType<ValuesExports["echoResult"]>, Promise<number>>
+  >;
+
+  async function callEchoResult(): Promise<number> {
+    try {
+      return await exports.echoResult({ tag: "ok", val: 1 });
+    } catch (e) {
+      // Branded per the error model: an err value crosses only as WitError.
+      const witErr = e as WitError<string>;
+      return witErr.payload.length;
+    }
+  }
+  void callEchoResult;
+
+  return exports;
 }

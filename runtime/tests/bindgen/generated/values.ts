@@ -2,9 +2,21 @@
 // Source world: values
 // Regenerate: cargo run -p bindgen -- <wit-path> --world values --out <file>
 
-import type { ComponentHandle } from "../../../src/exec/mod.ts";
 import type { WirePlan } from "../../../src/plan/mod.ts";
 import { verifyWorldDigest, type DigestMismatch } from "../../../src/digest/mod.ts";
+import type {
+  Stream,
+  Future,
+  StreamSource,
+  FutureSource,
+  ErrorContext,
+  WitError,
+  Trap,
+  EmbedderInstance,
+} from "../../../src/embedder/mod.ts";
+
+// deno-lint-ignore no-unused-vars
+type _EnsureEmbedderTypesUsed = [Stream<unknown>, Future<unknown>, StreamSource<unknown>, FutureSource<unknown>, ErrorContext, WitError, Trap];
 
 /** Canonical structural digest (PLAN.md §9). */
 export const WORLD_DIGEST = "sha256:e0791536cb4b9731057b82831150611eed64f22d665130a02f247d3227e2e4a7";
@@ -17,57 +29,63 @@ export function verify(plan: WirePlan): Promise<DigestMismatch | null> {
 }
 
 export interface Mixed {
-  "a": number;
-  "b": string;
-  "c": number;
-  "d": boolean;
+  a: number;
+  b: string;
+  c: number;
+  d: boolean;
 }
 
 export interface Size {
-  "w": number;
-  "h": number;
+  w: number;
+  h: number;
 }
 
 export type Shape=
-| { "point": null }
-| { "circle": number }
-| { "label": string }
-| { "rect": Size };
+| { tag: "point" }
+| { tag: "circle"; val: number }
+| { tag: "label"; val: string }
+| { tag: "rect"; val: Size };
 
 export type Color=
-| { "red": null }
-| { "green": null }
-| { "blue": null };
+| "red"
+| "green"
+| "blue";
 
 export interface Perms {
-  "read": boolean;
-  "write": boolean;
-  "exec": boolean;
-  "admin": boolean;
+  read: boolean;
+  write: boolean;
+  exec: boolean;
+  admin: boolean;
 }
 
 export interface ValuesExports {
-  "echo-bool": (v: boolean) => boolean;
-  "echo-u64": (v: bigint) => bigint;
-  "echo-s64": (v: bigint) => bigint;
-  "echo-f32": (v: number) => number;
-  "echo-f64": (v: number) => number;
-  "echo-char": (v: string) => string;
-  "echo-string": (v: string) => string;
-  "echo-record": (v: Mixed) => Mixed;
-  "echo-variant": (v: Shape) => Shape;
-  "echo-enum": (v: Color) => Color;
-  "echo-flags": (v: Perms) => Perms;
-  "echo-option": (v: ({ none: null } | { some: string })) => ({ none: null } | { some: string });
-  "echo-option-nested": (v: ({ none: null } | { some: ({ none: null } | { some: number }) })) => ({ none: null } | { some: ({ none: null } | { some: number }) });
-  "echo-result": (v: ({ ok: number } | { error: string })) => ({ ok: number } | { error: string });
-  "echo-list-u8": (v: Uint8Array) => Uint8Array;
-  "echo-list-string": (v: Array<string>) => Array<string>;
-  "echo-tuple": (v: { 0: number; 1: string; 2: number }) => { 0: number; 1: string; 2: number };
+  echoBool(v: boolean): Promise<boolean>;
+  echoU64(v: bigint): Promise<bigint>;
+  echoS64(v: bigint): Promise<bigint>;
+  echoF32(v: number): Promise<number>;
+  echoF64(v: number): Promise<number>;
+  echoChar(v: string): Promise<string>;
+  echoString(v: string): Promise<string>;
+  echoRecord(v: Mixed): Promise<Mixed>;
+  echoVariant(v: Shape): Promise<Shape>;
+  echoEnum(v: Color): Promise<Color>;
+  echoFlags(v: Perms): Promise<Perms>;
+  echoOption(v: (string | undefined)): Promise<(string | undefined)>;
+  echoOptionNested(v: (({ tag: "some"; val: number } | { tag: "none" }) | undefined)): Promise<(({ tag: "some"; val: number } | { tag: "none" }) | undefined)>;
+  /** @throws {WitError<string>} */
+  echoResult(v: ({ tag: "ok"; val: number } | { tag: "err"; val: string })): Promise<number>;
+  echoListU8(v: Uint8Array): Promise<Uint8Array>;
+  echoListString(v: (string)[]): Promise<(string)[]>;
+  echoTuple(v: [number, string, number]): Promise<[number, string, number]>;
 }
 
-/** Thin typed cast over the runtime's plain instance exports — no
-* ergonomic boundary layer (PLAN.md §9 kickoff scope). */
-export function bind(instance: ComponentHandle): ValuesExports {
+/** Typed cast over an embedder-conventions instance's `exports`
+* (`{ exports, handle, imports }`, keyed per
+* contracts/embedder-api.md §"Module wiring and instantiation") —
+* obtain one via `instantiate` from "../../../src/embedder/mod.ts"
+* (or `instantiateEmbedder` for the lower-level entry point), verify
+* this world's digest against its `.handle`'s plan, then `bind` for
+* the typed facade below. */
+export function bind(instance: EmbedderInstance): ValuesExports {
   return instance.exports as unknown as ValuesExports;
 }

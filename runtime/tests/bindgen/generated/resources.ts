@@ -2,9 +2,21 @@
 // Source world: resources
 // Regenerate: cargo run -p bindgen -- <wit-path> --world resources --out <file>
 
-import type { ComponentHandle } from "../../../src/exec/mod.ts";
 import type { WirePlan } from "../../../src/plan/mod.ts";
 import { verifyWorldDigest, type DigestMismatch } from "../../../src/digest/mod.ts";
+import type {
+  Stream,
+  Future,
+  StreamSource,
+  FutureSource,
+  ErrorContext,
+  WitError,
+  Trap,
+  EmbedderInstance,
+} from "../../../src/embedder/mod.ts";
+
+// deno-lint-ignore no-unused-vars
+type _EnsureEmbedderTypesUsed = [Stream<unknown>, Future<unknown>, StreamSource<unknown>, FutureSource<unknown>, ErrorContext, WitError, Trap];
 
 /** Canonical structural digest (PLAN.md §9). */
 export const WORLD_DIGEST = "sha256:b518eda0084b7bbf4e490aa50137cd579b443e1fe6a2c5d52132f2b020b02dc8";
@@ -16,24 +28,43 @@ export function verify(plan: WirePlan): Promise<DigestMismatch | null> {
   return verifyWorldDigest(plan, WORLD_DIGEST);
 }
 
-export type Counter = number & { readonly __resource: "counter"};
+/**
+ * Guest-implemented resource (host holds handles). `Counter` instances
+* are transferred/invalidated per own/borrow semantics — see
+* contracts/embedder-api.md §"Resources".
+* @remarks the constructor is synchronous by C2 amendment
+* ("Constructors are synchronous" — contracts/embedder-api.md
+* §"Resources"): a guest constructor that fails to complete
+* synchronously raises a named runtime error rather than
+* half-constructing.
+ */
+export declare class Counter {
+    constructor(initial: bigint);
+    increment(): Promise<bigint>;
+    get(): Promise<bigint>;
+    static merge(a: Counter, b: Counter): Promise<Counter>;
+    [Symbol.dispose](): void;
+    drop(): void;
+}
 
 export interface ResourcesExports {
   "component-engine:resources/counters": {
-    "[constructor]counter": (initial: bigint) => Counter;
-    "[method]counter.increment": (self: Counter) => bigint;
-    "[method]counter.get": (self: Counter) => bigint;
-    "[static]counter.merge": (a: Counter, b: Counter) => Counter;
-    "make-counter": (initial: bigint) => Counter;
-    "sum-both": (a: Counter, b: Counter) => bigint;
-    "bump": (c: Counter, by: bigint) => bigint;
-    "consume": (c: Counter) => bigint;
-    "live-counters": () => number;
+    Counter: typeof Counter;
+    makeCounter(initial: bigint): Promise<Counter>;
+    sumBoth(a: Counter, b: Counter): Promise<bigint>;
+    bump(c: Counter, by: bigint): Promise<bigint>;
+    consume(c: Counter): Promise<bigint>;
+    liveCounters(): Promise<number>;
   };
 }
 
-/** Thin typed cast over the runtime's plain instance exports — no
-* ergonomic boundary layer (PLAN.md §9 kickoff scope). */
-export function bind(instance: ComponentHandle): ResourcesExports {
+/** Typed cast over an embedder-conventions instance's `exports`
+* (`{ exports, handle, imports }`, keyed per
+* contracts/embedder-api.md §"Module wiring and instantiation") —
+* obtain one via `instantiate` from "../../../src/embedder/mod.ts"
+* (or `instantiateEmbedder` for the lower-level entry point), verify
+* this world's digest against its `.handle`'s plan, then `bind` for
+* the typed facade below. */
+export function bind(instance: EmbedderInstance): ResourcesExports {
   return instance.exports as unknown as ResourcesExports;
 }

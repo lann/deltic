@@ -1,21 +1,18 @@
-//! Minimal TypeScript codegen, "kickoff" scope (PLAN.md §9): typed
-//! world/interface API surface + embedded digest constant. Deliberately NOT
-//! an ergonomic boundary layer — function signatures use the *current
-//! interpreter* host-value shapes (contracts/descriptor-ir.md v0.1 note:
-//! variant/enum/option/result as single-key `{ [label]: payload }` objects,
-//! not the "target" tagged-union shape), because that's what
-//! `runtime/src/exec` actually hands back today. Convergence to the target
-//! shapes in descriptor-ir.md is explicitly deferred to the bindgen/
-//! descriptor-ir convergence milestone; changing this file's output then is
-//! expected and fine.
+//! TypeScript codegen implementing the C1 embedder-facing conventions
+//! (`contracts/embedder-api.md`, normative — track C2-B). Emits **types
+//! only**: `Imports`/`Exports` interfaces, value types per the mapping
+//! table, resource classes, `WitError`-typed fallible signatures,
+//! `Stream<T>`/`Future<T>` references, plus the existing WORLD_DIGEST +
+//! `verify()` digest handshake and a thin `bind()` cast. No runtime
+//! behavior is emitted or assumed to exist yet (C2-A owns the runtime
+//! facade concurrently) — every generated file must `deno check` standalone.
 //!
-//! Built on `wit_bindgen_core::Source`/`Files` for text accumulation and
-//! output collection (the "built on wit-bindgen-core" requirement) — this
-//! is a hand-written generator, not a `WorldGenerator` trait implementation;
-//! writing a full trait-based generator is future scope once the descriptor
-//! IR/bindgen ergonomic convergence lands (CONTRACT: PLAN.md §9 doesn't
+//! Built on `wit_bindgen_core::Source`/`Files` for text accumulation, same
+//! as the M1-C predecessor of this file; still a hand-written generator,
+//! not a `WorldGenerator` trait implementation (CONTRACT: PLAN.md §9 doesn't
 //! mandate the trait specifically, only "built on wit-bindgen-core").
 
+use std::collections::BTreeSet;
 use std::fmt::Write as _;
 
 use anyhow::{bail, Context, Result};
@@ -26,6 +23,27 @@ use wit_parser::{
 };
 
 use crate::digest;
+
+/// Which side of the world an item belongs to — determines whether a
+/// resource is guest-implemented (export: host holds handles, bindgen
+/// emits a concrete class) or host-implemented (import: guest holds
+/// handles, bindgen emits the class *shape* the embedder must provide).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Side {
+    Import,
+    Export,
+}
+
+/// Per-resource function bundle, gathered by a pre-pass over every
+/// interface's functions (`FunctionKind::{Constructor,Method,AsyncMethod,
+/// Static,AsyncStatic}` all carry the owning resource's `TypeId`).
+#[derive(Default)]
+struct ResourceFns<'a> {
+    side: Option<Side>,
+    ctor: Option<&'a Function>,
+    methods: Vec<&'a Function>,
+    statics: Vec<&'a Function>,
+}
 
 pub fn generate(resolve: &Resolve, world: WorldId, expected_digest: &str) -> Result<String> {
     let w = &resolve.worlds[world];
@@ -41,16 +59,39 @@ pub fn generate(resolve: &Resolve, world: WorldId, expected_digest: &str) -> Res
     writeln!(src)?;
     writeln!(
         src,
-        "import type {{ ComponentHandle }} from \"../../../src/exec/mod.ts\";"
-    )?;
-    writeln!(
-        src,
         "import type {{ WirePlan }} from \"../../../src/plan/mod.ts\";"
     )?;
     writeln!(
         src,
-        "import {{ verifyWorldDigest, type DigestMismatch }} from \"../../../src/digest/mod.ts\";\n"
+        "import {{ verifyWorldDigest, type DigestMismatch }} from \"../../../src/digest/mod.ts\";"
     )?;
+    // Stream<T>/Future<T>/ErrorContext/WitError/Trap plus the source-union
+    // types used at parameter positions (StreamSource<T>/FutureSource<T>,
+    // contracts/embedder-api.md §"Streams and futures": "lowering accepts
+    // the natural JS producers") and `EmbedderInstance` (the `bind()` input
+    // shape) all now come from C2-A's real embedder facade module — no
+    // stand-in needed post-integration.
+    writeln!(
+        src,
+        "import type {{\n\
+         \x20 Stream,\n\
+         \x20 Future,\n\
+         \x20 StreamSource,\n\
+         \x20 FutureSource,\n\
+         \x20 ErrorContext,\n\
+         \x20 WitError,\n\
+         \x20 Trap,\n\
+         \x20 EmbedderInstance,\n\
+         }} from \"../../../src/embedder/mod.ts\";\n"
+    )?;
+    // Silence unused-import checks for worlds that don't happen to
+    // reference every embedder type (`Trap`/`ErrorContext` in particular —
+    // no fixture world raises a bare Trap type or uses error-context yet).
+    writeln!(
+        src,
+        "// deno-lint-ignore no-unused-vars\ntype _EnsureEmbedderTypesUsed = [Stream<unknown>, Future<unknown>, StreamSource<unknown>, FutureSource<unknown>, ErrorContext, WitError, Trap];\n"
+    )?;
+
 
     writeln!(src, "/** Canonical structural digest (PLAN.md §9). */")?;
     writeln!(src, "export const WORLD_DIGEST = {expected_digest:?};\n")?;
@@ -65,56 +106,91 @@ pub fn generate(resolve: &Resolve, world: WorldId, expected_digest: &str) -> Res
          }}\n"
     )?;
 
-    // Emit named type declarations for every record/variant/enum/flags type
-    // reachable from the world's functions (imports + exports), plus
-    // resource interfaces. Types declared directly in the world block
-    // (hello/values style) live in `resolve.worlds[world]`'s anonymous
-    // interface namespace and are not separately named at the WIT level in
-    // a way wit_parser exposes as a distinct interface — so we walk
-    // function signatures and collect named TypeIds as we go, emitting each
-    // exactly once (by TypeId) in first-encountered order.
-    let mut emitted = std::collections::BTreeSet::new();
-    let mut type_decls = Source::default();
+    // ---- Pre-pass: gather every resource's constructor/methods/statics,
+    // keyed by TypeId, and which side (import/export) it lives on. A
+    // resource's functions live in `iface.functions`, addressed by the
+    // resource TypeId carried in `FunctionKind`; the resource *type itself*
+    // is declared in `iface.types`.
+    let mut resource_fns: std::collections::BTreeMap<TypeId, ResourceFns> =
+        std::collections::BTreeMap::new();
+    let mut resource_order: Vec<TypeId> = Vec::new();
+    collect_resource_fns(
+        resolve,
+        &w.imports,
+        Side::Import,
+        &mut resource_fns,
+        &mut resource_order,
+    )?;
+    collect_resource_fns(
+        resolve,
+        &w.exports,
+        Side::Export,
+        &mut resource_fns,
+        &mut resource_order,
+    )?;
 
+    // ---- Value type declarations (records/variants/enums/flags), in
+    // first-encountered order, walking every function signature reachable
+    // from imports/exports. Resource *value* references (own/borrow) are
+    // handled by name (`resource_ts_name`); the resource class bodies
+    // themselves are emitted afterward from `resource_fns`.
+    let mut emitted = BTreeSet::new();
+    let mut type_decls = Source::default();
     for (key, item) in w.imports.iter().chain(w.exports.iter()) {
         collect_and_emit_types(resolve, key, item, &mut emitted, &mut type_decls)?;
     }
     src.push_str(&type_decls);
 
+    // ---- Resource class declarations, in first-encountered order.
+    for rid in &resource_order {
+        let rf = &resource_fns[rid];
+        emit_resource_class(resolve, *rid, rf, &mut src)?;
+    }
+
+    // ---- Imports / Exports interfaces.
     let mut import_decls = Source::default();
     let mut export_decls = Source::default();
     for (key, item) in &w.imports {
-        emit_world_item(resolve, key, item, &mut import_decls)?;
+        emit_world_item(resolve, key, item, Side::Import, &mut import_decls)?;
     }
     for (key, item) in &w.exports {
-        emit_world_item(resolve, key, item, &mut export_decls)?;
+        emit_world_item(resolve, key, item, Side::Export, &mut export_decls)?;
     }
 
+    let world_ident = ts_ident(&w.name);
     if !import_decls.as_str().is_empty() {
-        writeln!(src, "export interface {}Imports {{", ts_ident(&w.name))?;
+        writeln!(src, "export interface {world_ident}Imports {{")?;
         src.push_str(import_decls.as_str());
         writeln!(src, "}}\n")?;
     }
-    writeln!(src, "export interface {}Exports {{", ts_ident(&w.name))?;
+    writeln!(src, "export interface {world_ident}Exports {{")?;
     src.push_str(export_decls.as_str());
     writeln!(src, "}}\n")?;
 
     writeln!(
         src,
-        "/** Thin typed cast over the runtime's plain instance exports — no\n\
-         * ergonomic boundary layer (PLAN.md §9 kickoff scope). */\n\
-         export function bind(instance: ComponentHandle): {}Exports {{\n\
-         \x20 return instance.exports as unknown as {}Exports;\n\
+        "/** Typed cast over an embedder-conventions instance's `exports`\n\
+         * (`{{ exports, handle, imports }}`, keyed per\n\
+         * contracts/embedder-api.md §\"Module wiring and instantiation\") —\n\
+         * obtain one via `instantiate` from \"../../../src/embedder/mod.ts\"\n\
+         * (or `instantiateEmbedder` for the lower-level entry point), verify\n\
+         * this world's digest against its `.handle`'s plan, then `bind` for\n\
+         * the typed facade below. */\n\
+         export function bind(instance: EmbedderInstance): {world_ident}Exports {{\n\
+         \x20 return instance.exports as unknown as {world_ident}Exports;\n\
          }}",
-        ts_ident(&w.name),
-        ts_ident(&w.name)
     )?;
 
     Ok(src.as_str().to_string())
 }
 
+// ---------------------------------------------------------------------
+// Casing (contracts/embedder-api.md §"Naming and casing")
+// ---------------------------------------------------------------------
+
+/// PascalCase: split on `-`/`_`, every fragment first-char-uppercased,
+/// remainder preserved (acronyms preserved). Used for resource/type names.
 fn ts_ident(name: &str) -> String {
-    // kebab-case -> PascalCase.
     name.split(['-', '_'])
         .map(|part| {
             let mut c = part.chars();
@@ -126,61 +202,48 @@ fn ts_ident(name: &str) -> String {
         .collect()
 }
 
-fn ts_field_name(name: &str) -> String {
-    // kebab-case -> camelCase, but keep it honest/reversible: WIT kebab
-    // names are also valid (quoted) TS property names, so we just quote
-    // them verbatim instead of guessing a camelCase mapping that would
-    // need an un-mapping step at the runtime boundary. Simpler, and exact.
+/// camelCase: split on `-`; first fragment unchanged, later fragments
+/// first-char-uppercased, remainder preserved. Used for
+/// functions/methods/statics/record fields/flags/params/world-level bare
+/// imports-exports (contracts/embedder-api.md casing table).
+fn camel_case(name: &str) -> String {
+    let mut out = String::new();
+    let mut first_fragment = true;
+    for part in name.split('-') {
+        if first_fragment {
+            out.push_str(part);
+            first_fragment = false;
+            continue;
+        }
+        let mut c = part.chars();
+        if let Some(f) = c.next() {
+            out.extend(f.to_uppercase());
+            out.push_str(c.as_str());
+        }
+    }
+    if out.is_empty() || out.chars().next().unwrap().is_ascii_digit() {
+        out = format!("_{out}");
+    }
+    out
+}
+
+/// kebab-case verbatim, as a quoted TS string literal — used for enum
+/// values and variant/result tags (data, not identifiers; casing table).
+fn kebab_literal(name: &str) -> String {
     format!("{name:?}")
 }
 
-fn emit_world_item(
-    resolve: &Resolve,
-    key: &WorldKey,
-    item: &WorldItem,
-    out: &mut Source,
-) -> Result<()> {
-    match item {
-        WorldItem::Function(f) => {
-            let name = match key {
-                WorldKey::Name(n) => n.clone(),
-                WorldKey::Interface(_) => bail!("function with interface key"),
-            };
-            writeln!(out, "  {}: {};", ts_field_name(&name), ts_func_type(resolve, f, None)?)?;
-        }
-        WorldItem::Interface { id, .. } => {
-            let iface = &resolve.interfaces[*id];
-            // The runtime keys nested export objects by the *component
-            // export name* (`WireExport.name`), which for an interface
-            // export is its full qualified name (e.g.
-            // "component-engine:resources/counters"), not the bare
-            // interface name — verified against
-            // `runtime/src/exec/executor.ts`'s `buildExport`/`finish`
-            // (`exports[exp.name] = built`, and `exp.name` for a
-            // `WireExport::Instance` is the qualified string emitted by
-            // translator-shim). Must match `digest::qualified_interface_name`
-            // exactly, since that's also what the digest identifies this
-            // item by.
-            let name = crate::digest::qualified_interface_name(resolve, *id)?;
-            writeln!(out, "  {:?}: {{", name)?;
-            for (fname, f) in &iface.functions {
-                let resource = method_resource(f);
-                writeln!(
-                    out,
-                    "    {}: {};",
-                    ts_field_name(fname),
-                    ts_func_type(resolve, f, resource)?
-                )?;
-            }
-            writeln!(out, "  }};")?;
-        }
-        WorldItem::Type { .. } => {
-            // Named world-level type export; not itself a callable/instance
-            // member, already emitted as a type declaration.
-        }
-    }
-    Ok(())
+fn resource_ts_name(resolve: &Resolve, id: TypeId) -> Result<String> {
+    let name = resolve.types[id]
+        .name
+        .as_deref()
+        .context("resource type has no name")?;
+    Ok(ts_ident(name))
 }
+
+// ---------------------------------------------------------------------
+// Resource function collection
+// ---------------------------------------------------------------------
 
 fn method_resource(f: &Function) -> Option<TypeId> {
     match f.kind {
@@ -193,61 +256,425 @@ fn method_resource(f: &Function) -> Option<TypeId> {
     }
 }
 
-fn ts_func_type(resolve: &Resolve, f: &Function, resource: Option<TypeId>) -> Result<String> {
-    let _ = resource; // see digest.rs canon_func: f.params already has `self`.
+fn collect_resource_fns<'a>(
+    resolve: &'a Resolve,
+    items: &'a wit_parser::IndexMap<WorldKey, WorldItem>,
+    side: Side,
+    out: &mut std::collections::BTreeMap<TypeId, ResourceFns<'a>>,
+    order: &mut Vec<TypeId>,
+) -> Result<()> {
+    for item in items.values() {
+        if let WorldItem::Interface { id, .. } = item {
+            let iface = &resolve.interfaces[*id];
+            for f in iface.functions.values() {
+                let Some(rid) = method_resource(f) else {
+                    continue;
+                };
+                let entry = out.entry(rid).or_insert_with(|| {
+                    order.push(rid);
+                    ResourceFns::default()
+                });
+                entry.side = Some(side);
+                match f.kind {
+                    FunctionKind::Constructor(_) => entry.ctor = Some(f),
+                    FunctionKind::Method(_) | FunctionKind::AsyncMethod(_) => {
+                        entry.methods.push(f)
+                    }
+                    FunctionKind::Static(_) | FunctionKind::AsyncStatic(_) => {
+                        entry.statics.push(f)
+                    }
+                    _ => unreachable!(),
+                }
+            }
+            // A resource with no functions at all (degenerate, untested by
+            // the current fixture corpus) would never be visited above;
+            // register it anyway so the class still gets emitted.
+            for tid in iface.types.values() {
+                if matches!(resolve.types[*tid].kind, TypeDefKind::Resource)
+                    && !out.contains_key(tid)
+                {
+                    out.entry(*tid).or_insert_with(|| {
+                        order.push(*tid);
+                        ResourceFns {
+                            side: Some(side),
+                            ..Default::default()
+                        }
+                    });
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn is_async_kind(kind: &FunctionKind) -> bool {
+    matches!(
+        kind,
+        FunctionKind::AsyncFreestanding | FunctionKind::AsyncMethod(_) | FunctionKind::AsyncStatic(_)
+    )
+}
+
+/// Emit a resource class declaration.
+///
+/// Guest-implemented (export side): a concrete `declare class` — methods
+/// and statics are Promise-shaped (exports are uniformly Promise-shaped,
+/// contracts/embedder-api.md §"Functions and async"), constructor is typed
+/// as an ordinary synchronous JS constructor.
+///
+/// **Constructors are synchronous** (C2 amendment, contracts/embedder-api.md
+/// §"Resources"): a JS class constructor cannot await, so `new R(...)` is
+/// the one exception (alongside future-typed results) to the
+/// uniformly-Promise-shaped rule. A guest constructor that does not
+/// complete synchronously is a runtime error (named), not bindgen's
+/// concern — the type is simply an ordinary sync constructor.
+///
+/// Host-implemented (import side): the *shape* the embedder must provide —
+/// same member layout, but typed per the import sync/async rule (`T` or
+/// `T | Promise<T>`), since the host supplies the implementation directly
+/// (contracts/embedder-api.md §"Resources", host-implemented paragraph).
+fn emit_resource_class(
+    resolve: &Resolve,
+    id: TypeId,
+    rf: &ResourceFns,
+    out: &mut Source,
+) -> Result<()> {
+    let name = resource_ts_name(resolve, id)?;
+    let side = rf.side.unwrap_or(Side::Export);
+    let is_export = side == Side::Export;
+
+    writeln!(out, "/**")?;
+    if is_export {
+        writeln!(
+            out,
+            " * Guest-implemented resource (host holds handles). `{name}` instances\n\
+             * are transferred/invalidated per own/borrow semantics — see\n\
+             * contracts/embedder-api.md §\"Resources\".\n\
+             * @remarks the constructor is synchronous by C2 amendment\n\
+             * (\"Constructors are synchronous\" — contracts/embedder-api.md\n\
+             * §\"Resources\"): a guest constructor that fails to complete\n\
+             * synchronously raises a named runtime error rather than\n\
+             * half-constructing."
+        )?;
+    } else {
+        writeln!(
+            out,
+            " * Host-implemented resource (guest holds handles): the embedder\n\
+             * supplies a class matching this shape — contracts/embedder-api.md\n\
+             * §\"Resources\", host-implemented paragraph."
+        )?;
+    }
+    writeln!(out, " */")?;
+    writeln!(out, "export declare class {name} {{")?;
+
+    if let Some(ctor) = rf.ctor {
+        let params = param_list(resolve, ctor)?;
+        writeln!(out, "  constructor({params});")?;
+    }
+    for f in &rf.methods {
+        write_class_member(resolve, f, is_export, false, out)?;
+    }
+    for f in &rf.statics {
+        write_class_member(resolve, f, is_export, true, out)?;
+    }
+    if is_export {
+        writeln!(out, "  [Symbol.dispose](): void;")?;
+        writeln!(out, "  drop(): void;")?;
+    } else {
+        writeln!(out, "  [Symbol.dispose]?(): void;")?;
+    }
+    writeln!(out, "}}\n")?;
+    Ok(())
+}
+
+fn write_class_member(
+    resolve: &Resolve,
+    f: &Function,
+    is_export: bool,
+    is_static: bool,
+    out: &mut Source,
+) -> Result<()> {
+    let name = camel_case(&f.name_after_last_dot_or_bracket());
+    let params = param_list_skip_self(resolve, f)?;
+    let (ret, doc) = func_return(resolve, f, is_export)?;
+    if let Some(d) = doc {
+        writeln!(out, "  /** {d} */")?;
+    }
+    let prefix = if is_static { "static " } else { "" };
+    writeln!(out, "  {prefix}{name}({params}): {ret};")?;
+    Ok(())
+}
+
+/// Resource method/static names come through as `[method]counter.increment`
+/// / `[static]counter.merge` in `Function.name` (the ABI export name);
+/// bindgen's obligation is exactly this mangled-name-to-class-member
+/// assembly (contracts/embedder-api.md §"Bindgen obligations"). The bare
+/// member name is the text after the last `.`.
+trait LastSegment {
+    fn name_after_last_dot_or_bracket(&self) -> String;
+}
+impl LastSegment for Function {
+    fn name_after_last_dot_or_bracket(&self) -> String {
+        self.name
+            .rsplit('.')
+            .next()
+            .unwrap_or(&self.name)
+            .to_string()
+    }
+}
+
+// ---------------------------------------------------------------------
+// World item (function/interface) emission
+// ---------------------------------------------------------------------
+
+fn emit_world_item(
+    resolve: &Resolve,
+    key: &WorldKey,
+    item: &WorldItem,
+    side: Side,
+    out: &mut Source,
+) -> Result<()> {
+    let is_export = side == Side::Export;
+    match item {
+        WorldItem::Function(f) => {
+            let name = match key {
+                WorldKey::Name(n) => n.clone(),
+                WorldKey::Interface(_) => bail!("function with interface key"),
+            };
+            let params = param_list(resolve, f)?;
+            let (ret, doc) = func_return(resolve, f, is_export)?;
+            if let Some(d) = doc {
+                writeln!(out, "  /** {d} */")?;
+            }
+            writeln!(out, "  {}({params}): {ret};", camel_case(&name))?;
+        }
+        WorldItem::Interface { id, .. } => {
+            let iface = &resolve.interfaces[*id];
+            // The runtime keys nested export objects by the *component
+            // export name* (`WireExport.name`), which for an interface
+            // export is its full qualified name — verified against
+            // `runtime/src/exec/executor.ts` (see prior version of this
+            // file); must match `digest::qualified_interface_name` exactly,
+            // and also the casing table's "interface key ... verbatim,
+            // version included" rule.
+            let name = digest::qualified_interface_name(resolve, *id)?;
+            writeln!(out, "  {}: {{", kebab_literal(&name))?;
+            // Resources declared in this interface: expose the class
+            // (guest-implemented: the class itself, constructible via
+            // `new`; host-implemented: same shape, the embedder's class).
+            for tid in iface.types.values() {
+                if matches!(resolve.types[*tid].kind, TypeDefKind::Resource) {
+                    let rname = resource_ts_name(resolve, *tid)?;
+                    writeln!(out, "    {rname}: typeof {rname};")?;
+                }
+            }
+            for (fname, f) in &iface.functions {
+                if method_resource(f).is_some() {
+                    // Resource methods/statics/constructors are exposed via
+                    // the class above, not as flat interface members.
+                    continue;
+                }
+                let params = param_list(resolve, f)?;
+                let (ret, doc) = func_return(resolve, f, is_export)?;
+                if let Some(d) = doc {
+                    writeln!(out, "    /** {d} */")?;
+                }
+                writeln!(out, "    {}({params}): {ret};", camel_case(fname))?;
+            }
+            writeln!(out, "  }};")?;
+        }
+        WorldItem::Type { .. } => {
+            // Named world-level type export; not itself a callable/instance
+            // member, already emitted as a type declaration.
+        }
+    }
+    Ok(())
+}
+
+fn param_list(resolve: &Resolve, f: &Function) -> Result<String> {
     let mut params = Vec::new();
     for p in &f.params {
         params.push(format!(
             "{}: {}",
-            ts_param_name(&p.name),
-            ts_value_type(resolve, p.ty)?
+            camel_case(&p.name),
+            ts_param_type(resolve, p.ty)?
         ));
     }
-    let ret = match (f.result, &f.kind) {
-        (Some(t), _) => ts_value_type(resolve, t)?,
-        (None, FunctionKind::Constructor(rid)) => resource_ts_name(resolve, *rid)?,
-        (None, _) => "void".to_string(),
-    };
-    Ok(format!("({}) => {ret}", params.join(", ")))
-
+    Ok(params.join(", "))
 }
 
-fn ts_param_name(name: &str) -> String {
-    // Same reasoning as ts_field_name: quote to stay exact, but parameter
-    // position syntax needs a bare identifier, so map kebab-case to
-    // camelCase here (this is purely a *display* name in the .d.ts function
-    // type — TS call sites are positional, so this mapping cannot cause a
-    // wire mismatch either direction).
-    let mut out = String::new();
-    let mut upper_next = false;
-    for c in name.chars() {
-        if c == '-' {
-            upper_next = true;
+/// Same as `param_list` but drops the leading `self` parameter that
+/// wit_parser includes explicitly for `Method`/`AsyncMethod` functions
+/// (digest.rs `canon_func`'s note) — a JS class method's receiver is
+/// implicit `this`, not a positional argument.
+fn param_list_skip_self(resolve: &Resolve, f: &Function) -> Result<String> {
+    let skip_first = matches!(f.kind, FunctionKind::Method(_) | FunctionKind::AsyncMethod(_));
+    let mut params = Vec::new();
+    for (i, p) in f.params.iter().enumerate() {
+        if i == 0 && skip_first {
             continue;
         }
-        if upper_next {
-            out.extend(c.to_uppercase());
-            upper_next = false;
+        params.push(format!(
+            "{}: {}",
+            camel_case(&p.name),
+            ts_param_type(resolve, p.ty)?
+        ));
+    }
+    Ok(params.join(", "))
+}
+
+/// Compute a function's TS return type plus an optional JSDoc line.
+///
+/// - **Exports** are uniformly `Promise<T>` (contracts/embedder-api.md
+///   §"Functions and async"). If the WIT result type is a top-level
+///   `result<T, E>`, `T` is unwrapped (the `ok` payload; `void` if empty)
+///   and a `@throws {WitError<E>}` doc line is attached — the err channel
+///   is a throw, never part of the resolved value (§"Error model").
+/// - **Imports**: sync WIT funcs return `T` directly; async funcs return
+///   `T | Promise<T>` (dispatch normative bullet #3). Fallible imports are
+///   documented the same way (`@throws`), signaling via `throw new
+///   WitError(payload)` per the host-import error-model paragraph.
+///
+/// Constructors have no explicit return type in TS (the class instance is
+/// implicit); callers of this function skip constructors entirely.
+fn func_return(resolve: &Resolve, f: &Function, is_export: bool) -> Result<(String, Option<String>)> {
+    let is_async = is_async_kind(&f.kind);
+    if let Some(t) = f.result {
+        // Future results are eager handles (C2 amendment,
+        // contracts/embedder-api.md §"Streams and futures"): JS promise
+        // resolution unconditionally adopts thenables, so a Promise can
+        // never resolve *to* a `Future<T>` (itself `PromiseLike<T>`) —
+        // wrapping would make `drop`/`cancel` unreachable. The function
+        // returns `Future<T>` directly, bypassing the uniform-Promise rule
+        // exactly like the synchronous-constructor exception. `Stream<T>`
+        // is unaffected (not thenable) and stays Promise-wrapped as usual.
+        if let Some(elem) = as_top_level_future(resolve, t) {
+            let elem_ts = match elem {
+                Some(t) => ts_value_type(resolve, t)?,
+                None => "void".to_string(),
+            };
+            return Ok((format!("Future<{elem_ts}>"), None));
+        }
+        if let Some((ok, err)) = as_top_level_result(resolve, t) {
+            // Empty sides resolve `undefined` (`WitError.payload ===
+            // undefined` on the err side) — C2 amendment,
+            // contracts/embedder-api.md value mapping table's
+            // function-result row.
+            let ok_ts = match ok {
+                Some(t) => ts_value_type(resolve, t)?,
+                None => "undefined".to_string(),
+            };
+            let err_ts = match err {
+                Some(t) => ts_value_type(resolve, t)?,
+                None => "undefined".to_string(),
+            };
+            let doc = format!("@throws {{WitError<{err_ts}>}}");
+            let ret = if is_export {
+                format!("Promise<{ok_ts}>")
+            } else if is_async {
+                format!("{ok_ts} | Promise<{ok_ts}>")
+            } else {
+                ok_ts
+            };
+            return Ok((ret, Some(doc)));
+        }
+        let t_ts = ts_value_type(resolve, t)?;
+        let ret = if is_export {
+            format!("Promise<{t_ts}>")
+        } else if is_async {
+            format!("{t_ts} | Promise<{t_ts}>")
         } else {
-            out.push(c);
+            t_ts
+        };
+        return Ok((ret, None));
+    }
+    // No declared result. Constructor functions implicitly return the
+    // resource (handled by the caller, which never routes constructors
+    // through this function for their *declared* type — but `Function`
+    // objects for Constructor kind may still flow through generic
+    // interface-function loops for interfaces with freestanding-looking
+    // entries; guard defensively).
+    if let FunctionKind::Constructor(rid) = f.kind {
+        let rname = resource_ts_name(resolve, rid)?;
+        let ret = if is_export {
+            format!("Promise<{rname}>")
+        } else {
+            rname
+        };
+        return Ok((ret, None));
+    }
+    let ret = if is_export {
+        "Promise<void>".to_string()
+    } else if is_async {
+        "void | Promise<void>".to_string()
+    } else {
+        "void".to_string()
+    };
+    Ok((ret, None))
+}
+
+/// If `ty` is (possibly through a chain of named-type aliases) a
+/// `result<T, E>` used directly as a function's declared result type — the
+/// "as a function result" row of the value mapping table, as opposed to a
+/// `result` nested inside some other structural type (record/list/tuple/
+/// variant payload), which stays the ordinary `{tag,val}` value shape.
+fn as_top_level_result(resolve: &Resolve, ty: Type) -> Option<(Option<Type>, Option<Type>)> {
+    let Type::Id(id) = ty else { return None };
+    match &resolve.types[id].kind {
+        TypeDefKind::Type(inner) => as_top_level_result(resolve, *inner),
+        TypeDefKind::Result(r) => Some((r.ok, r.err)),
+        _ => None,
+    }
+}
+
+/// Same shape of peel as `as_top_level_result`, for `future<T>` — used by
+/// `func_return`'s eager-handle special case. Returns `Some(element_type)`
+/// (itself optional: `future<_>` may be untyped) iff `ty` is a `future`.
+fn as_top_level_future(resolve: &Resolve, ty: Type) -> Option<Option<Type>> {
+    let Type::Id(id) = ty else { return None };
+    match &resolve.types[id].kind {
+        TypeDefKind::Type(inner) => as_top_level_future(resolve, *inner),
+        TypeDefKind::Future(t) => Some(*t),
+        _ => None,
+    }
+}
+
+// ---------------------------------------------------------------------
+// Value type mapping (contracts/embedder-api.md value mapping table)
+// ---------------------------------------------------------------------
+
+/// Parameter-position type: same as `ts_value_type` except a *top-level*
+/// `stream<T>`/`future<T>` parameter widens to the accepted-producers union
+/// (contracts/embedder-api.md §"Streams and futures": "lowering accepts
+/// the natural JS producers") — `StreamSource<T>`/`FutureSource<T>` rather
+/// than the handle types `Stream<T>`/`Future<T>`. Nested occurrences (e.g.
+/// a record field of type `stream<T>`) are NOT widened — the contract's
+/// producer-acceptance language is about what a guest-facing *call site*
+/// hands over, not general value shapes — so those still go through
+/// `ts_value_type`, which keeps `Stream<T>`/`Future<T>`.
+fn ts_param_type(resolve: &Resolve, ty: Type) -> Result<String> {
+    if let Type::Id(id) = ty {
+        match &resolve.types[id].kind {
+            TypeDefKind::Type(inner) => return ts_param_type(resolve, *inner),
+            TypeDefKind::Stream(t) => {
+                let inner = match t {
+                    Some(t) => ts_value_type(resolve, *t)?,
+                    None => "void".to_string(),
+                };
+                return Ok(format!("StreamSource<{inner}>"));
+            }
+            TypeDefKind::Future(t) => {
+                let inner = match t {
+                    Some(t) => ts_value_type(resolve, *t)?,
+                    None => "void".to_string(),
+                };
+                return Ok(format!("FutureSource<{inner}>"));
+            }
+            _ => {}
         }
     }
-    if out.is_empty() || out.chars().next().unwrap().is_ascii_digit() {
-        out = format!("_{out}");
-    }
-    out
+    ts_value_type(resolve, ty)
 }
 
-fn resource_ts_name(resolve: &Resolve, id: TypeId) -> Result<String> {
-    let name = resolve.types[id]
-        .name
-        .as_deref()
-        .context("resource type has no name")?;
-    Ok(ts_ident(name))
-}
-
-/// Host-value type mapping (descriptor-ir.md type-mapping table; value
-/// *shapes* per the v0.1 interpreter-truth note — see module docs).
 fn ts_value_type(resolve: &Resolve, ty: Type) -> Result<String> {
     Ok(match ty {
         Type::Bool => "boolean".to_string(),
@@ -256,7 +683,7 @@ fn ts_value_type(resolve: &Resolve, ty: Type) -> Result<String> {
         Type::U64 | Type::S64 => "bigint".to_string(),
         Type::Char => "string".to_string(),
         Type::String => "string".to_string(),
-        Type::ErrorContext => "unknown /* error-context: M2 */".to_string(),
+        Type::ErrorContext => "ErrorContext".to_string(),
         Type::Id(id) => ts_typedef_value_type(resolve, id)?,
     })
 }
@@ -266,85 +693,109 @@ fn ts_typedef_value_type(resolve: &Resolve, id: TypeId) -> Result<String> {
     Ok(match &def.kind {
         TypeDefKind::Type(t) => ts_value_type(resolve, *t)?,
         TypeDefKind::Record(_) | TypeDefKind::Variant(_) | TypeDefKind::Enum(_)
-        | TypeDefKind::Flags(_) => {
-            // Named types were pre-emitted as declarations; reference by name.
-            def.name
-                .as_ref()
-                .map(|n| ts_ident(n))
-                .context("anonymous record/variant/enum/flags type")?
-        }
+        | TypeDefKind::Flags(_) => def
+            .name
+            .as_ref()
+            .map(|n| ts_ident(n))
+            .context("anonymous record/variant/enum/flags type")?,
         TypeDefKind::Tuple(t) => {
-            // Current interpreter truth (cabi/types.ts `despecialize`):
-            // tuple<T,U,...> is despecialized to a record `{ "0": T, "1": U,
-            // ... }` before lift/lower — NOT a TS tuple/array. This is the
-            // *v0.1 implementation* shape (descriptor-ir.md's table target
-            // shape, an actual array, is future work post-convergence).
-            let fields: Result<Vec<String>> = t
-                .types
-                .iter()
-                .enumerate()
-                .map(|(i, e)| Ok(format!("{i:?}: {}", ts_value_type(resolve, *e)?)))
-                .collect();
-            format!("{{ {} }}", fields?.join("; "))
+            let elements: Result<Vec<String>> =
+                t.types.iter().map(|e| ts_value_type(resolve, *e)).collect();
+            format!("[{}]", elements?.join(", "))
         }
         TypeDefKind::List(el) => {
             if matches!(el, Type::U8) {
                 "Uint8Array".to_string()
             } else {
-                format!("Array<{}>", ts_value_type(resolve, *el)?)
+                format!("({})[]", ts_value_type(resolve, *el)?)
             }
         }
-        TypeDefKind::FixedLengthList(el, _) => format!("Array<{}>", ts_value_type(resolve, *el)?),
+        TypeDefKind::FixedLengthList(el, _) => format!("({})[]", ts_value_type(resolve, *el)?),
+        // map<K,V> -> its despecialization list<tuple<K,V>> -> `[K, V][]`
+        // (C2 amendment, value mapping table).
         TypeDefKind::Map(k, v) => format!(
-            "Array<[{}, {}]>",
+            "[{}, {}][]",
             ts_value_type(resolve, *k)?,
             ts_value_type(resolve, *v)?
         ),
-        // option<T> CURRENT interpreter shape (cabi/lift.ts
-        // `liftFlatVariant`: option despecializes to variant{none,some} and
-        // the interpreter's variant lift always returns a single-key
-        // object `{ [label]: payload }` — there is no `undefined`-based
-        // shortcut in the running code today, contrary to
-        // descriptor-ir.md's *target* table, which is explicitly a v0.1
-        // "destination, not current truth" per that doc's status note).
-        TypeDefKind::Option(t) => {
-            format!("({{ none: null }} | {{ some: {} }})", ts_value_type(resolve, *t)?)
-        }
-        // result<T,E> host shape: `{ ok: T } | { error: E }` — note the
-        // wire/in-memory name split (descriptor-ir.md v0.1 amendment #1:
-        // wire `err` vs runtime `error`); bindgen faces the runtime, so
-        // `error` is what call sites actually see.
+        // Option rule (contracts/embedder-api.md §"Option rule"): outermost
+        // maps to `T | undefined`; an option nested directly inside another
+        // option uses the variant family instead. `ts_option_inner` renders
+        // the "some" payload, applying that boxing recursively.
+        TypeDefKind::Option(t) => format!("({} | undefined)", ts_option_inner(resolve, *t)?),
+        // result<T,E> nested as a value: `{tag,val}` family, `val` absent
+        // for empty sides (same row as `variant`).
         TypeDefKind::Result(r) => {
-            let ok = match r.ok {
-                Some(t) => ts_value_type(resolve, t)?,
-                None => "null".to_string(),
+            let ok_arm = match r.ok {
+                Some(t) => format!("{{ tag: \"ok\"; val: {} }}", ts_value_type(resolve, t)?),
+                None => "{ tag: \"ok\" }".to_string(),
             };
-            let err = match r.err {
-                Some(t) => ts_value_type(resolve, t)?,
-                None => "null".to_string(),
+            let err_arm = match r.err {
+                Some(t) => format!("{{ tag: \"err\"; val: {} }}", ts_value_type(resolve, t)?),
+                None => "{ tag: \"err\" }".to_string(),
             };
-            format!("({{ ok: {ok} }} | {{ error: {err} }})")
+            format!("({ok_arm} | {err_arm})")
         }
         TypeDefKind::Handle(Handle::Own(rid)) | TypeDefKind::Handle(Handle::Borrow(rid)) => {
             resource_ts_name(resolve, *rid)?
         }
-        TypeDefKind::Future(_) | TypeDefKind::Stream(_) => {
-            "unknown /* async: M2 */".to_string()
+        TypeDefKind::Future(t) => {
+            let inner = match t {
+                Some(t) => ts_value_type(resolve, *t)?,
+                None => "void".to_string(),
+            };
+            format!("Future<{inner}>")
+        }
+        TypeDefKind::Stream(t) => {
+            let inner = match t {
+                Some(t) => ts_value_type(resolve, *t)?,
+                None => "void".to_string(),
+            };
+            format!("Stream<{inner}>")
         }
         TypeDefKind::Resource => bail!("bare resource used as a value type"),
         TypeDefKind::Unknown => bail!("unresolved type in a resolved Resolve"),
     })
 }
 
-/// Pre-pass: emit `interface`/`type` declarations for every named
-/// record/variant/enum/flags type and a resource-handle interface for every
-/// named resource, each exactly once, walking function signatures reachable
-/// from world imports/exports.
+/// Render the "some" payload for an option, applying the nested-option
+/// boxing rule recursively: if `t` is itself an `option<...>`, box it as
+/// `{ tag: "some", val: <recurse> } | { tag: "none" }`; otherwise render it
+/// as a plain value type.
+fn ts_option_inner(resolve: &Resolve, t: Type) -> Result<String> {
+    if let Type::Id(id) = t {
+        if let TypeDefKind::Option(inner) = &resolve.types[id].kind {
+            let boxed = ts_option_inner(resolve, *inner)?;
+            return Ok(format!(
+                "({{ tag: \"some\"; val: {boxed} }} | {{ tag: \"none\" }})"
+            ));
+        }
+    }
+    ts_value_type(resolve, t)
+}
+
+/// Record-field rendering: option-typed fields are optional properties
+/// (`field?: T`) rather than `field: T | undefined` (value mapping table,
+/// `record` row's note) — `T` still applies the nested-option boxing rule
+/// via `ts_option_inner` (the outer `| undefined` is subsumed by `?`).
+fn record_field_type(resolve: &Resolve, ty: Type) -> Result<(String, bool)> {
+    if let Type::Id(id) = ty {
+        if let TypeDefKind::Option(inner) = &resolve.types[id].kind {
+            return Ok((ts_option_inner(resolve, *inner)?, true));
+        }
+    }
+    Ok((ts_value_type(resolve, ty)?, false))
+}
+
+// ---------------------------------------------------------------------
+// Named type declarations (records/variants/enums/flags)
+// ---------------------------------------------------------------------
+
 fn collect_and_emit_types(
     resolve: &Resolve,
     _key: &WorldKey,
     item: &WorldItem,
-    emitted: &mut std::collections::BTreeSet<TypeId>,
+    emitted: &mut BTreeSet<TypeId>,
     out: &mut Source,
 ) -> Result<()> {
     match item {
@@ -366,7 +817,7 @@ fn collect_and_emit_types(
 fn walk_func_types(
     resolve: &Resolve,
     f: &Function,
-    emitted: &mut std::collections::BTreeSet<TypeId>,
+    emitted: &mut BTreeSet<TypeId>,
     out: &mut Source,
 ) -> Result<()> {
     for p in &f.params {
@@ -381,11 +832,10 @@ fn walk_func_types(
 fn walk_type(
     resolve: &Resolve,
     ty: Type,
-    emitted: &mut std::collections::BTreeSet<TypeId>,
+    emitted: &mut BTreeSet<TypeId>,
     out: &mut Source,
 ) -> Result<()> {
     if let Type::Id(id) = ty {
-        // Recurse into structural children first (dependency-before-use).
         match &resolve.types[id].kind {
             TypeDefKind::Type(t) => walk_type(resolve, *t, emitted, out)?,
             TypeDefKind::Record(r) => {
@@ -431,7 +881,7 @@ fn walk_type(
 fn emit_named_type(
     resolve: &Resolve,
     id: TypeId,
-    emitted: &mut std::collections::BTreeSet<TypeId>,
+    emitted: &mut BTreeSet<TypeId>,
     out: &mut Source,
 ) -> Result<()> {
     if emitted.contains(&id) {
@@ -444,32 +894,30 @@ fn emit_named_type(
             emitted.insert(id);
             writeln!(out, "export interface {} {{", ts_ident(name))?;
             for f in &r.fields {
-                writeln!(
-                    out,
-                    "  {}: {};",
-                    ts_field_name(&f.name),
-                    ts_value_type(resolve, f.ty)?
-                )?;
+                let (ty, optional) = record_field_type(resolve, f.ty)?;
+                let q = if optional { "?" } else { "" };
+                writeln!(out, "  {}{q}: {ty};", camel_case(&f.name))?;
             }
             writeln!(out, "}}\n")?;
         }
         TypeDefKind::Variant(v) => {
             let Some(name) = &def.name else { return Ok(()) };
             emitted.insert(id);
-            // Interpreter host shape (descriptor-ir.md table / cabi/types.ts
-            // docstring): single-key object `{ [caseLabel]: payload|null }`.
+            // `{ tag: "case" } | { tag: "case", val: T }` — `val` absent
+            // (not `undefined`) for payloadless cases (value mapping table
+            // + the "why a discriminant property" rationale).
             let arms: Result<Vec<String>> = v
                 .cases
                 .iter()
                 .map(|c| {
-                    Ok(format!(
-                        "{{ {}: {} }}",
-                        ts_field_name(&c.name),
-                        match c.ty {
-                            Some(t) => ts_value_type(resolve, t)?,
-                            None => "null".to_string(),
-                        }
-                    ))
+                    Ok(match c.ty {
+                        Some(t) => format!(
+                            "{{ tag: {}; val: {} }}",
+                            kebab_literal(&c.name),
+                            ts_value_type(resolve, t)?
+                        ),
+                        None => format!("{{ tag: {} }}", kebab_literal(&c.name)),
+                    })
                 })
                 .collect();
             writeln!(
@@ -482,15 +930,9 @@ fn emit_named_type(
         TypeDefKind::Enum(e) => {
             let Some(name) = &def.name else { return Ok(()) };
             emitted.insert(id);
-            // Current interpreter shape (cabi/types.ts `despecialize`: enum
-            // -> variant with null-payload cases; lift.ts's
-            // `liftFlatVariant` always returns `{ [label]: payload }`) —
-            // single-key objects, not bare label strings.
-            let arms: Vec<String> = e
-                .cases
-                .iter()
-                .map(|c| format!("{{ {}: null }}", ts_field_name(&c.name)))
-                .collect();
+            // enum = string literal union of kebab-case case names (value
+            // mapping table) — data, not `{tag}` objects (unlike variant).
+            let arms: Vec<String> = e.cases.iter().map(|c| kebab_literal(&c.name)).collect();
             writeln!(out, "export type {} =\n  | {};\n", ts_ident(name), arms.join("\n  | "))?;
         }
         TypeDefKind::Flags(fl) => {
@@ -498,24 +940,16 @@ fn emit_named_type(
             emitted.insert(id);
             writeln!(out, "export interface {} {{", ts_ident(name))?;
             for f in &fl.flags {
-                writeln!(out, "  {}: boolean;", ts_field_name(&f.name))?;
+                writeln!(out, "  {}: boolean;", camel_case(&f.name))?;
             }
             writeln!(out, "}}\n")?;
         }
         TypeDefKind::Resource => {
-            let Some(name) = &def.name else { return Ok(()) };
+            // Handled separately by `emit_resource_class` (needs the
+            // gathered constructor/methods/statics bundle, not available
+            // here); just mark it emitted so nothing else tries to print a
+            // named-type declaration for it.
             emitted.insert(id);
-            // Handle-shaped interface only (descriptor-ir.md: "own/borrow ->
-            // runtime handle class"); the v1 interpreter hands back a plain
-            // handle number at this layer (see cabi/types.ts docstring) —
-            // resource *classes* are ergonomic-layer future work, so this
-            // is deliberately just a nominal branded marker type for now.
-            writeln!(
-                out,
-                "export type {} = number & {{ readonly __resource: {:?} }};\n",
-                ts_ident(name),
-                name
-            )?;
         }
         _ => {}
     }
