@@ -114,9 +114,6 @@ export class SigningKey {
   }
 }
 
-/** The `polymorph:webcrypto/signature@0.1.0` interface: its resource classes. */
-export const signature = { VerifyingKey, SigningKey };
-
 interface SigningKeyPolicy {
   sign: boolean;
   extractable: boolean;
@@ -166,6 +163,16 @@ export const ed25519Verify = {
     return new VerifyingKey(key as CryptoKey);
   },
 };
+
+/** The `polymorph:webcrypto/signature@0.1.0` interface: its resource classes.
+ *
+ * `SigningKeyOptions` is DEFINED by `signature` (webcrypto.wit:604,613)
+ * and merely `use`d by `ed25519-sign` — a component importing both
+ * interfaces needs the class published under the defining interface too
+ * (found by the iroh endpoint exam: the endpoint links `signature` for
+ * the resource type and `ed25519-sign` for the functions). Placed after
+ * the class declarations deliberately (TDZ). */
+export const signature = { VerifyingKey, SigningKey, SigningKeyOptions };
 
 /** The `polymorph:webcrypto/ed25519-sign@0.1.0` interface. */
 export const ed25519Sign = {

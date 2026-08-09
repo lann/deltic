@@ -1,0 +1,8 @@
+{
+  "private": true,
+  "//": "Bare npm specifiers reached from ports/webrtc/src/webrtc.ts resolve against THIS package scope when the exam is the entry project, so the webrtc backend deps are pinned here to the exact versions ports/webrtc/package.json pins.",
+  "dependencies": {
+    "node-datachannel": "0.32.3",
+    "werift": "0.22.2"
+  }
+}
