@@ -169,3 +169,18 @@ jobs:
       - name: webkit lane (best-effort)
         continue-on-error: true
         run: deno run -A tools/browser/run-lane.ts webkit
+
+  # Every GREEN main ref update ships a prerelease (issue #16's interim
+  # scheme): tag pre-<shorthash>, shim artifacts + SHA256SUMS. Gated on this
+  # same run's core matrix + browser job, so "green" is the release
+  # criterion by construction. Notes: (a) the concurrency group above
+  # cancels superseded runs, so rapid consecutive pushes release only the
+  # surviving tip — a cancelled run was never green; (b) continue-on-error
+  # steps (webrtc on runners #21, webkit lane) do not block a release, by
+  # the same policy that keeps them non-blocking in CI.
+  release:
+    needs: [core, browser]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
+    uses: ./.github/workflows/release.yml

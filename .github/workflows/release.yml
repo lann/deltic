@@ -6,9 +6,15 @@ name: Release
 # every test suite runs against — plus the size-tuned variant documented in
 # crates/translator-shim/README.md) and SHA256SUMS, so consumers do not need
 # a Rust toolchain.
+#
+# Invoked two ways: automatically from ci.yml's `release` job on every GREEN
+# main ref update (workflow_call, gated on the same run's core+browser jobs),
+# and manually (workflow_dispatch) as the escape hatch. The tag-exists guard
+# makes re-runs no-ops-by-failure rather than duplicate releases.
 
 on:
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: write
