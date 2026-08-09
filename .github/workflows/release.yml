@@ -1,0 +1,86 @@
+name: Release
+
+# Interim release scheme (issue #16): every release is a PRERELEASE; the tag
+# is derived from the main commit short hash (`pre-<shorthash>`). Artifacts:
+# the prebuilt translator wasm (standard release build — the exact artifact
+# every test suite runs against — plus the size-tuned variant documented in
+# crates/translator-shim/README.md) and SHA256SUMS, so consumers do not need
+# a Rust toolchain.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: compute tag
+        id: tag
+        run: |
+          SHORT=$(git rev-parse --short HEAD)
+          TAG="pre-$SHORT"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "release $TAG already exists" >&2
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "short=$SHORT" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: build translator shim (release)
+        run: |
+          cargo build -p translator-shim --target wasm32-unknown-unknown --release
+          cp target/wasm32-unknown-unknown/release/translator_shim.wasm deltic-translator-shim.wasm
+
+      - name: build translator shim (size-tuned)
+        # Flags exactly as documented in crates/translator-shim/README.md
+        # (reproduces the published size figures without editing the
+        # workspace manifest).
+        run: |
+          cargo build -p translator-shim --release --target wasm32-unknown-unknown \
+            --config 'profile.release.opt-level="z"' \
+            --config profile.release.lto=true \
+            --config profile.release.codegen-units=1 \
+            --config 'profile.release.panic="abort"' \
+            --config 'profile.release.strip=true'
+          cp target/wasm32-unknown-unknown/release/translator_shim.wasm deltic-translator-shim-min.wasm
+
+      - name: checksums
+        run: sha256sum deltic-translator-shim.wasm deltic-translator-shim-min.wasm > SHA256SUMS
+
+      - name: create prerelease
+        run: |
+          {
+            echo "Prerelease \`${TAG}\` at ${GITHUB_SHA}."
+            echo
+            echo "Artifacts: the prebuilt translator shim wasm (standard release"
+            echo "build — what the test suites run against) and the size-tuned"
+            echo "variant per crates/translator-shim/README.md. Consumers need no"
+            echo "Rust toolchain; see README.md for status and usage."
+            echo
+            echo '```'
+            cat SHA256SUMS
+            echo '```'
+          } > notes.md
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --prerelease \
+            --title "deltic $TAG" \
+            --notes-file notes.md \
+            deltic-translator-shim.wasm deltic-translator-shim-min.wasm SHA256SUMS
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
