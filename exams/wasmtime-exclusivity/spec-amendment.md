@@ -34,7 +34,17 @@ each corpus:
 Observable scope of the difference: only callback-lifted tasks between
 `task.return` and EXIT. Sync-lifted tasks resolve exactly at frame return
 (no post-resolution frame exists), and stackful tasks ignore the slot
-entirely.
+entirely. The suspension itself can be any mid-frame park — a sync
+builtin, a sync-lowered call to an async-typed import (host function or a
+transitive component chain), or a `thread.yield` in a post-return pump
+loop: all funnel through the same blocking primitive
+(`Thread.block_internal`), which never touches the slot.
+
+So, in one sentence, the question the repo must adjudicate:
+
+> **Should a callback-lifted task in its post-return phase, suspended
+> mid-frame, still gate same-instance entry — formally, does
+> `exclusive_thread` outlive the task's resolution?**
 
 ## Why the release rule should win
 
@@ -54,7 +64,10 @@ The gate exists for two reasons, and neither needs the hold rule:
    ends at resolution — resolution is precisely when the caller gets its
    result and moves on. (Concurrency.md:197–199 already reads this way:
    entry waits "for the previous call to **return** and release the lock" —
-   in CM vocabulary a subtask "returns" at resolution.)
+   in CM vocabulary a subtask "returns" at resolution.) Even the runtime's
+   internal use goes dead at the same moment: the cancellation path that
+   cares who holds the slot (definitions.py:526) is moot once the task is
+   resolved.
 2. **Shadow-stack serialization** (Invariant #3). This is the one place the
    amendment has to spend something; next section.
 
@@ -95,10 +108,26 @@ The release rule does not: a resolved task parked mid-frame keeps live
 frames on the shadow stack while an admitted task pushes its own below;
 depending on which side resumes first, pops go out of order and a later
 push can land on still-live frames. Hand-written wat using only wasm locals
-(sync-streams.wast itself) is immune; shadow-stack code is not. This is not
-hypothetical at the semantic level: the same admitted-interleaving window
-is IROH-1 (`upstream-consumer-findings.md`), where guest state assumed no
-same-instance interleaving during a resolved task's block.
+(sync-streams.wast itself) is immune; shadow-stack code is not.
+
+Decomposing what the hold rule actually protects at a post-return
+suspension point makes the trade precise — it splits in two:
+
+- **Application state** (non-reentrant guest structures; the IROH-1 class,
+  `upstream-consumer-findings.md`, where guest state assumed no
+  same-instance interleaving during a resolved task's block): the hold
+  rule's protection here is real only for components whose exports are
+  *all* async-typed. Non-`async` exports barge past the lock at exactly
+  these suspension points (Concurrency.md:201–205), so mixed-export
+  components must already be reentrant-safe there. Thin, conditional
+  value.
+- **Shadow-stack LIFO**: real and unconditional. Barge-in is LIFO-safe (a
+  non-async callee completes synchronously before the parked frame
+  resumes); an admitted async sibling is not (it can park too and resume
+  out of order). This is the one substantive thing the hold rule buys —
+  and it is a property of the resolved task's *own continuation code*,
+  which is why it prices correctly as a scoped toolchain contract rather
+  than as an instance-wide mutex held for an unbounded background phase.
 
 So the invariant's promise must be scoped to pre-resolution execution,
 e.g.:
@@ -113,10 +142,14 @@ callback-lifted exports must keep post-resolution code either non-blocking
 or frame-clean at blocks — in practice generated bindings already use the
 callback/WAIT path, whose frame boundaries are clean, which is why the
 release rule hasn't burned real toolchains yet). The alternatives that
-avoid the carve-out both fail the existing corpus: keeping the hold rule
-breaks `sync-streams.wast:145` and shipped wasmtime behavior; trapping
-post-resolution blocking fails the same test. If the wast corpus stands,
-the carve-out is forced.
+avoid the carve-out all fail the existing corpus: keeping the hold rule
+breaks `sync-streams.wast:145` and shipped wasmtime behavior; and the
+"why not neither?" option — trapping post-return mid-frame suspension in
+callback-lifted tasks — would keep Invariant #3 airtight but fails the
+same wast test, fails the reference's own `test_callback_interleaving`
+(whose producers do post-return sync reads), and outlaws the natural
+straight-line producer idiom (resolve, then sync-write the stream). If
+the wast corpus stands, the carve-out is forced.
 
 ## Why this likely lands (process)
 
