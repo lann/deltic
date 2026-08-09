@@ -1,0 +1,12 @@
+{
+  "name": "@component-engine/port-webcrypto",
+  "version": "0.0.0",
+  "exports": "./src/mod.ts",
+  "imports": {
+    "@component-engine/runtime/embedder": "../../runtime/src/embedder/mod.ts"
+  },
+  "tasks": {
+    "test": "deno test --allow-read tests/",
+    "check": "deno check src tests"
+  }
+}
