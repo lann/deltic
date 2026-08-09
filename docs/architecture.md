@@ -104,10 +104,13 @@ the `Suspender` object was removed).
 Notes:
 
 - Deno and Chrome share V8, so Firefox and WebKit provide the real engine
-  diversity. M3 evidence: SpiderMonkey JSPI is clean over the full corpus
-  (one trap-*wording* variance, tolerated per §1); JSC's JSPI works
-  unflagged, but JSC lacks multi-memory, which is the actual WebKit-lane cap
-  (the CABI routinely needs >1 memory per core module).
+  diversity. M3 evidence: SpiderMonkey JSPI is clean over the full corpus;
+  JSC's JSPI works unflagged, but the pinned JSC build lacks multi-memory,
+  the actual WebKit-lane cap (the CABI routinely needs >1 memory per core
+  module; default-on in WebKit trunk, #11). Engine trap-message wording
+  differences are normalized in the harness matcher, never in the runtime
+  (`TRAP_MESSAGE_EQUIVALENTS`, harness/src/runner.ts) — with them
+  reconciled, Firefox and trunk WebKit run at exact Deno-lane parity.
 - **Type reflection (js-types) is phase 3 and flagged everywhere** — function
   signatures are not available from `WebAssembly.Module.imports()`. The
   architecture below sidesteps this (the translator emits all type

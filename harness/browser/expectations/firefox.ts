@@ -2,8 +2,8 @@
 //
 // RESULT (2026-08-09, Firefox/153.0 via playwright 1.62.1, linux-arm64,
 // headless, launched with `javascript.options.wasm_js_promise_integration =
-// true`): **the lane runs the full corpus.** All 59 files, 1395 commands,
-// 25.7 s wall clock.
+// true`): **the lane runs the full corpus, Deno-identical.** All 59 files,
+// 1395 commands.
 //
 // ENGINE FINDINGS
 // ---------------
@@ -17,19 +17,22 @@
 //    empirical pins (a)-(j) misfires here: with the runtime's ambient made
 //    explicit (M3A-1, below), Firefox reproduces the Deno lane command for
 //    command.
-// 2. ONE genuine SpiderMonkey variance, in trap wording:
-//    `async/builtin-trap-poisons-instance.wast:9` expects
-//    "wasm trap: wasm `unreachable` instruction executed"; SpiderMonkey says
-//    "unreachable executed". Per docs/architecture.md §1 the suite's `assert_trap` text is de
-//    facto wasmtime/V8 wording, so this is an expected cross-engine
-//    difference in message text, not a behavioural one — the trap happens,
-//    at the right place, and poisons the instance as the spec requires.
+// 2. Trap wording (SpiderMonkey vs. V8) is no longer a lane delta. The
+//    runtime passes each engine's raw core-trap text through unmodified
+//    (`mapCoreException`, runtime/src/exec/boundary.ts); suite-wording
+//    normalization (per docs/architecture.md §1, the suite's `assert_trap`
+//    text is de facto wasmtime/V8 wording) now lives harness-side in
+//    `TRAP_MESSAGE_EQUIVALENTS` (harness/src/runner.ts), which carries
+//    SpiderMonkey's "unreachable executed" spelling alongside V8's and JSC's
+//    for `async/builtin-trap-poisons-instance.wast:9`. The trap happens at
+//    the right place and poisons the instance identically; only the message
+//    text ever differed.
 //
 // FINDING M3A-1 IS CLOSED. This file used to carry 80 further entries,
 // identical to Chromium's, for the runtime's `node:async_hooks` dependency.
 // Track M3A-1 removed that dependency from `runtime/src` (see
 // `harness/browser/expectations/chromium.ts` for the summary), so SpiderMonkey
-// now reproduces the Deno lane exactly apart from the trap wording above.
+// now reproduces the Deno lane exactly.
 
 import type { LaneExpectation } from "./types.ts";
 
@@ -38,24 +41,16 @@ export const firefox: LaneExpectation = {
   required: false,
   notes:
     "Firefox 153 + javascript.options.wasm_js_promise_integration. JSPI verified working end to end. " +
-    "Exactly 1 delta: SpiderMonkey trap wording. FINDING M3A-1 is fixed in the runtime, so the rest of the corpus is Deno-identical.",
-  deltas: [
-    {
-      file: "async/builtin-trap-poisons-instance.json",
-      line: 9,
-      kind: "expected-fail",
-      reason:
-        "ENGINE: this engine words the unreachable trap differently; the suite's assert_trap text is de facto wasmtime/V8 wording (docs/architecture.md §1)",
-    },
-  ],
+    "No deltas: corpus Deno-identical (trap wording now normalized harness-side).",
+  deltas: [],
   // Findings lane: totals are recorded for drift detection but the driver
   // does not gate on them (`required: false`).
   totals: {
     commands: 1395,
     executed: 1349,
-    passed: 1249,
+    passed: 1250,
     failed: 0,
-    xfail: 100,
+    xfail: 99,
     pendingRuntime: 41,
     pendingCapability: 0,
     unsupportedDirective: 5,

@@ -272,6 +272,13 @@ class UnsupportedDirective extends Error {}
  * these pairs are normalized here rather than left as false failures. A
  * message pair not in this table falls back to plain substring matching, so
  * new/incidental wording matches keep working without a table entry.
+ *
+ * Rows also cover engine-worded *core*-wasm traps: `mapCoreException` in
+ * runtime/src/exec/boundary.ts passes a `WebAssembly.RuntimeError`'s message
+ * through untouched (`guest trapped: <engine text>`) rather than translating
+ * it to wasmtime's wording, so each JS engine's own spelling of a given trap
+ * (V8/SpiderMonkey/JSC differ, e.g. for `unreachable`) is normalized here
+ * against the suite's expected (typically wasmtime-worded) text instead.
  */
 const TRAP_MESSAGE_EQUIVALENTS: Array<[expectedPrefix: string, actualSubstrings: string[]]> = [
   // resources/handle-table.wast: runtime/src/cabi/handles.ts Table.get/free.
@@ -282,9 +289,33 @@ const TRAP_MESSAGE_EQUIVALENTS: Array<[expectedPrefix: string, actualSubstrings:
     "handle index",
     ["resource type mismatch"], // "... used with the wrong type, expected ..."
   ],
+  // async/builtin-trap-poisons-instance.wast:9 assert_trap "wasm trap: wasm
+  // `unreachable` instruction executed" — core `unreachable` trap, raw engine
+  // text via mapCoreException. V8 (Deno/Chromium): "unreachable"; SpiderMonkey
+  // (Firefox): "unreachable executed"; JSC (WebKit): "Unreachable code should
+  // not be executed" (capitalized — substring matching alone would miss it
+  // against the lowercase expected text).
+  [
+    "wasm trap: wasm `unreachable` instruction executed",
+    ["unreachable", "unreachable executed", "Unreachable code should not be executed"],
+  ],
+  // async/big-interleaving-test.wast:836 asserts the SHORT form, plain
+  // "unreachable". V8's and SpiderMonkey's spellings contain it as a
+  // lowercase substring (fast path), but JSC capitalizes — verified against
+  // a webkit-2342 (multi-memory-enabled) lane run, where this command is the
+  // one wording residual the row above does not reach (its prefix is the
+  // long form). Without this row the WebKit overlay cannot collapse to
+  // empty at the playwright pin bump (deltic#11).
+  [
+    "unreachable",
+    ["Unreachable code should not be executed"],
+  ],
 ];
 
-function trapMatches(expected: string, actual: string): boolean {
+// Exported for the unit-test suite (tests/runner_unit_test.ts) to pin the
+// engine-spelling rows directly, rather than only indirectly via a full
+// assert_trap command.
+export function trapMatches(expected: string, actual: string): boolean {
   if (actual.includes(expected)) return true;
   for (const [prefix, actuals] of TRAP_MESSAGE_EQUIVALENTS) {
     if (expected.startsWith(prefix) && actuals.some((a) => actual.includes(a))) {

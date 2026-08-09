@@ -200,6 +200,17 @@ class Trap extends Error { … }  // existing; component-fatal, never a value
   is unnecessary by construction: only `WitError` crosses as an err value.
 - Host code must never catch-and-swallow `Trap` (re-throw if observed);
   traps poison the instance per docs/architecture.md §7 regardless.
+- **`Trap.message` is diagnostic text, not API.** Match on the `Trap`
+  brand (or future structured fields), never on message text. In
+  particular, a raw core-wasm trap (e.g. `unreachable`) carries the
+  *engine's own* wording behind a `guest trapped:` provenance prefix —
+  V8, SpiderMonkey, and JSC each phrase the same trap differently, and
+  the runtime deliberately does not normalize them (the conformance
+  harness reconciles suite-expected wording at comparison time instead;
+  see `TRAP_MESSAGE_EQUIVALENTS` in harness/src/runner.ts). Runtime-
+  *authored* traps (FACT adapter codes, deadlock detection, handle-table
+  errors) have stable wording chosen by this project, but the same rule
+  applies: text is for humans and logs.
 - Results nested inside values never throw anywhere — they are plain
   `{ tag, val }` data (table above).
 

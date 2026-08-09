@@ -46,11 +46,15 @@
 //    build's `JSC_useWasmMultiMemory` option is an inert stub (verified:
 //    the env route works — `JSC_useWasm=0` kills wasm — but the flag
 //    changes nothing). When the playwright pin reaches a webkit-2342+ roll,
-//    collapse this overlay to the wording entries; the stale-delta detector
+//    collapse this overlay to EMPTY; the stale-delta detector
 //    will insist. Details: https://github.com/lann/deltic/issues/11
-// 3. One trap-wording variance, same class as Firefox's: JSC says
-//    "Unreachable code should not be executed" where the suite expects the
-//    wasmtime/V8 wording (docs/architecture.md §1).
+// 3. Trap wording (JSC vs. V8) is no longer a lane delta. JSC says
+//    "Unreachable code should not be executed" for the core `unreachable`
+//    trap where the suite expects the wasmtime/V8 wording
+//    (docs/architecture.md §1); the runtime passes each engine's raw text
+//    through unmodified (`mapCoreException`, runtime/src/exec/boundary.ts)
+//    and the harness now normalizes it (`TRAP_MESSAGE_EQUIVALENTS`,
+//    harness/src/runner.ts).
 //
 // FINDING M3A-1 IS CLOSED, and its 18 entries are gone from this file. The
 // runtime no longer depends on a platform async-context facility (see
@@ -446,13 +450,6 @@ export const webkit: LaneExpectation = {
       kind: "expected-fail",
       reason:
         "CASCADE: an earlier command in this same file failed, leaving the component definition / instance state wrong for every later command. Root cause = the first non-CASCADE delta listed above it in this file.",
-    },
-    {
-      file: "async/builtin-trap-poisons-instance.json",
-      line: 9,
-      kind: "expected-fail",
-      reason:
-        "ENGINE: this engine words the unreachable trap differently; the suite's assert_trap text is de facto wasmtime/V8 wording (docs/architecture.md §1)",
     },
     {
       file: "async/cross-abi-calls.json",
@@ -1300,9 +1297,9 @@ export const webkit: LaneExpectation = {
     executed: 1349,
     // 18 commands moved from xfail to passed when FINDING M3A-1 was fixed in
     // the runtime and its entries left this file.
-    passed: 1075,
+    passed: 1076,
     failed: 0,
-    xfail: 274,
+    xfail: 273,
     pendingRuntime: 41,
     pendingCapability: 0,
     unsupportedDirective: 5,

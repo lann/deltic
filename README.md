@@ -19,9 +19,9 @@ Pre-1.0, but densely gated:
 
 - **Official Component Model test suite**: 1250 passing / 0 failing commands
   across all directories (remaining: named xfail classes — wasmparser pin
-  drift, 🧵-deferred, small gaps), identical on Deno and Chromium; Firefox
-  green behind its JSPI pref (one trap-*wording* variance); WebKit capped
-  only by JSC's missing multi-memory.
+  drift, 🧵-deferred, small gaps), identical on Deno, Chromium, and Firefox
+  (behind its JSPI pref); WebKit reaches the same totals on trunk builds
+  (the pinned build lacks JSC multi-memory, since implemented upstream).
 - **Real-workload proof points** (the [polymorph] component family):
   the iroh endpoint component — detached pump tasks, multi-export
   concurrency, cross-task wakeups; the workload that deadlocks jco's

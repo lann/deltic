@@ -7,7 +7,7 @@
 
 import type { WastJson } from "../src/schema.ts";
 import { CoreOnlyExecutor } from "../src/executor.ts";
-import { runWastJson } from "../src/runner.ts";
+import { runWastJson, trapMatches } from "../src/runner.ts";
 
 // (module) - the empty core module, hand-encoded.
 const EMPTY_CORE_MODULE = new Uint8Array([0, 0x61, 0x73, 0x6d, 1, 0, 0, 0]);
@@ -174,4 +174,63 @@ Deno.test("a genuinely invalid core module fails assert-free module command", as
     new CoreOnlyExecutor(),
   );
   assertEq(result.results[0].status, "failed", "status");
+});
+
+// TRAP_MESSAGE_EQUIVALENTS: the core `unreachable` trap row. The runtime
+// (runtime/src/exec/boundary.ts mapCoreException) passes each JS engine's raw
+// trap text through untouched; this table is where the suite's
+// (wasmtime-worded) expected text is reconciled against each engine's own
+// spelling. Pin all three known engine spellings against both expected forms
+// the corpus actually asserts for this trap.
+Deno.test("trapMatches: core `unreachable` trap — all three engine spellings match the wasmtime-worded expectation", () => {
+  const expected = "wasm trap: wasm `unreachable` instruction executed";
+  // V8 (Deno/Chromium)
+  assertEq(trapMatches(expected, "guest trapped: unreachable"), true, "V8");
+  // SpiderMonkey (Firefox)
+  assertEq(
+    trapMatches(expected, "guest trapped: unreachable executed"),
+    true,
+    "SpiderMonkey",
+  );
+  // JSC (WebKit) — capitalized "Unreachable", which is exactly why plain
+  // substring matching against the lowercase expected text is insufficient.
+  assertEq(
+    trapMatches(
+      expected,
+      "guest trapped: Unreachable code should not be executed",
+    ),
+    true,
+    "JSC",
+  );
+});
+
+Deno.test("trapMatches: core `unreachable` trap — all three engine spellings match the short expected form too", () => {
+  // async/big-interleaving-test.wast:836 asserts plain "unreachable"; this
+  // already matches via the substring fast path (actual.includes(expected)),
+  // not the equivalents table, but pin it here so a future refactor of
+  // either path can't silently break this corpus command.
+  const expected = "unreachable";
+  assertEq(trapMatches(expected, "guest trapped: unreachable"), true, "V8");
+  assertEq(
+    trapMatches(expected, "guest trapped: unreachable executed"),
+    true,
+    "SpiderMonkey",
+  );
+  assertEq(
+    trapMatches(
+      expected,
+      "guest trapped: Unreachable code should not be executed",
+    ),
+    true,
+    "JSC (capitalized, so the substring fast path misses; covered by the short-form equivalents row — the wording residual observed on webkit-2342, deltic#11)",
+  );
+});
+
+Deno.test("trapMatches: an unrelated engine trap message does not falsely match the unreachable row", () => {
+  const expected = "wasm trap: wasm `unreachable` instruction executed";
+  assertEq(
+    trapMatches(expected, "guest trapped: memory access out of bounds"),
+    false,
+    "unrelated trap",
+  );
 });

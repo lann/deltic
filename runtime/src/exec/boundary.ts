@@ -229,33 +229,21 @@ export function cabiOptions(opts: ResolvedOptions): CanonicalOptions {
  * of ours propagate unchanged.
  */
 /**
- * V8's core-wasm trap messages, mapped to the text wasmtime's `impl Display
- * for Trap` produces. The official suite's `assert_trap` compares against
- * wasmtime's wording (e.g. `builtin-trap-poisons-instance.wast:9` expects
- * ``wasm trap: wasm `unreachable` instruction executed``), so a JS host has to
- * translate — the underlying condition is identical, only the phrasing is
- * engine-specific.
+ * Layering rule: a core-wasm trap's message is engine-specific text (V8,
+ * SpiderMonkey, JSC each word `unreachable` differently, for instance) and is
+ * passed through here UNTOUCHED — it is diagnostics only, "engine-flavored"
+ * and not normalized to any particular host's wording. The runtime never
+ * emulates another host's (e.g. wasmtime's) message text.
  *
- * Deliberately partial: an unrecognised message falls through to the generic
- * `guest trapped: <text>` form rather than being guessed at, so a new or
- * engine-specific trap can never be silently reported as the wrong wasmtime
- * trap. (The FACT *adapter* traps take a different route entirely — they
- * arrive as numeric codes through the `trap` trampoline, see
- * `FACT_TRAP_MESSAGES` in intrinsics/mod.ts.)
+ * Suite-wording normalization (matching the official test suite's
+ * `assert_trap` expectations, which are typically worded per wasmtime) lives
+ * in the harness instead: see `TRAP_MESSAGE_EQUIVALENTS` in
+ * harness/src/runner.ts, which maps engine-specific spellings to the
+ * suite-expected forms at comparison time. (The FACT *adapter* traps take a
+ * different route entirely — they arrive as numeric codes through the `trap`
+ * trampoline and are runtime-authored text, see `FACT_TRAP_MESSAGES` in
+ * intrinsics/mod.ts; that table is untouched by this layering rule.)
  */
-const CORE_TRAP_MESSAGES: Record<string, string> = {
-  "unreachable": "wasm `unreachable` instruction executed",
-  "memory access out of bounds": "out of bounds memory access",
-  "table index is out of bounds": "undefined element: out of bounds table access",
-  "null function": "uninitialized element",
-  "null function or function signature mismatch": "uninitialized element",
-  "function signature mismatch": "indirect call type mismatch",
-  "divide by zero": "integer divide by zero",
-  "divide result unrepresentable": "integer overflow",
-  "float unrepresentable in integer range": "invalid conversion to integer",
-  "call stack exhausted": "call stack exhausted",
-  "Maximum call stack size exceeded": "call stack exhausted",
-};
 
 export function callCore(fn: CoreFn, args: CoreValue[]): CoreValue[] {
   let raw: unknown;
@@ -286,13 +274,8 @@ export function callCore(fn: CoreFn, args: CoreValue[]): CoreValue[] {
  */
 function mapCoreException(e: unknown): unknown {
   if (e instanceof WebAssembly.RuntimeError) {
-    const mapped = CORE_TRAP_MESSAGES[e.message];
     try {
-      trap(
-        mapped === undefined
-          ? `guest trapped: ${e.message}`
-          : `wasm trap: ${mapped}`,
-      );
+      trap(`guest trapped: ${e.message}`);
     } catch (t) {
       return t;
     }
