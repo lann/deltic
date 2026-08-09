@@ -20,7 +20,7 @@ Deno.test({
       suiteName: "test-suite",
       emit: (l) => lines.push(l),
     });
-    assertEq(counts, { passed: 4, failed: 1, skipped: 1, total: 6 });
+    assertEq(counts, { passed: 4, failed: 1, skipped: 1, na: 0, total: 6 });
     assertEq(lines.length, 1 + 6 + 1); // envelope + 6 cases + terminator
 
     const events = lines.slice(1, -1).map((l) => JSON.parse(l));
@@ -94,6 +94,6 @@ Deno.test({
       freshCases: false,
       emit: (l) => lines.push(l),
     });
-    assertEq(counts, { passed: 4, failed: 1, skipped: 1, total: 6 });
+    assertEq(counts, { passed: 4, failed: 1, skipped: 1, na: 0, total: 6 });
   },
 });

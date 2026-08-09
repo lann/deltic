@@ -25,6 +25,14 @@ export async function haveFixture(rel: string): Promise<boolean> {
 
 export async function artifactsOf(rel: string): Promise<ComponentArtifacts> {
   const componentBytes = (await readArtifact(rel))!;
+  return artifactsOfBytes(componentBytes);
+}
+
+/** Translate caller-supplied component bytes (e.g. a fixture with a
+ * synthesized `component-test:tags@0.1` section appended). */
+export function artifactsOfBytes(
+  componentBytes: Uint8Array,
+): ComponentArtifacts {
   const { plan, adapters } = translator!.translate(componentBytes);
   return { plan, componentBytes, adapters };
 }

@@ -19,6 +19,12 @@ import {
 } from "../../runtime/src/embedder/mod.ts";
 import { Context, testContextImportRecord } from "./context.ts";
 import { analyzeImports, requireImportsResolved } from "./import-analysis.ts";
+import {
+  applies,
+  firstExcluding,
+  loadTagsInventory,
+  tagsOf,
+} from "./tags.ts";
 
 /** The suite's `tests` interface id (wit/tests.wit `interface tests`, v0.1.0). */
 export const TESTS_INTERFACE = "polymorph:test/tests@0.1.0";
@@ -44,6 +50,17 @@ export interface RunSuiteOptions {
   /** Substring filter: non-matching cases are skipped entirely (no emit),
    * per js/viewer/harness.mjs `runCases`'s `only` handling. */
   only?: string;
+  /**
+   * Feature-tag scheduling (issue #25): the features this target LACKS —
+   * js/viewer/harness.mjs's `missing`. Tag-gating activates whenever the
+   * suite carries a `component-test:tags@0.1` inventory (src/tags.ts):
+   * non-applicable cases emit `not-applicable` rows instead of executing,
+   * and an enumerated case no record covers throws (inventory drift — the
+   * run is unsound, not failing). Passing `missing` for a suite WITHOUT an
+   * inventory is an error (gating requested but impossible — upstream's
+   * runner refuses the same way rather than silently degrading).
+   */
+  missing?: string[];
   /**
    * Per-case wall-clock budget in ms (the `--case-timeout` runner option
    * documented in harness.mjs's `runSuiteJsonl` doc comment). On expiry the
@@ -76,6 +93,8 @@ export interface RunCounts {
   passed: number;
   failed: number;
   skipped: number;
+  /** Cases scheduled out as `not-applicable` (tag gating; harness.mjs `na`). */
+  na: number;
   total: number;
 }
 
@@ -143,18 +162,34 @@ export async function runSuite(
   const censusTests = await newTests();
   const census = await censusTests.all();
 
+  // Feature-tag scheduling (issue #25): gate on the suite's own
+  // `component-test:tags@0.1` inventory when it has one — the SDK embeds it
+  // in the guest core module and it survives wac composition, so this
+  // introspecting runner CAN see it (revising the earlier "cannot see the
+  // tags section" stance recorded below). Suites without an inventory run
+  // feature-blind exactly as before.
+  const inventory = loadTagsInventory(artifacts.componentBytes);
+  const missing = opts.missing ?? [];
+  if (inventory === null && opts.missing !== undefined) {
+    throw new Error(
+      "missing-features given, but the suite carries no " +
+        "component-test:tags@0.1 inventory (not built with their SDK, or " +
+        "sections stripped) — tag gating is impossible, refusing to " +
+        "silently run feature-blind",
+    );
+  }
+
   const suiteName = opts.suiteName.replaceAll("-", "_");
   const artifactSha256 = await sha256Hex(artifacts.componentBytes);
   opts.emit(JSON.stringify({
     "component-test-results": "0.1",
     target: opts.target,
     suite: { name: suiteName, "artifact-sha256": artifactSha256 },
-    // "none": this runner applies no tag/manifest scheduling — it executes
-    // every enumerated case (component-test-results/src/lib.rs `RunInfo`
-    // doc comment: "none" is for producers that "cannot see the tags
-    // section", which is exactly this L1-direct runner's position — it never
-    // reads L0 static feature-tag metadata at all).
-    run: { segment: 0, scheduling: "none" },
+    // "tags" when this run schedules against the suite's tag inventory,
+    // "none" for inventory-less suites (component-test-results/src/lib.rs
+    // `RunInfo`: "none" is for producers that cannot see the tags section
+    // — with the inventory in hand, this runner no longer is one).
+    run: { segment: 0, scheduling: inventory !== null ? "tags" : "none" },
   }));
 
   if (census.length === 0) {
@@ -166,7 +201,7 @@ export async function runSuite(
     );
   }
 
-  const counts: RunCounts = { passed: 0, failed: 0, skipped: 0, total: 0 };
+  const counts: RunCounts = { passed: 0, failed: 0, skipped: 0, na: 0, total: 0 };
 
   for (const [i, testCase] of census.entries()) {
     const name = String(await testCase.name());
@@ -174,6 +209,28 @@ export async function runSuite(
     // js/viewer/harness.mjs `runCases`: "if (only && !name.includes(only))
     // continue" — a filtered-out case is skipped entirely, no emit.
     if (opts.only && !name.includes(opts.only)) continue;
+
+    // harness.mjs `runCases` mark scheduling, in its exact order: `only`
+    // first (above), then drift, then applicability. The N/A row's shape is
+    // the embed runner's (expected/verify-pipeline-fixture.jsonl):
+    // status, first excluding mark as detail, diagnostics-complete true.
+    if (inventory !== null) {
+      const tags = tagsOf(inventory, name);
+      if (tags === undefined) {
+        throw new Error(`inventory drift: no tags record covers ${name}`);
+      }
+      if (!applies(tags, missing)) {
+        counts.na++;
+        opts.emit(JSON.stringify({
+          case: name,
+          status: "not-applicable",
+          detail: firstExcluding(tags, missing),
+          "diagnostics-complete": true,
+        }));
+        opts.log?.(`${name} … not-applicable`);
+        continue;
+      }
+    }
 
     // js/viewer/harness.mjs `runCases`' `freshCases` branch: re-enumerate
     // from a fresh instance and run the matching case; a vanished case is
@@ -230,6 +287,10 @@ export async function runSuite(
           status: "pass",
           provenance: "returned",
           "duration-ms": durationMs,
+          // The case returned normally, so its diagnostics sideband is
+          // complete (upstream emits this on every returned row; deltic's
+          // trap/timeout rows already carry `false`).
+          "diagnostics-complete": true,
         };
       }
     } catch (e) {
@@ -247,6 +308,7 @@ export async function runSuite(
             provenance: "returned",
             detail: payload.val,
             "duration-ms": durationMs,
+            "diagnostics-complete": true,
           };
         } else if (payload?.tag === "skipped") {
           counts.skipped++;
@@ -256,6 +318,7 @@ export async function runSuite(
             provenance: "returned",
             detail: payload.val,
             "duration-ms": durationMs,
+            "diagnostics-complete": true,
           };
         } else {
           // Contract violation: `outcome` has exactly two cases. Treat as
