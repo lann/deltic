@@ -16,3 +16,4 @@ ports/webcrypto/conformance/results-*.jsonl
 bench/boundary/deltic-embedder.local.mjs
 bench/boundary/generated/
 bench/boundary/node_modules/
+bench/boundary/guest/target/

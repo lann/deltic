@@ -1,2 +1,0 @@
-cargo:rerun-if-changed=build.rs
-cargo:rustc-env=DEBUG_OUTPUT_DIR=/home/lmartin/.paseo/worktrees/036ujoty/fast-fish/bench/boundary/guest/target/release/build/wit-bindgen-rust-macro-a698c48393c1fe71/out
