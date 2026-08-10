@@ -43,8 +43,8 @@ export class Translator {
    */
   readonly buildHash: string | null;
 
-  private constructor(instance: WebAssembly.Instance, buildHash: string | null) {
-    this.#exports = instance.exports as unknown as ShimExports;
+  private constructor(exports: object, buildHash: string | null) {
+    this.#exports = exports as unknown as ShimExports;
     this.buildHash = buildHash;
     for (const name of ["memory", "ts_alloc", "ts_dealloc", "ts_translate"]) {
       if (!(name in this.#exports)) {
@@ -69,7 +69,33 @@ export class Translator {
       ).join("");
     }
     const instance = await WebAssembly.instantiate(module, {});
-    return new Translator(instance, buildHash);
+    return new Translator(instance.exports, buildHash);
+  }
+
+  /**
+   * Wrap an ALREADY-INSTANTIATED shim — the ESM wasm-module import path
+   * (issue #16 delivery design): `import * as shim from ".../translator_shim.wasm"`
+   * hands back an instantiated namespace (the shim imports nothing, so the
+   * ESM integration instantiates it trivially), and this wraps it with no
+   * further compile or copy.
+   *
+   * Sharing note: ESM gives ONE instance per realm, so every `fromExports`
+   * wrapper over the same namespace shares linear memory. That is safe by
+   * construction — `translate` is synchronous end-to-end (alloc → call →
+   * copy out → dealloc within one JS frame), so calls can never interleave —
+   * but treat the wrappers as equivalent, not independent.
+   *
+   * `buildHash` (hex sha-256 of the shim wasm bytes) cannot be recovered
+   * from an instance; pass it when known — a published package can ship the
+   * hash of the exact asset it carries — or leave it absent and the
+   * artifact cache politely refuses to key on translator identity
+   * (cache/core.ts).
+   */
+  static fromExports(
+    exports: object,
+    opts: { buildHash?: string } = {},
+  ): Translator {
+    return new Translator(exports, opts.buildHash ?? null);
   }
 
   /** Translate a component binary into plan v0 + adapter artifacts. */
