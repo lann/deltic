@@ -46,7 +46,6 @@ just browsers             # chromium + firefox lanes (`just browsers-install` on
 just websocket-conformance  # their suite under this host (spawns their echod)
 just smoke-tls            # polymorph-tls suite (issue #18)
 just smoke-c0             # C0 smoke legs
-just iroh-exam            # needs iroh-relay on PATH
 ```
 
 Conformance discipline: the harness fails loudly on unexpected failures *and*

@@ -44,7 +44,7 @@ Pre-1.0, but densely gated:
 | `ct-runner/` | conformance-suite runner for the polymorph-test L1 contract |
 | `harness/` + `tools/browser` | official-suite harness; Deno lane + Chromium/Firefox/WebKit lanes |
 | `contracts/` | the versioned interface contracts (plan format, embedder API, intrinsics, digest) |
-| `ports/`, `exams/` | polymorph host-module ports and consumer exams (reference implementations pending upstreaming) |
+| `ports/` | polymorph host-module ports (reference implementations pending upstreaming; the consumer exams retired upstream — docs/consumers.md) |
 
 ## Quick start
 

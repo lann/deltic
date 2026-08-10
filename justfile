@@ -13,10 +13,10 @@ default:
 # Exactly the CI jobs: the required `core` matrix + the post-merge `browser` job.
 ci: (gha::core) (gha::browser)
 
-# Includes the consumer smokes and exams CI cannot run (they need the
-# polymorph checkouts and iroh-relay; docs/consumers.md).
+# Includes the consumer smokes CI cannot run (they need the polymorph
+# checkouts; docs/consumers.md).
 # The full pre-commit pass (AGENTS.md "Gates"): everything.
-gates: build test-rust test-runtime test-wasi-shims test-ct-runner test-bundle examples test-translate conformance sched-seeds test-ports test-webrtc shells browsers websocket-conformance smoke-tls smoke-c0 iroh-exam
+gates: build test-rust test-runtime test-wasi-shims test-ct-runner test-bundle examples test-translate conformance sched-seeds test-ports test-webrtc shells browsers websocket-conformance smoke-tls smoke-c0
 
 # Fast sanity: builds + native tests + type-checks, no suites.
 check: build test-rust
@@ -205,9 +205,6 @@ bench-boundary *jco: shim
             ../../target/wasm32-unknown-unknown/release/translator_shim.wasm
     fi
 
-# The iroh endpoint exit exam (needs iroh-relay on PATH).
-iroh-exam: shim
-    deno run -A --unstable-net exams/iroh-endpoint/run.ts
 
 # ----- release ----------------------------------------------------------------
 
