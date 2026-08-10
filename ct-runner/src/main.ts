@@ -20,7 +20,7 @@
 // checkout it defaults to the local release build under `target/`.
 
 import { Translator } from "../../runtime/src/shim/mod.ts";
-import type { ComponentArtifacts } from "../../runtime/src/embedder/mod.ts";
+import type { ComponentArtifacts } from "@deltic/runtime/embedder";
 import { MissingImportsError, runSuite } from "./mod.ts";
 
 const REPO_ROOT = new URL("../../", import.meta.url);

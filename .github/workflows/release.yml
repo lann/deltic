@@ -18,6 +18,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write # JSR OIDC publishing
 
 jobs:
   release:
@@ -27,6 +28,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: true
+          fetch-depth: 0 # commit count = the JSR prerelease number
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
@@ -63,13 +65,14 @@ jobs:
           {
             echo "Prerelease \`${TAG}\` at ${GITHUB_SHA}."
             echo
-            echo "Artifacts: the prebuilt translator shim wasm (standard release"
-            echo "build — what the test suites run against), the size-tuned"
-            echo "variant per crates/translator-shim/README.md, and the embedder"
+            echo "Artifacts: the prebuilt translator shim wasm (size-tuned — the"
+            echo "exact artifact every test suite runs against) and the embedder"
             echo "bundle deltic-embedder.mjs (one platform-neutral ES module:"
             echo "embedder API + Translator + ct-runner + wasi-shims — browsers"
-            echo "and plain Node, no flags). Consumers need no Rust toolchain;"
-            echo "see README.md for status and usage."
+            echo "and plain Node, no flags). Consumers need no Rust toolchain."
+            echo "The same commit is published to JSR as an unstable prerelease"
+            echo "of @deltic/{runtime,translator,wasi-shims,ct-runner}; see"
+            echo "README.md for usage."
             echo
             echo '```'
             cat SHA256SUMS
@@ -81,8 +84,28 @@ jobs:
             --prerelease \
             --title "deltic $TAG" \
             --notes-file notes.md \
-            deltic-translator-shim.wasm deltic-translator-shim-min.wasm \
+            deltic-translator-shim.wasm \
             deltic-embedder.mjs SHA256SUMS
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.tag.outputs.tag }}
+
+      - name: publish unstable prereleases to JSR
+        # Version scheme (issue #16, interim): 0.1.0-pre.<main commit count>
+        # — monotonic, derived from the ref being released, and unique per
+        # commit (JSR refuses duplicate versions, which also makes re-runs
+        # of this workflow no-ops-by-failure like the tag guard above).
+        # The stamped versions are CI-working-tree-only (never committed);
+        # cross-package workspace deps are rewritten by `deno publish`.
+        # Auth: OIDC (permissions.id-token) — the @deltic packages must
+        # exist on jsr.io and be linked to this repository (one-time
+        # manual setup; see the #16 checklist).
+        run: |
+          COUNT=$(git rev-list --count HEAD)
+          VERSION="0.1.0-pre.${COUNT}"
+          echo "publishing @deltic/* ${VERSION}"
+          for p in runtime translator wasi-shims ct-runner; do
+            jq --arg v "$VERSION" '.version = $v' "$p/deno.json" > "$p/deno.json.tmp"
+            mv "$p/deno.json.tmp" "$p/deno.json"
+          done
+          deno publish --allow-dirty

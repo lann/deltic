@@ -36,6 +36,19 @@
 
 import "./types.ts";
 
+/**
+ * Opaque public alias for `WebAssembly.Suspending` instances.
+ *
+ * The real class is declared by this package's GLOBAL augmentation
+ * (./types.ts) because JSPI is not yet in the standard TS libs — but a
+ * published package must not require consumers to hold that augmentation
+ * just to read our signatures (JSR's public-type output drops `declare
+ * global`). Public API therefore names this opaque brand; the value is
+ * exactly a `WebAssembly.Suspending`, usable anywhere an import value is
+ * expected.
+ */
+export type SuspendingImport = { readonly __delticSuspending: unique symbol };
+
 /** True if the current engine implements `WebAssembly.promising` and
  * `WebAssembly.Suspending`. Both are phase-4 API surface (docs/architecture.md §3): no
  * fallback path exists or is planned for engines without them. */
@@ -106,7 +119,9 @@ export function makeSuspending<
   TReturn = unknown,
 >(
   fn: (...args: TArgs) => TReturn | Promise<TReturn>,
-): WebAssembly.Suspending {
+): SuspendingImport {
   assertSupported();
-  return new WebAssembly.Suspending(fn as (...args: unknown[]) => unknown);
+  return new WebAssembly.Suspending(
+    fn as (...args: unknown[]) => unknown,
+  ) as unknown as SuspendingImport;
 }
