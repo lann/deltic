@@ -1,9 +1,18 @@
 {
   "name": "@deltic/translator",
   "version": "0.1.0",
-  "exports": { ".": "./mod.ts" },
+  "exports": {
+    ".": "./mod.ts"
+  },
   "tasks": {
     "test": "deno test --allow-read tests/",
     "check": "deno check mod.ts tests/"
-  }
+  },
+  "publish": {
+    "exclude": [
+      "!translator_shim.wasm",
+      "tests/"
+    ]
+  },
+  "license": "Apache-2.0"
 }

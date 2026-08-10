@@ -103,4 +103,5 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: write
+      id-token: write # JSR OIDC publishing (the called workflow requests it)
     uses: ./.github/workflows/release.yml

@@ -650,7 +650,7 @@ export class Store {
    * exec/boundary.ts. (definitions.py has no analogue: its host functions run
    * on real threads.)
    */
-  readonly pendingHostCalls = new Set<Promise<unknown>>();
+  readonly pendingHostCalls: Set<Promise<unknown>> = new Set();
 
   /**
    * An exception raised by a host import's promise (a rejection, or a trap
@@ -682,7 +682,7 @@ export class Store {
    * loop tracks them separately and resumes them when their promise settles.
    */
   // deno-lint-ignore no-explicit-any
-  readonly awaiting = new Set<any>();
+  readonly awaiting: Set<any> = new Set();
 
   /**
    * Settled-but-unserviced activation tails, in settle order.

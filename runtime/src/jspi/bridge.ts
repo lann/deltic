@@ -42,7 +42,7 @@
 // results to become Promises where cabi needs a number synchronously.
 
 import { assert_ } from "../cabi/trap.ts";
-import { isSupported, makePromising, makeSuspending } from "./mechanics.ts";
+import { type SuspendingImport, isSupported, makePromising, makeSuspending } from "./mechanics.ts";
 import {
   withActivation,
   claimActivationAmbient,
@@ -300,7 +300,7 @@ function attributeContinuation<T>(owner: unknown, r: PromiseLike<T>): Promise<T>
 export function suspendingImport<T extends (...a: never[]) => unknown>(
   fn: T,
   mode: SuspensionMode,
-): T | WebAssembly.Suspending {
+): T | SuspendingImport {
   if (mode === "plain") return fn;
   assert_(isSupported(), "jspi mode selected on an engine without JSPI");
   const claimingFn = (...args: unknown[]): unknown => {

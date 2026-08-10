@@ -218,15 +218,10 @@ iroh-exam: shim
 # the size-tuned build leaves the MIN shim in target/; rerun `just shim`
 # before running test suites locally afterwards.
 # The release artifacts, exactly as the release workflow publishes them.
-release-artifacts:
-    cargo build -p translator-shim --target wasm32-unknown-unknown --release
+# Since the shim recipe adopted the size tuning (#58), the tuned build IS
+# the artifact every suite runs against, and the former separate "min"
+# variant is redundant — one shim, tested and shipped identically.
+release-artifacts: shim
     cp target/wasm32-unknown-unknown/release/translator_shim.wasm deltic-translator-shim.wasm
-    cargo build -p translator-shim --release --target wasm32-unknown-unknown \
-        --config 'profile.release.opt-level="z"' \
-        --config profile.release.lto=true \
-        --config profile.release.codegen-units=1 \
-        --config 'profile.release.panic="abort"' \
-        --config 'profile.release.strip=true'
-    cp target/wasm32-unknown-unknown/release/translator_shim.wasm deltic-translator-shim-min.wasm
     deno run -A tools/release-bundle/build.ts --out deltic-embedder.mjs
-    sha256sum deltic-translator-shim.wasm deltic-translator-shim-min.wasm deltic-embedder.mjs > SHA256SUMS
+    sha256sum deltic-translator-shim.wasm deltic-embedder.mjs > SHA256SUMS

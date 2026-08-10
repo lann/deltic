@@ -16,7 +16,7 @@ import {
   instantiate,
   Trap,
   WitError,
-} from "../../runtime/src/embedder/mod.ts";
+} from "@deltic/runtime/embedder";
 import { Context, testContextImportRecord } from "./context.ts";
 import { analyzeImports, requireImportsResolved } from "./import-analysis.ts";
 import {

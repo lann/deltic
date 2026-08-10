@@ -1,9 +1,17 @@
 {
   "name": "@deltic/wasi-shims",
   "version": "0.1.0",
-  "exports": { ".": "./src/mod.ts" },
+  "exports": {
+    ".": "./src/mod.ts"
+  },
   "tasks": {
     "test": "deno test --allow-read tests/",
     "check": "deno check src tests"
-  }
+  },
+  "publish": {
+    "exclude": [
+      "tests/"
+    ]
+  },
+  "license": "Apache-2.0"
 }

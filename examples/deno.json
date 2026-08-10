@@ -1,6 +1,4 @@
 {
-  "name": "@deltic/examples",
-  "version": "0.0.0",
   "exports": {},
   "tasks": {
     "hello-world": "./hello-world/run.sh",
