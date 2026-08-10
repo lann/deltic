@@ -85,11 +85,30 @@ export async function platformCall<T>(what: string, run: () => Promise<T>): Prom
     return await run();
   } catch (err) {
     if (err instanceof WitError) throw err;
+    const { name, detail } = asPlatformError(err);
     if (err instanceof DOMException) {
-      const { name, detail } = asPlatformError(err);
       if (name === "NotSupportedError") {
         errUnsupported(`${what} is not served by this platform: ${detail}`);
       }
+      errOther(`${what} failed: ${detail}`);
+    }
+    // CONTRACT: contracts/embedder-api.md's error model makes an unbranded
+    // throw a host-fatal trap, which is right for a bug in THIS port — but
+    // the throw here came out of `crypto.subtle`, not out of port logic.
+    // Deno's WebCrypto reports several capability limits as a plain
+    // `TypeError`/`Error` rather than a `DOMException` (an AES-CTR counter
+    // width it does not serve; an RSA modulus size its key handling
+    // rejects). Trapping the component for a platform limitation would
+    // destroy the guest's ability to observe a refusal it is entitled to
+    // handle, so a platform-originated `TypeError` is rendered as the
+    // WIT's "well-formed request this implementation does not serve"
+    // (`unsupported`) and any other platform-originated error as the
+    // operational `other`. Nothing outside a `crypto.subtle` call reaches
+    // this arm: `platformCall` wraps platform calls only.
+    if (err instanceof TypeError) {
+      errUnsupported(`${what} is not served by this platform: ${detail}`);
+    }
+    if (err instanceof Error) {
       errOther(`${what} failed: ${detail}`);
     }
     throw err;
@@ -120,4 +139,9 @@ export function grantedUsages(pairs: Array<[KeyUsage, boolean]>): KeyUsage[] {
     errNotPermitted("a key with no enabled usage cannot be minted");
   }
   return usages;
+}
+
+/** The `{name, message}` pair of a caught platform rejection, for the callers that branch on `DOMException.name` (reference: js/jco/webcrypto.js:227). */
+export function asPlatformFailure(err: unknown): { name: string | undefined; detail: string } {
+  return asPlatformError(err);
 }

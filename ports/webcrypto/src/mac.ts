@@ -12,6 +12,7 @@ import {
   notPermitted,
   platformCall,
 } from "./errors.ts";
+import { importPlatformKeyJwk, jwkKeyBytes, jwkMaterial, requireStrictBase64url } from "./platform.ts";
 import { asBufferSource, unwrappedJwk, utf8Encode } from "./util.ts";
 import { deriveKeyFrom, type DeriveInput } from "./derivation.ts";
 import { consumeUnwrapInput, type UnwrapInput, WrapInput } from "./wrapping.ts";
@@ -176,30 +177,28 @@ async function generateHmacKey(
   return new MacKey(key as CryptoKey, bits, resolved.hash);
 }
 
-function jwkKeyBytes(k: string): number {
-  // base64url length -> decoded byte count (RFC 4648 §5, no padding).
-  return Math.floor((k.length * 3) / 4);
-}
-
+/**
+ * Import an `oct` HMAC JWK (reference: js/jco/webcrypto.js:868-905). The
+ * material members go through `jwkMaterial` — `use`/`key_ops` are consumer
+ * policy and must NOT reach the platform, whose import would otherwise
+ * enforce them against the usages this host passes — and every platform
+ * refusal (a wrong `kty`, a mismatched `alg`, a malformed `k`) is
+ * `error.invalid-key`, the verdict the WIT pins for a bad JWK.
+ */
 async function importHmacKeyJwk(resolved: HashSpec, jwk: string, options: MacKeyOptions): Promise<MacKey> {
   const policy = policyOf(options);
   const usages = macUsages(policy);
-  let material: { k?: string };
-  try {
-    material = JSON.parse(jwk);
-  } catch {
-    errInvalidKey("HMAC JWK is not valid JSON");
-  }
-  const key = await platformCall("HMAC import jwk", () =>
-    subtle.importKey(
-      "jwk",
-      JSON.parse(jwk),
-      { name: "HMAC", hash: resolved.hash },
-      policy.extractable,
-      usages,
-    ));
-  const kLen = material.k !== undefined ? jwkKeyBytes(material.k) * 8 : 0;
-  return new MacKey(key as CryptoKey, kLen, resolved.hash);
+  const material = jwkMaterial(jwk);
+  requireStrictBase64url(material.k);
+  const key = await importPlatformKeyJwk(
+    "HMAC JWK",
+    material,
+    { name: "HMAC", hash: resolved.hash },
+    policy.extractable,
+    usages,
+  );
+  const kLen = typeof material.k === "string" ? jwkKeyBytes(material.k) * 8 : 0;
+  return new MacKey(key, kLen, resolved.hash);
 }
 
 async function deriveHmacKey(

@@ -9,3 +9,5 @@ dist/
 # trunk / Deno canary binaries.
 .shell-cache/
 *.tmp
+# ports/webcrypto conformance runner output (conformance/run.ts)
+ports/webcrypto/conformance/results-*.jsonl

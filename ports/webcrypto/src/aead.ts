@@ -5,6 +5,7 @@
 // table, not a Deno `crypto.subtle` gap: Deno serves AES-CBC/CTR too).
 
 import { decryptFailure, errInvalidKey, errInvalidNonce, errNotExtractable, errNotPermitted, errOther, errUnsupported, notPermitted, platformCall } from "./errors.ts";
+import { importPlatformKeyJwk, jwkKeyBytes, jwkMaterial, requireStrictBase64url } from "./platform.ts";
 import { asBufferSource, collectByteStream, unwrappedJwk } from "./util.ts";
 import { deriveKeyFrom, type DeriveInput } from "./derivation.ts";
 import {
@@ -242,9 +243,22 @@ export const aesGcm = {
     const bits = aesBits(variant);
     const policy = optionsOf(options);
     const usages = platformUsages(policy);
-    const key = await platformCall("AES-GCM import jwk", () =>
-      subtle.importKey("jwk", JSON.parse(jwk), { name: "AES-GCM", length: bits }, policy.extractable, usages));
-    return new AeadKey(key as CryptoKey, bits, policy);
+    // `jwkMaterial` strips the consumer-policy members and every platform
+    // refusal becomes `invalid-key` (reference: js/jco/webcrypto.js:2570).
+    const material = jwkMaterial(jwk);
+    requireStrictBase64url(material.k);
+    const key = await importPlatformKeyJwk(
+      `${variant} JWK`,
+      material,
+      { name: "AES-GCM", length: bits },
+      policy.extractable,
+      usages,
+    );
+    const gotBits = jwkKeyBytes(material.k) * 8;
+    if (gotBits !== bits) {
+      errInvalidKey(`JWK carries a ${gotBits}-bit key; ${variant} requires ${bits}`);
+    }
+    return new AeadKey(key, bits, policy);
   },
   generateKey: async (variant: string, options: AeadKeyOptions): Promise<AeadKey> => {
     const bits = aesBits(variant);

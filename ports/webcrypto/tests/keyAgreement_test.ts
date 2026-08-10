@@ -24,8 +24,8 @@ Deno.test("x25519: generate-key -> export-key-raw round-trips a 32-byte u-coordi
 Deno.test("key-agreement: agree() + derive-bits(none) yields the natural 32-byte shared secret, symmetric both ways", async () => {
   const [skA, pubA] = await x25519.generateKey(agreeOptions());
   const [skB, pubB] = await x25519.generateKey(agreeOptions());
-  const inputA = skA.agree(pubB);
-  const inputB = skB.agree(pubA);
+  const inputA = await skA.agree(pubB);
+  const inputB = await skB.agree(pubA);
   const secretA = await inputA.deriveBits(undefined);
   const secretB = await inputB.deriveBits(undefined);
   assertEq(secretA.length, 32);
@@ -35,7 +35,7 @@ Deno.test("key-agreement: agree() + derive-bits(none) yields the natural 32-byte
 Deno.test("key-agreement: derive-bits(length) yields exactly `length` bits", async () => {
   const [skA, pubA] = await x25519.generateKey(agreeOptions());
   const [, pubB] = await x25519.generateKey(agreeOptions());
-  const input = skA.agree(pubB);
+  const input = await skA.agree(pubB);
   const bits = await input.deriveBits(128);
   assertEq(bits.length, 16);
   void pubA;
@@ -46,7 +46,7 @@ Deno.test("key-agreement: derive-bits without can-derive-bits fails error.not-pe
   opts.canDeriveKey(true); // deriveBits NOT granted
   const [sk] = await x25519.generateKey(opts);
   const [, pub2] = await x25519.generateKey(agreeOptions());
-  const input = sk.agree(pub2);
+  const input = await sk.agree(pub2);
   const err = await assertRejects(() => input.deriveBits(undefined)) as WitError;
   assertEq((err.payload as { tag: string }).tag, "not-permitted");
 });
