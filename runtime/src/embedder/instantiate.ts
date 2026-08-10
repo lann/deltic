@@ -12,7 +12,7 @@
 
 import type { WirePlan, WireExport } from "../plan/format.ts";
 import type { LoadedPlan } from "../plan/loader.ts";
-import { loadPlan, PlanError } from "../plan/loader.ts";
+import { loadEnvelope, loadPlan, PlanError } from "../plan/loader.ts";
 import type { FuncType, ResourceTypeInfo, ValType } from "../cabi/types.ts";
 import type { ComponentValue } from "../cabi/types.ts";
 import { Trap } from "../cabi/trap.ts";
@@ -88,6 +88,26 @@ export interface UntranslatedArtifacts {
 
 /** Either artifacts shape accepted by `instantiate`. */
 export type InstantiateSource = ComponentArtifacts | UntranslatedArtifacts;
+
+/**
+ * Reconstitute `ComponentArtifacts` from a translation ENVELOPE — the
+ * single-file JSON emitted by build-time translation (`tools/translate`,
+ * or `Translator.translateRaw`), carrying the plan and the FACT adapter
+ * modules. The production deploy set is `component.wasm` + its envelope +
+ * the runtime: no translator ships (embedder-api.md amendment A4).
+ *
+ * Pure and fetch-agnostic: acquire the two blobs however the platform
+ * likes (HTTP, fs, bundler asset) and hand them over. The envelope embeds
+ * the component's sha-256, which `instantiate` verifies — a mismatched
+ * pair fails loudly at instantiation, never subtly at runtime.
+ */
+export function artifactsFromEnvelope(
+  envelopeJson: string,
+  componentBytes: Uint8Array,
+): ComponentArtifacts {
+  const { wire, adapters } = loadEnvelope(envelopeJson);
+  return { plan: wire, componentBytes, adapters };
+}
 
 async function resolveArtifacts(
   src: InstantiateSource,

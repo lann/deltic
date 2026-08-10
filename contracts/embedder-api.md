@@ -8,7 +8,9 @@ host-resource methods/statics (class-prototype authority), adds the
 stage-3 decorator form, and makes interface members receive their
 containing object as `this`; amendment A3 (2026-08-11) lets `instantiate`
 accept untranslated artifacts (`{ componentBytes, translator }`) and run
-the translation internally.** This document supersedes `descriptor-ir.md`'s interim
+the translation internally; amendment A4 (2026-08-11) blesses the
+translation envelope as the build-time artifact
+(`artifactsFromEnvelope`).** This document supersedes `descriptor-ir.md`'s interim
 "host value mapping" table as the destination for host-facing value shapes.
 The runtime's *raw* boundary (`instance.exports`, `HostImports`) keeps the
 `definitions.py` interpreter shapes as an **internal** surface; the
@@ -377,6 +379,14 @@ const instance = await instantiate(artifacts, {
   worth sharing; warm translation is sub-millisecond).
   `requiredImports` still takes a plan: translate explicitly to inspect
   the import surface before instantiating.
+- **Build-time translation** (A4): the translation ENVELOPE (the
+  single-file JSON from `Translator.translateRaw` / the `tools/translate`
+  CLI, carrying plan + FACT adapters) is the blessed deploy artifact —
+  production ships `component.wasm` + envelope + runtime, no translator.
+  `artifactsFromEnvelope(envelopeJson, componentBytes)` reconstitutes
+  `ComponentArtifacts`; the envelope's embedded component sha-256 is
+  verified at instantiation, so a mismatched deploy pair fails loudly.
+  Fetch-agnostic by design: the embedder acquires the two blobs.
 - **Per-interface module authoring** (the consumers' file layout) is a
   helper over the same record: a module's named export, camelCase of the
   interface short-name, provides that interface
