@@ -26,8 +26,13 @@ export function clocks(options: ClocksOptions = {}): { imports: Record<string, u
   const monotonic02 = {
     now: nowFn,
     resolution: (): bigint => RESOLUTION_NS,
-    subscribeInstant: (_when: bigint): Pollable => new Pollable(),
-    subscribeDuration: (_when: bigint): Pollable => new Pollable(),
+    // Real timers (the parking kernel, io.ts): an always-ready timer stub
+    // livelocks any guest that sleeps by parking — tokio's reactor being
+    // the known consumer. `block()`/`poll()` on these park the frame until
+    // the deadline; `ready()` consults the clock, so the wake is exact.
+    subscribeInstant: (when: bigint): Pollable => Pollable.timer(when, nowFn),
+    subscribeDuration: (howLong: bigint): Pollable =>
+      Pollable.timer(nowFn() + howLong, nowFn),
   };
 
   const wallClock02 = {

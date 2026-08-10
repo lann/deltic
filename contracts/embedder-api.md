@@ -460,17 +460,29 @@ signatures for the representative slice:
   waitFor(howLong: bigint): Promise<void> } // 4 lines over setTimeout; zero JSPI
 ```
 
-**wasi:io@0.2.x pollable + streams** (p2): `pollable.block()` and
-`blocking-read`/`blocking-write-and-flush` are **sync** WIT functions that
-must park — the one p2 idiom that fights a JS host. Three-tier strategy:
-(a) default: type-only stubs — C0 finding #6: the entire corpus links
-`wasi:io/poll` via the libc baseline yet **no leg ever called a pollable
-method**; (b) buffer-backed streams: sync `read`/`check-write` serve from
-host-side buffers filled by background pumps, so the sync fast path never
-parks; (c) when a guest genuinely blocks: a `suspending()`-marked import
-(amendment A1) parks the frame on JSPI (engine-floor caveat, visible in
-types and in the marker). A pollable is a
-thin class over a task-core waitable:
+**wasi:io@0.2.x pollable + streams** (p2): `pollable.block()`, `poll()`
+and `blocking-read`/`blocking-write-and-flush` are **sync** WIT functions
+that must park — the one p2 idiom that fights a JS host. The shim package
+ships the PARKING KERNEL, always on (amendment A5, 2026-08-11;
+supersedes the original three-tier ruling and its "never (c) in this
+package" mission line — the polymorph-iroh upstream-iroh consumer class
+genuinely parks, which the always-ready stubs turned into a livelock):
+`block`/`poll` are `suspending()`-marked (A1/A2) with sync fast paths, so
+a ready pollable costs one engine hop and only a genuine wait parks the
+frame. Timer pollables are real (monotonic-clock subscribe-*). On engines
+without JSPI, `chooseMode` degrades to plain and a genuine park raises a
+clean `NeedsJspi` at the park site instead of livelocking; `jspi: false`
+is the per-instantiation opt-out. Streams stay buffer-backed (sync
+`read`/`check-write` never park — sufficient for every known consumer).
+`Pollable` is publicly constructible — `new Pollable(ready, wait)` — as
+the interop seam for external providers (e.g. consumer-side sockets glue)
+whose pollables the kernel `poll()`s uniformly; `wait()` follows the
+promise-swap producer shape (settle + re-arm per event; spurious wakes
+fine). Consequence for the M2 zero-cost pin: a component importing marked
+providers auto-detects into jspi mode on JSPI engines even if it never
+parks — "zero-cost plain path" now reads "sync-only plan AND no marked
+imports" (see contracts/intrinsics.md). A pollable is a
+thin class over host-supplied readiness:
 
 ```ts
 class Pollable { ready(): boolean; block(): void /* tier (c) only */ }

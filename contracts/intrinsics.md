@@ -238,7 +238,12 @@ discipline). The park is the reference's plain non-cancellable
 stays held across it (the #43 hold rule). UNMARKED sync-lowered
 Promise-returning host functions still degrade to the clean `NeedsJspi`
 capability signal in every mode — marking is the embedder's explicit,
-per-declaration opt-in, never inferred. Pinned by
+per-declaration opt-in, never inferred. The zero-cost-sync-only pin
+narrowed when wasi-shims' parking kernel went always-on (embedder-api.md
+A5): its marked `block`/`poll` are auto-detection evidence, so any
+wasi-consuming component runs jspi mode on JSPI engines — the plain path
+stays zero-cost for components that are sync-only AND import no marked
+providers (or instantiate with `jspi: false`). Pinned by
 `runtime/tests/embedder/suspending_imports_test.ts` (park round trip,
 resume-time realloc, pin-(c) start trap, refusal messages) and the
 plain-mode guard in `runtime/tests/async_lower_test.ts`.
