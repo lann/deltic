@@ -37,6 +37,7 @@ import type {
 } from "../plan/format.ts";
 import type { LoadedPlan, LoadedType } from "../plan/loader.ts";
 import {
+  CONSTRUCTOR_SYNC_ENTRY,
   type CoreFn,
   createLiftedFunction,
   createLoweredImport,
@@ -671,20 +672,44 @@ class Executor {
         const ft = this.funcType(exp.type, `export '${path}'`);
         const core = this.resolveFunction(exp.coreDef, `export '${path}'`);
         const opts = this.resolveOptions(exp.options);
-        return {
-          kind: "value",
-          value: createLiftedFunction({
-            name: path,
-            ft,
-            opts,
-            core,
-            stats: this.stats,
-            suspensionMode: this.noteEntry(),
-            trapState: this.trapState,
-            syncCallStack: this.syncCallStack,
-            allInstances: () => this.componentInstances.values(),
-          }),
-        };
+        const value = createLiftedFunction({
+          name: path,
+          ft,
+          opts,
+          core,
+          stats: this.stats,
+          suspensionMode: this.noteEntry(),
+          trapState: this.trapState,
+          syncCallStack: this.syncCallStack,
+          allInstances: () => this.componentInstances.values(),
+        });
+        // Constructor exports additionally carry a plain-entered variant
+        // (see CONSTRUCTOR_SYNC_ENTRY): in jspi mode the promising-wrapped
+        // entry above necessarily returns a Promise, which a JS class
+        // constructor cannot await. Deliberately NOT noteEntry()-recorded —
+        // this is the one documented exception to the bridge invariant
+        // (entries wrapped iff imports wrapped), safe because a
+        // synchronously-completing activation never reaches the Suspending
+        // seam.
+        if (
+          this.suspensionMode === "jspi" &&
+          exp.name.startsWith("[constructor]")
+        ) {
+          (value as unknown as Record<PropertyKey, unknown>)[
+            CONSTRUCTOR_SYNC_ENTRY
+          ] = createLiftedFunction({
+              name: `${path} (sync entry)`,
+              ft,
+              opts,
+              core,
+              stats: this.stats,
+              suspensionMode: "plain",
+              trapState: this.trapState,
+              syncCallStack: this.syncCallStack,
+              allInstances: () => this.componentInstances.values(),
+            });
+        }
+        return { kind: "value", value };
       }
       case "instance": {
         const nested: Record<string, unknown> = {};

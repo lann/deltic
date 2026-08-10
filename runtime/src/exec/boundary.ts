@@ -868,6 +868,30 @@ function takeHostFailure(store: Store): unknown {
  *   * **async, no callback** (stackful) — the guest blocks mid-stack, which
  *     needs genuine wasm-frame suspension: `needsJspi`, at the precise point.
  */
+/**
+ * The plain-entered variant of a `[constructor]` export in jspi mode,
+ * attached to the promising-wrapped lifted function under this symbol.
+ *
+ * A WIT constructor is surfaced as a JS class constructor
+ * (contracts/embedder-api.md §"Resources"), and a JS constructor cannot
+ * await — but in jspi mode every promising-wrapped entry returns a Promise
+ * even when the activation completes without suspending (jspi pin (e)). So
+ * constructor exports carry a second lifted function whose ENTRY is plain
+ * (unwrapped): a constructor that completes synchronously — the
+ * overwhelmingly common case; WIT constructors are always sync-typed —
+ * returns its rep synchronously through it.
+ *
+ * The cost is confined to genuinely-suspending constructors, which no JS
+ * host can surface as `new` anyway: a blocking built-in reached through the
+ * plain entry signals `NeedsJspi` (a capability error, instance left
+ * enterable), and a Suspending-wrapped host import reached from the
+ * unwrapped frame fails as a trap. Both name the constructor rather than
+ * silently deadlocking.
+ */
+export const CONSTRUCTOR_SYNC_ENTRY: unique symbol = Symbol(
+  "deltic.constructorSyncEntry",
+);
+
 export function createLiftedFunction(input: {
   name: string;
   ft: FuncType;

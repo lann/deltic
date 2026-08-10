@@ -18,6 +18,7 @@ import type { ComponentValue } from "../cabi/types.ts";
 import { Trap } from "../cabi/trap.ts";
 import {
   type ComponentHandle,
+  CONSTRUCTOR_SYNC_ENTRY,
   hostResourceType,
   type HostImports,
   instantiateComponent,
@@ -734,7 +735,12 @@ class Facade {
           break;
         case "constructor": {
           const s = spec(member.resource);
-          s.ctor = fn;
+          // Prefer the plain-entered variant in jspi mode: the JS `new`
+          // cannot await the Promise a promising-wrapped entry returns
+          // (exec/boundary.ts CONSTRUCTOR_SYNC_ENTRY).
+          s.ctor = ((fn as unknown as Record<PropertyKey, unknown>)[
+            CONSTRUCTOR_SYNC_ENTRY
+          ] ?? fn) as RawFn;
           s.ctorParams = ft.params;
           rtOf(ft.results[0], specRt, member.resource);
           break;
