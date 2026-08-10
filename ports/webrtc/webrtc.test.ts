@@ -286,6 +286,35 @@ Deno.test("loopback: close propagation + post-close error cases", NO_SANITIZE, a
   assertEquals((connErr as WitError<WebrtcError>).payload, { tag: "closed" });
 });
 
+Deno.test(
+  "loopback: peer-connection close latches its channels synchronously",
+  NO_SANITIZE,
+  async () => {
+    const { a, b } = await connectPair();
+    const chA = a.createDataChannel(new DataChannelOptions());
+    const chB = await firstIncoming(b);
+
+    // Closing the PEER CONNECTION closes its owned channels with the close
+    // observed locally at once (the WIT contract): the very first send()
+    // after close() fails `closed`, on the locally created channel and on
+    // the incoming (remote-created) one alike — regardless of how lazily
+    // the backend transitions the native readyState.
+    a.close();
+    const errA = await assertRejects(
+      () => chA.send({ tag: "string", val: "after-close" }),
+      WitError,
+    );
+    assertEquals((errA as WitError<WebrtcError>).payload, { tag: "closed" });
+
+    b.close();
+    const errB = await assertRejects(
+      () => chB.send({ tag: "string", val: "after-close" }),
+      WitError,
+    );
+    assertEquals((errB as WitError<WebrtcError>).payload, { tag: "closed" });
+  },
+);
+
 Deno.test("loopback: wait-connected resolves and is latched", NO_SANITIZE, async () => {
   const { a, b } = await connectPair();
   try {
