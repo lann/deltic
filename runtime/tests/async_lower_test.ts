@@ -103,6 +103,8 @@ function mkFixture(hostFn: (...a: unknown[]) => unknown): Fixture {
     opts,
     hostFn,
     stats: newStats(),
+    mode: "plain",
+    suspendable: false,
   }) as (...args: number[]) => unknown;
 
   const task = new Task(FT, TASK_OPTS, inst, () => [], () => {});
@@ -231,6 +233,11 @@ Deno.test("sync lower of a Promise-returning host import needs JSPI", () => {
     opts,
     hostFn: () => Promise.resolve(1),
     stats: newStats(),
+    // Plain mode: the A1 park arm is jspi-only, so this stays the guard pin
+    // for the no-JSPI path. The marked+jspi park itself is pinned by
+    // tests/embedder/suspending_imports_test.ts.
+    mode: "plain",
+    suspendable: false,
   });
   const task = new Task(syncFt, {
     async_: false,

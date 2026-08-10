@@ -3,3 +3,4 @@
 
 export * from "./mechanics.ts";
 export * from "./bridge.ts";
+export * from "./suspending.ts";

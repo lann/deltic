@@ -1,7 +1,9 @@
 # Embedder API conventions (host-facing)
 
-Status: **v0.1 — C1 deliverable (docs/milestones.md), normative for the C2
-implementation.** This document supersedes `descriptor-ir.md`'s interim
+Status: **v0.2 — C1 deliverable (docs/milestones.md), normative for the C2
+implementation; amendment A1 (2026-08-10) makes sync-import suspension a
+declared, per-function capability (`suspending()`), replacing v0.1's
+undeclared "permitted cast".** This document supersedes `descriptor-ir.md`'s interim
 "host value mapping" table as the destination for host-facing value shapes.
 The runtime's *raw* boundary (`instance.exports`, `HostImports`) keeps the
 `definitions.py` interpreter shapes as an **internal** surface; the
@@ -225,8 +227,30 @@ class Trap extends Error { … }  // existing; component-fatal, never a value
 - **Imports match their WIT type**: an `async func` import may be a plain
   `async` JS function (or return a value synchronously); a sync `func`
   import is typed to return `T` synchronously. Returning a Promise from a
-  sync-typed import is *permitted* but rides JSPI (engine floor caveat) —
-  bindgen's types make that a visible, deliberate cast.
+  sync-typed import parks the calling **wasm frame** and is a *declared*
+  capability (amendment A1): wrap the function in `suspending()` (exported
+  from the embedder surface). The marker
+  - is per-declaration — only marked imports are handed to wasm as
+    `WebAssembly.Suspending`, so unmarked imports keep the plain calling
+    convention and sync-only components keep their zero-cost pin;
+  - is auto-detection evidence — a marked import selects jspi mode without
+    an explicit `jspi: true` (an explicit `jspi: false` still forces plain,
+    where a returned Promise is refused as before);
+  - carries real costs, deliberately visible: every call through a marked
+    import pays the engine's continuation hop even when it returns
+    synchronously (`contracts/intrinsics.md` pin (j)), and a marked import
+    reached from a `start` function traps (pin (c): a start function may
+    not block — the trap fires even for synchronous returns);
+  - rides the engine floor: on a non-JSPI engine a marked import that
+    returns a Promise is refused at the call site (`NeedsJspi`), never
+    silently degraded.
+  Scope: plain function imports (bare and interface members). Resource
+  methods/statics/constructors are outside A1 (constructors are synchronous
+  by the C2 amendment). Semantics of the park: the reference's
+  `thread.wait_until(subtask.resolved)` (definitions.py canon_lower) — a
+  plain non-cancellable wait; the instance-entry gate stays held (the #43
+  hold rule); result lowering runs at resume time under the suspension
+  point's attribution claim.
 - Params are positional; param names appear only in types/docs (they are
   excluded from the world digest — `contracts/digest.md`).
 
@@ -382,8 +406,9 @@ must park — the one p2 idiom that fights a JS host. Three-tier strategy:
 `wasi:io/poll` via the libc baseline yet **no leg ever called a pollable
 method**; (b) buffer-backed streams: sync `read`/`check-write` serve from
 host-side buffers filled by background pumps, so the sync fast path never
-parks; (c) when a guest genuinely blocks: the Promise-from-sync-import
-path rides JSPI (engine-floor caveat, visible in types). A pollable is a
+parks; (c) when a guest genuinely blocks: a `suspending()`-marked import
+(amendment A1) parks the frame on JSPI (engine-floor caveat, visible in
+types and in the marker). A pollable is a
 thin class over a task-core waitable:
 
 ```ts

@@ -24,6 +24,7 @@ import {
   instantiateComponent,
 } from "../exec/mod.ts";
 import { camelCase, parseLeafName, pascalCase } from "./casing.ts";
+import { isSuspending, suspending } from "../jspi/suspending.ts";
 import { NameCollisionError, WitError } from "./errors.ts";
 import { type ImportLeaf, requiredImports } from "./imports.ts";
 import {
@@ -442,7 +443,7 @@ class Facade {
     // and those objects do not exist until `instantiateComponent` has run —
     // which is after this wrapper has to be handed to it.
     let impl: RawFn | null = null;
-    return (...raw: unknown[]) => {
+    const wrapper = (...raw: unknown[]) => {
       if (impl === null) {
         const ft = this.#funcType(
           this.artifacts.plan.imports[importIndex].type,
@@ -452,6 +453,9 @@ class Facade {
       }
       return impl(...raw);
     };
+    // A1 brand relay, layer 2 of 2 (see #dispatcher): the executor reads the
+    // brand off this wrapper, which is what lands in its hostImports record.
+    return isSuspending(dispatch) ? suspending(wrapper) : wrapper;
   }
 
   /** A host-implemented resource type: register the class, own the mapping. */
@@ -502,7 +506,13 @@ class Facade {
             `${describe(fn)}); expected '${camelCase(m.name)}'`,
         );
       }
-      return (args) => (fn as RawFn)(...args);
+      // A1: the `suspending()` brand rides the dispatch closure so #wrapLeaf
+      // can relay it onto the value the executor actually receives. Plain
+      // functions only — resource methods/statics/constructors are outside
+      // A1's scope (constructors are synchronous by the C2 amendment).
+      const dispatch: (args: unknown[]) => unknown = (args) =>
+        (fn as RawFn)(...args);
+      return isSuspending(fn) ? suspending(dispatch) : dispatch;
     }
     const clsName = pascalCase(m.resource);
     const cls = pick(provider, [], [clsName, m.resource]);

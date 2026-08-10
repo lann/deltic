@@ -48,8 +48,13 @@ import {
   type TaskOptions,
   Thread,
 } from "../task/mod.ts";
+import { currentTask } from "../task/scheduler.ts";
 import { PlanError } from "../plan/loader.ts";
-import { enterWasm, type SuspensionMode } from "../jspi/mod.ts";
+import {
+  blockCurrentActivation,
+  enterWasm,
+  type SuspensionMode,
+} from "../jspi/mod.ts";
 
 /**
  * Structural view of an intrinsics `SyncCallScope`: everything this module
@@ -1432,8 +1437,12 @@ export function createLoweredImport(input: {
   opts: ResolvedOptions;
   hostFn: (...args: unknown[]) => unknown;
   stats: ExecutionStats;
+  /** Executor's suspension mode; decides whether a sync lower may park. */
+  mode: SuspensionMode;
+  /** Host fn carries the `suspending()` brand (embedder-api.md A1). */
+  suspendable: boolean;
 }): CoreFn {
-  const { name, ft, opts, hostFn, stats } = input;
+  const { name, ft, opts, hostFn, stats, mode, suspendable } = input;
   const inst = opts.instance;
   const store = inst.store;
 
@@ -1537,12 +1546,79 @@ export function createLoweredImport(input: {
 
     if (isPromiseLike(raw)) {
       if (!opts.async) {
-        // definitions.py line 2286: `thread.wait_until(subtask.resolved)` —
-        // blocking the calling *wasm frame*.
-        needsJspi(
-          `synchronous lower of import '${name}', whose host implementation ` +
-            `returned a Promise (the guest's wasm frame must block)`,
+        if (mode !== "jspi" || !suspendable) {
+          // definitions.py line 2286: `thread.wait_until(subtask.resolved)` —
+          // blocking the calling *wasm frame*. Parking needs BOTH jspi mode
+          // and the embedder's per-declaration `suspending()` marker: the
+          // Suspending wrap is applied per-declaration (`importValue`), so an
+          // unmarked import physically cannot suspend, whatever the mode.
+          needsJspi(
+            suspendable
+              ? `synchronous lower of import '${name}', whose host ` +
+                `implementation returned a Promise (the guest's wasm frame ` +
+                `must block)`
+              : `synchronous lower of import '${name}', whose host ` +
+                `implementation returned a Promise; a sync-typed import may ` +
+                `only park the frame when declared with suspending() ` +
+                `(contracts/embedder-api.md §"Functions and async")`,
+          );
+        }
+        // The park (A1): the reference's plain, NON-cancellable wait — a
+        // cancel request against the caller stays pending-cancel and is
+        // delivered at its next cancellable wait, exactly as for any other
+        // mid-frame block. The instance-entry gate stays HELD across the park
+        // (the #43 hold rule; see `blockCurrentActivation`'s GATE LIFETIME
+        // note).
+        //
+        // The settle handler only RECORDS the outcome. All CABI work —
+        // `onResolve`'s result lowering (which may re-enter the guest through
+        // realloc) and `deliverResolve` — is deferred to `produce`, which
+        // runs at resume time under the suspension point's ambient claim.
+        // Lowering from the bare promise continuation instead would execute
+        // guest code in an unattributed chunk — the issue-#24 class the
+        // attribution sentinels exist to prevent.
+        let outcome: { value: unknown } | { error: unknown } | undefined;
+        const promise = Promise.resolve(raw).then(
+          (v) => {
+            store.pendingHostCalls.delete(promise);
+            outcome = { value: v };
+          },
+          (e) => {
+            store.pendingHostCalls.delete(promise);
+            outcome = { error: e };
+          },
         );
+        // Registered so the driver's deadlock probe counts this park as
+        // externally-wakeable (driveAsync: `pendingHostCalls.size === 0` is a
+        // precondition of the deadlock verdict) and so teardown can observe
+        // the outstanding call, mirroring the async arm below.
+        store.pendingHostCalls.add(promise);
+        return blockCurrentActivation({
+          store,
+          task: currentTask(),
+          readyFunc: () => outcome !== undefined,
+          cancellable: false,
+          produce: () => {
+            const done = outcome as { value: unknown } | { error: unknown };
+            if ("error" in done) {
+              // A rejection of a sync-typed import is a host failure: it
+              // reaches the guest as a rejection of the import's Promise,
+              // which the engine turns back into a wasm trap (empirical
+              // fact (e); `SuspensionPoint` routes a produce-throw through
+              // exactly that path). Branded `WitError`s never reach the raw
+              // boundary — the bindgen adapter resolves them into err-shaped
+              // values one layer up.
+              throw done.error;
+            }
+            onResolve(toResults(done.value));
+            subtask.deliverResolve();
+            assert_(vi.done(), `${name}: unconsumed flat arguments`);
+            const flatResults = subtask.flatResults;
+            if (flatResults.length === 0) return undefined;
+            if (flatResults.length === 1) return flatResults[0];
+            return flatResults;
+          },
+        });
       }
       const promise = Promise.resolve(raw).then(
         (v) => {
