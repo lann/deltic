@@ -13,6 +13,29 @@ Deno.test("random: get-random-bytes returns exactly `len` bytes", () => {
   assertEq(r.getRandomBytes(0n).length, 0);
 });
 
+Deno.test("random: get-random-bytes spans the 64KiB getRandomValues quota", () => {
+  // Fail-on-pre-fix pin: a single getRandomValues call rejects >65536 bytes
+  // (QuotaExceededError), and the WIT allows no shorter return — the
+  // provider must chunk the fill and still hand back exactly `len` bytes.
+  const { imports } = random();
+  const r = imports["wasi:random/random@0.2"] as {
+    getRandomBytes(len: bigint): Uint8Array;
+  };
+  const len = 3 * 65536 + 17; // three full chunks + a ragged tail
+  const bytes = r.getRandomBytes(BigInt(len));
+  assertEq(bytes.length, len);
+  // Every chunk actually got filled: a 32-byte window of a CSPRNG output is
+  // all-zero with probability 2^-256 — treat that as impossible. Check the
+  // start of each chunk and the ragged tail.
+  for (const off of [0, 65536, 2 * 65536, 3 * 65536, len - 17]) {
+    const window = bytes.subarray(off, Math.min(off + 32, len));
+    assertTrue(
+      window.some((b) => b !== 0),
+      `window at ${off} is all-zero (chunk not filled)`,
+    );
+  }
+});
+
 Deno.test("random: get-random-u64 returns a bigint", () => {
   const { imports } = random();
   const r = imports["wasi:random/random@0.2"] as { getRandomU64(): bigint };
