@@ -764,12 +764,15 @@ export class Store {
    * `GuestCall(StartImplicit)` is popped, and if `is_ready` is false
    * (`do_not_enter || backpressure`) the caller is told STARTING
    * (concurrent.rs :1497-1522, :3040-3160). That formulation is FIFO-order
-   * dependent; deltic uses the order-robust one from
-   * `exams/wasmtime-exclusivity/spec-amendment.md`: *the call reports
-   * STARTING only if the callee is still unstarted after the instance's
-   * runnable work has been exhausted* — drain to quiescence, not pop-one.
-   * That is what keeps `sync-streams.wast` green under `DELTIC_SCHED_SEED`
-   * shuffles, which wasmtime's own rule would not be.
+   * dependent; deltic uses the order-robust restatement (issue #43): *the
+   * call reports STARTING only if the callee is still unstarted after the
+   * instance's runnable work has been exhausted* — drain to quiescence, not
+   * pop-one. That is what keeps `sync-streams.wast` green under
+   * `DELTIC_SCHED_SEED` shuffles, which wasmtime's own rule would not be.
+   * Adjudicated 2026-08-10 (issue #43): entry-status timing is NOT
+   * normative — this predicate implements a scheduler *policy*, picked so
+   * the suite's schedule-overfitted STARTED assertion holds under any
+   * seed; the hold-rule gate itself is the spec semantics.
    *
    * "Runnable work of `inst`" is, exhaustively:
    *

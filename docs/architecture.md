@@ -56,22 +56,24 @@ contracts throughout the repo. Related documents:
   wasmtime exhibits it too. The tie-breaking authority for semantic
   questions is the spec + `definitions.py`, with wasmtime as corroborating
   evidence — never the other way around. **One bounded exception**
-  (operator decision, 2026-08-09; content corrected 2026-08-10): where
-  `definitions.py` contradicts the spec repo's *own wast corpus* and
-  wasmtime implements the corpus side, the corpus semantics — **as
-  wasmtime actually implements it, verified against wasmtime source or
-  trace, not as inferred from the test alone** (the CM-4 lesson:
-  sync-streams.wast was satisfiable by two different semantics, and the
-  first inference picked the wrong one) — is adopted as the working
-  assumption; the expectation is that the reference will be amended, not
-  the tests. Each such case must be a named finding in
-  `upstream-component-model-repo-findings.md` (currently CM-3 and CM-4;
-  CM-4's corrected model — hold-lifetime gate + deferred entry decision —
-  landed in the runtime via
-  [#43](https://github.com/lann/deltic/issues/43); amendment sketch:
-  `exams/wasmtime-exclusivity/spec-amendment.md`) and flips back if
-  upstream adjudicates the other way. Bare wasmtime behavior with no
-  corpus backing never supersedes the reference.
+  (operator decision, 2026-08-09): where `definitions.py` contradicts the
+  spec repo's *own wast corpus* and wasmtime implements the corpus side,
+  the corpus semantics — as wasmtime actually implements it, verified
+  against wasmtime source or trace, not as inferred from the test alone —
+  is adopted as the working assumption. Each such case must be a named
+  finding in `upstream-component-model-repo-findings.md` (currently CM-3
+  only) and flips back if upstream adjudicates the other way. Bare
+  wasmtime behavior with no corpus backing never supersedes the
+  reference. Guard before invoking the exception (the CM-4 lesson,
+  adjudicated 2026-08-10 —
+  [deltic#43](https://github.com/lann/deltic/issues/43)): a corpus
+  assertion counts as semantic authority only if it is
+  **schedule-independent**. `sync-streams.wast:145` turned out to pin a
+  scheduler policy, not semantics — two conforming policies over the same
+  agreed gate semantics answer it differently — so it is an upstream test
+  defect and no semantics were ever in conflict; deltic satisfies it via
+  a non-normative scheduler policy (hold gate + drain-to-quiescence entry
+  decision, PR #45).
 - TypeScript throughout the JS side: the runtime, the harness, and all
   generated bindings.
 - A performance story that can get fast later without rearchitecting.

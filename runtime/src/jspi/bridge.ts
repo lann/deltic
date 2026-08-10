@@ -543,10 +543,10 @@ export function blockCurrentActivation<T>(input: {
   // gating its instance — identical to wasmtime, whose
   // `ConcurrentInstanceState.do_not_enter` is set/cleared only by
   // `enter_instance`/`exit_instance`, i.e. bracketed on the whole core
-  // invocation (exams/wasmtime-exclusivity/wasmtime-actual-semantics.md,
-  // "The gate, from source"). deltic's former release-at-BLOCK divergence
-  // was removed by issue #43; `test/async/sync-streams.wast` is now green
-  // via the DEFERRED ENTRY DECISION in intrinsics/fact_calls.ts
+  // invocation (source refs distilled on issue #43; exam kit archived at
+  // 4f3351f:exams/wasmtime-exclusivity/). deltic's former release-at-BLOCK
+  // divergence was removed by issue #43; `test/async/sync-streams.wast` is
+  // now green via the DEFERRED ENTRY DECISION in intrinsics/fact_calls.ts
   // (`createAsyncStartCall`), not via gate release.
   //
   // WHO is parking — read BEFORE anything below disturbs the ambient. This

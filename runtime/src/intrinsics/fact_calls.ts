@@ -856,10 +856,11 @@ export function createAsyncStartCall(
     // it is the reference's atomic run-to-first-block, reconstructed across
     // the engine's microtask hops.
     //
-    // THE DEFERRED ENTRY DECISION (issue #43; wasmtime's model, see
-    // exams/wasmtime-exclusivity/wasmtime-actual-semantics.md "The
-    // scheduling, from source"). The determinacy wait above is also where
-    // the initial *status* is decided, so it is where the deferral lives.
+    // THE DEFERRED ENTRY DECISION (issue #43; wasmtime's model — source
+    // walkthrough distilled on the issue, exam kit archived at
+    // 4f3351f:exams/wasmtime-exclusivity/). The determinacy wait above is
+    // also where the initial *status* is decided, so it is where the
+    // deferral lives.
     //
     // In wasmtime a guest->guest call queues the callee's `StartImplicit`
     // and the caller suspends until the first subtask status event
@@ -870,7 +871,8 @@ export function createAsyncStartCall(
     // parked at `enter_implicit_thread`'s gate wait at this point; what
     // changes here is only WHEN the caller reads `subtask.state`.
     //
-    // Order-robust formulation (spec-amendment.md, chosen over wasmtime's
+    // Order-robust formulation (issue #43; a non-normative scheduler
+    // policy — entry-status timing is not normative — chosen over wasmtime's
     // FIFO-dependent one so the seeded-shuffle reruns stay green): while the
     // callee is still parked at the entry gate, the caller waits until the
     // callee instance's runnable work is exhausted
