@@ -3,7 +3,10 @@
 Status: **v0.2 — C1 deliverable (docs/milestones.md), normative for the C2
 implementation; amendment A1 (2026-08-10) makes sync-import suspension a
 declared, per-function capability (`suspending()`), replacing v0.1's
-undeclared "permitted cast".** This document supersedes `descriptor-ir.md`'s interim
+undeclared "permitted cast"; amendment A2 (2026-08-10) extends A1 to
+host-resource methods/statics (class-prototype authority), adds the
+stage-3 decorator form, and makes interface members receive their
+containing object as `this`.** This document supersedes `descriptor-ir.md`'s interim
 "host value mapping" table as the destination for host-facing value shapes.
 The runtime's *raw* boundary (`instance.exports`, `HostImports`) keeps the
 `definitions.py` interpreter shapes as an **internal** surface; the
@@ -244,13 +247,26 @@ class Trap extends Error { … }  // existing; component-fatal, never a value
   - rides the engine floor: on a non-JSPI engine a marked import that
     returns a Promise is refused at the call site (`NeedsJspi`), never
     silently degraded.
-  Scope: plain function imports (bare and interface members). Resource
-  methods/statics/constructors are outside A1 (constructors are synchronous
-  by the C2 amendment). Semantics of the park: the reference's
-  `thread.wait_until(subtask.resolved)` (definitions.py canon_lower) — a
-  plain non-cancellable wait; the instance-entry gate stays held (the #43
-  hold rule); result lowering runs at resume time under the suspension
-  point's attribution claim.
+  Scope (as extended by A2): plain function imports (bare and interface
+  members), host-resource **methods and statics** — mark instance methods
+  on the class (the CLASS PROTOTYPE is the per-declaration brand
+  authority, read at wrap time; instance-level overrides change the
+  dispatched body, never suspendability), statics on the function itself.
+  Constructors are never markable (synchronous by the C2 amendment). Two
+  spellings, one brand: the direct call (`f: suspending(fn)` — canonical,
+  the only form available in record literals) and a stage-3 method
+  decorator (`@suspending` on instance or static methods). The decorator
+  refuses non-method positions and the legacy `experimentalDecorators`
+  calling convention loudly, at class-definition time. Semantics of the
+  park: the reference's `thread.wait_until(subtask.resolved)`
+  (definitions.py canon_lower) — a plain non-cancellable wait; the
+  instance-entry gate stays held (the #43 hold rule); result lowering runs
+  at resume time under the suspension point's attribution claim.
+- **Interface members are invoked with their containing object as
+  receiver** (A2): a class instance is a fully supported spelling of an
+  interface provider — methods reading instance state work, matching the
+  resource static arm's behavior. World-level bare imports have no
+  containing object and are called unbound.
 - Params are positional; param names appear only in types/docs (they are
   excluded from the world digest — `contracts/digest.md`).
 

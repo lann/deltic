@@ -507,11 +507,20 @@ class Facade {
         );
       }
       // A1: the `suspending()` brand rides the dispatch closure so #wrapLeaf
-      // can relay it onto the value the executor actually receives. Plain
-      // functions only — resource methods/statics/constructors are outside
-      // A1's scope (constructors are synchronous by the C2 amendment).
+      // can relay it onto the value the executor actually receives.
+      //
+      // A2 receiver rule: an interface member is invoked with its containing
+      // object as receiver (matching the static arm's `apply(cls)`), so a
+      // class INSTANCE is a fully supported spelling of an interface
+      // provider — methods reading instance state work. A world-level bare
+      // import has no containing object and stays unbound. (Previously the
+      // plain arm called extracted functions unbound: a class-instance
+      // provider type-checked, worked while stateless, and broke with
+      // `this === undefined` the moment a method touched state — the silent
+      // liberal-acceptance failure the contract forbids.)
+      const receiver = leaf.path.length === 0 ? undefined : provider;
       const dispatch: (args: unknown[]) => unknown = (args) =>
-        (fn as RawFn)(...args);
+        (fn as RawFn).apply(receiver, args);
       return isSuspending(fn) ? suspending(dispatch) : dispatch;
     }
     const clsName = pascalCase(m.resource);
@@ -523,10 +532,22 @@ class Facade {
     }
     switch (m.form) {
       case "constructor":
+        // Never markable: guest-driven construction of a host resource is
+        // synchronous by the C2 amendment, and stage-3 reserves no
+        // constructor-decorator position.
         // deno-lint-ignore no-explicit-any
         return (args) => new (cls as any)(...args);
-      case "method":
-        return (args) => {
+      case "method": {
+        // A2: the brand authority for an instance method is the CLASS
+        // PROTOTYPE, read at wrap time — the Suspending-wrap decision is
+        // per-declaration and taken at instantiation, before any instance
+        // exists. Instance-level method overrides do not change
+        // suspendability (marking follows the WIT declaration, not the
+        // object); the per-call lookup below still dispatches to the
+        // override's BODY as before.
+        const protoFn = (cls as { prototype?: Record<string, unknown> })
+          ?.prototype?.[camelCase(m.member)];
+        const dispatch: (args: unknown[]) => unknown = (args) => {
           const [self, ...rest] = args;
           const fn = (self as Record<string, unknown>)?.[camelCase(m.member)];
           if (typeof fn !== "function") {
@@ -537,6 +558,8 @@ class Facade {
           }
           return (fn as RawFn).apply(self, rest);
         };
+        return isSuspending(protoFn) ? suspending(dispatch) : dispatch;
+      }
       case "static": {
         const fn = (cls as Record<string, unknown>)[camelCase(m.member)];
         if (typeof fn !== "function") {
@@ -545,7 +568,12 @@ class Facade {
               `'${camelCase(m.member)}'`,
           );
         }
-        return (args) => (fn as RawFn).apply(cls, args);
+        // A2: a static's brand sits on the function itself (a stage-3
+        // static-method decorator marks the function value), readable here
+        // at wrap time.
+        const dispatch: (args: unknown[]) => unknown = (args) =>
+          (fn as RawFn).apply(cls, args);
+        return isSuspending(fn) ? suspending(dispatch) : dispatch;
       }
     }
   }

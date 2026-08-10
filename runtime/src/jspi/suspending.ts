@@ -37,10 +37,64 @@ interface Suspendable {
  * typed imports never need this: a Promise from an async import rides the
  * task core with no JSPI involved.
  *
+ * Two forms, one brand (amendment A2):
+ *
+ *   * **direct call** — `poll: suspending((list) => …)` — the canonical
+ *     form, and the only one available inside record literals;
+ *   * **stage-3 method decorator** — `@suspending read() { … }` on a
+ *     provider class or a host-implemented resource class (methods and
+ *     statics; the brand authority for instance methods is the CLASS
+ *     PROTOTYPE — see instantiate.ts `#dispatcher`).
+ *
+ * The decorator form REFUSES anything it cannot mark, loudly: decorating a
+ * class, getter, setter, accessor or field throws at class-definition time
+ * (a silent no-op would surface as a runtime `NeedsJspi` far from the
+ * mistake), and the TypeScript-legacy `experimentalDecorators` calling
+ * convention throws with a pointer here — under that convention the
+ * decorator receives the PROTOTYPE, not the method, and marking it would
+ * both brand the wrong object and corrupt the property descriptor.
+ * Constructors are never markable (synchronous by the C2 amendment; the
+ * language reserves no constructor-decorator position anyway).
+ *
  * The value is marked in place (functions are objects); the return is the
- * same function, typed for insertion into an imports record.
+ * same function, typed for insertion into an imports record or for method
+ * replacement.
  */
-export function suspending<F extends CallableFunction>(fn: F): F {
+export function suspending<F extends CallableFunction>(
+  fn: F,
+  context?: unknown,
+  legacyDescriptor?: unknown,
+): F {
+  // TypeScript-legacy method decorator convention: (prototype, key,
+  // descriptor). Detectable because stage-3 contexts are objects with a
+  // string `kind`, never string/symbol property keys.
+  if (
+    typeof context === "string" || typeof context === "symbol" ||
+    legacyDescriptor !== undefined
+  ) {
+    throw new TypeError(
+      "suspending: legacy (experimentalDecorators) method decoration is not " +
+        "supported — the decorator would receive the prototype, not the " +
+        "method. Compile with stage-3 decorators (the default), or use the " +
+        "call form: `f: suspending(fn)`.",
+    );
+  }
+  if (context !== undefined) {
+    const kind = (context as { kind?: unknown }).kind;
+    if (kind !== "method") {
+      throw new TypeError(
+        `suspending: cannot decorate a ${String(kind)} — only methods ` +
+          `(instance or static) can be marked suspendable. Constructors are ` +
+          `synchronous by contract; for record-literal imports use the call ` +
+          `form: \`f: suspending(fn)\`.`,
+      );
+    }
+  }
+  if (typeof fn !== "function") {
+    throw new TypeError(
+      `suspending: expected a function, got ${typeof fn}`,
+    );
+  }
   (fn as F & Suspendable)[SUSPENDING] = true;
   return fn;
 }
