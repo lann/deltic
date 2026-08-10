@@ -570,6 +570,14 @@ export class PeerConnection {
   #closeHooks = new Set<() => void>();
   // deno-lint-ignore no-explicit-any
   #ownedChannels = new Set<any>();
+  /**
+   * The `DataChannel` wrappers over `#ownedChannels`, latched closed by
+   * `close()`: the wrapper's local-close flag is the synchronous gate the
+   * WIT contract's "observed locally at once" requires, because a backend
+   * may transition the native `readyState` asynchronously (node-datachannel
+   * does — see `DataChannel.send`'s gate comment).
+   */
+  #ownedWrappers = new Set<DataChannel>();
   #stateTaken = false;
   #statePokes = new Set<() => void>();
 
@@ -653,7 +661,9 @@ export class PeerConnection {
       // deno-lint-ignore no-explicit-any
       this.#pc.addEventListener("datachannel", ({ channel }: any) => {
         this.#ownedChannels.add(channel);
-        push(new DataChannel(channel));
+        const wrapper = new DataChannel(channel);
+        this.#ownedWrappers.add(wrapper);
+        push(wrapper);
       });
     });
   }
@@ -695,7 +705,9 @@ export class PeerConnection {
     try {
       const channel = this.#pc.createDataChannel(options.label(), options.toInit());
       this.#ownedChannels.add(channel);
-      return new DataChannel(channel);
+      const wrapper = new DataChannel(channel);
+      this.#ownedWrappers.add(wrapper);
+      return wrapper;
     } catch (err) {
       throw new WitError<WebrtcError>({ tag: "other", val: String(err) });
     }
@@ -849,9 +861,15 @@ export class PeerConnection {
     this.#candidates.end();
     this.#channels.end();
     for (const poke of this.#statePokes) poke();
-    for (const channel of this.#ownedChannels) {
+    // Close the owned channels through their wrappers, so the close is
+    // observed locally at once (the wrapper latches its local-close flag
+    // and closes the native channel; `DataChannel.close` is idempotent).
+    // Gating on the native `readyState` alone is not enough: a backend may
+    // transition it asynchronously, leaving a post-close `send` a window
+    // in which it still sees `"open"`.
+    for (const wrapper of this.#ownedWrappers) {
       try {
-        channel.close();
+        wrapper.close();
       } catch {
         // Already closed.
       }

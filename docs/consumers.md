@@ -91,7 +91,7 @@ Reference implementations developed here, pending upstreaming
 |---|---|---|
 | `ports/websocket` | `polymorph:websocket/connections` host module | their conformance suite 55/55 incl. TLS (`conformance/run.ts`) |
 | `ports/webcrypto` | `polymorph:webcrypto` host module (11 families; completion [#3](https://github.com/lann/deltic/issues/3)) | KATs vs their vectors + iroh exec-model integration |
-| `ports/webrtc` | `polymorph:webrtc-datachannels/connections` host module | their echo-demo component over real data channels |
+| `ports/webrtc` | `polymorph:webrtc-datachannels/connections` host module | their echo-demo component over real data channels; their full driver-ct loopback matrix (solo+pair, 37/37) runs under the upstreamed copy ([polymorph-webrtc-datachannels#149](https://github.com/polymorph-components/polymorph-webrtc-datachannels/pull/149)) |
 | `exams/iroh-endpoint` | the endpoint exit exam | 5/5: bind+identity, relay echo, WebRTC upgrade, jco#11/#13 assertions, teardown |
 | `ct-runner` | L3 runner for the polymorph-test L1 contract | golden-tested L4 JSONL; drives the websocket suite |
 | `tools/smoke-c0` | C0 smoke legs + report | legs 1–4 (`REPORT.md`) |
