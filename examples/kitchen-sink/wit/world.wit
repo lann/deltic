@@ -1,0 +1,115 @@
+package deltic:kitchen-sink;
+
+/// Shared shapes, chosen to cover the value translations whose JS spelling
+/// is not obvious (contracts/embedder-api.md §"Value shapes"):
+/// enum, record, variant (with and without payloads), and flags.
+interface types {
+  /// enum  →  a plain JS string: "debug" | "info" | "warn" | "error".
+  enum level { debug, info, warn, error }
+
+  /// record  →  a plain JS object: { x: number, y: number }.
+  record point { x: s32, y: s32 }
+
+  /// variant  →  { tag } for payload-less cases, { tag, val } otherwise:
+  ///   { tag: "dot" } | { tag: "circle", val: 3 } | { tag: "rect", val: {x,y} }
+  variant shape {
+    dot,
+    circle(u32),
+    rect(point),
+  }
+
+  /// flags  →  an object of optional booleans: { read: true, exec: true }.
+  flags perms { read, write, exec }
+}
+
+/// Host-implemented imports: the embedder provides these in the imports
+/// record. Covers a plain sync function, a fallible function (the branded
+/// WitError throw), a suspending function (sync-typed, but the host parks
+/// the guest's frame on a Promise), and a host-implemented resource with a
+/// constructor, methods (one suspending), and a static.
+interface notify {
+  use types.{level};
+
+  /// Sync import; enum parameter arrives as a string.
+  log: func(lvl: level, msg: string);
+
+  /// Fallible import: the host implementation throws `new WitError(msg)`
+  /// for the err side — an unbranded throw would be a host bug and traps.
+  parse-id: func(raw: string) -> result<u32, string>;
+
+  /// Sync-TYPED, but the host marks its implementation `suspending(...)`
+  /// and returns a Promise: the guest's frame parks on JSPI and resumes
+  /// with the value. The guest cannot tell — this line of WIT is the whole
+  /// guest-visible story.
+  read-sensor: func() -> u64;
+
+  /// Host-implemented resource: the host provides a JS class. The guest
+  /// constructs instances (constructors are synchronous by contract),
+  /// calls methods — `send` is marked @suspending on the class — and the
+  /// runtime calls `[Symbol.dispose]()` when the guest drops its handle.
+  resource channel {
+    constructor(name: string);
+    send: func(msg: string) -> u32;
+    label: func() -> string;
+    open-count: static func() -> u32;
+  }
+}
+
+/// Guest-implemented exports: what the host calls.
+interface api {
+  use types.{level, point, shape, perms};
+
+  /// Variant in, string out.
+  describe: func(s: shape) -> string;
+
+  /// Enum out.
+  classify: func(size: u32) -> level;
+
+  /// Record in and out.
+  scale: func(p: point, by: s32) -> point;
+
+  /// Flags in.
+  allowed: func(p: perms) -> bool;
+
+  /// OUTERMOST option → `point | undefined` on the host (no wrapper).
+  find: func(name: string) -> option<point>;
+
+  /// RETURN-PLACE result → the ok value resolves the Promise; the err
+  /// value arrives as a thrown `WitError` whose `.payload` is the string.
+  lookup: func(name: string) -> result<point, string>;
+
+  /// Option/result NESTED inside other types are plain data (never a
+  /// throw, never a wrapper-less undefined-vs-value pun):
+  ///   - result-as-value → { tag: "ok" | "err", val }
+  ///   - option is `undefined | T` at the OUTERMOST position of its own
+  ///     chain — even inside this list — and boxes to
+  ///     { tag: "some", val } | { tag: "none" } only when nested DIRECTLY
+  ///     inside another option (see `maybe-maybe`).
+  survey: func() -> list<option<result<point, string>>>;
+
+  /// The option-boxing rule, exactly (contracts/embedder-api.md §"Value
+  /// mapping", the worked `option<option<u32>>` example):
+  ///   none        → undefined
+  ///   some(none)  → { tag: "none" }
+  ///   some(some7) → { tag: "some", val: 7 }
+  maybe-maybe: func(depth: u32) -> option<option<u32>>;
+
+  /// Guest-implemented resource: the host constructs it (`new Counter(3)`
+  /// via the exports facade), calls methods, and drops it (`using` /
+  /// `[Symbol.dispose]()` / `.drop()`).
+  resource counter {
+    constructor(start: u32);
+    increment: func() -> u32;
+    current: func() -> u32;
+  }
+
+  /// Drives every import above from inside the guest: logs, parses,
+  /// reads the (suspending) sensor, and pushes messages through a
+  /// channel resource. Returns the sensor reading it observed.
+  run-batch: func(messages: u32) -> result<u64, string>;
+}
+
+world kitchen-sink {
+  import notify;
+  export api;
+}

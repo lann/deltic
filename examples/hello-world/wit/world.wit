@@ -1,0 +1,9 @@
+package deltic:hello-example;
+
+/// The smallest useful world: one exported function, no imports.
+/// `greet` takes and returns a string, which already exercises the
+/// canonical ABI's realloc path — the host must give the guest somewhere
+/// to write the returned string.
+world hello {
+  export greet: func(name: string) -> string;
+}
