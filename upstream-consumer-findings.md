@@ -103,6 +103,21 @@ resource class goes under its defining interface; `use`rs may re-export.
 
 ---
 
+## POLYMORPH-TEST-HARNESS-1 — freshCases re-pick is a linear name() scan (quadratic in suite size)
+
+`runCases`' freshCases branch re-enumerates and scans front-to-back,
+calling `name()` per entry until the match (js/viewer/harness.mjs:181-189).
+For an n-case suite that is Σi ≈ n²/2 `name()` round-trips per run —
+~182M for polymorph-webcrypto's 19k-case shared suite — and every
+`name()` is a host-boundary crossing on any runner. deltic's ct-runner
+mirrored the scan verbatim and now fronts it with a same-index-first
+fast path (census index as a hint, full scan as the fallback, drift
+semantics unchanged — `ct-runner/src/run-suite.ts` `findByName`); the
+same fix transplants to harness.mjs directly. Filing upstream is the
+operator's call.
+
+---
+
 ## Out of scope here, tracked where they belong
 
 - Spec/reference findings: `upstream-component-model-repo-findings.md`.
