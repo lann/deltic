@@ -12,6 +12,7 @@ concurrency:
 env:
   DENO_VERSION: "2.9.5"
   WASM_TOOLS_VERSION: "1.247.0"
+  JUST_VERSION: "1.54.0"
 
 jobs:
   core:
@@ -33,111 +34,17 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@v2
         with:
-          tool: wasm-tools@${{ env.WASM_TOOLS_VERSION }}
+          tool: wasm-tools@${{ env.WASM_TOOLS_VERSION }},just@${{ env.JUST_VERSION }}
       - uses: denoland/setup-deno@v2
         with:
           deno-version: ${{ env.DENO_VERSION }}
 
-      # --- Rust suites -------------------------------------------------------
-      - name: cargo build (workspace)
-        run: cargo build --workspace
-      - name: cargo test (translator-shim, bindgen)
-        run: cargo test -p translator-shim -p bindgen
-      - name: build the translator shim (wasm32)
-        # Every Deno suite below loads this artifact; order matters.
-        run: cargo build -p translator-shim --target wasm32-unknown-unknown --release
-
-      # --- Guest fixtures + corpus --------------------------------------------
-      - name: build example guest components
-        # examples/guests/build/ is gitignored; the runtime e2e suites and
-        # ct-runner's fixture tests need it. wasmtime CLI is optional in
-        # build.sh (smoke run only when present) and deliberately not
-        # installed here.
-        run: ./examples/build.sh
-      - name: generate the conformance corpus
-        # Rehearsal finding: 20 runtime e2e tests self-skip when
-        # harness/generated is absent — generation must precede the runtime
-        # suite (318/0/3 with it; 298/0/23 without).
-        working-directory: harness
-        run: deno task gen
-
-      # --- Pinned engine-shell lanes (required; issue #22 follow-up) ---------
-      # Per-push/PR SpiderMonkey + JSC coverage at fixed, sha256-verified
-      # pins (tools/shell/pins.json) — NOT the always-moving nightly/trunk
-      # channels, which stay findings-only canaries in canary.yml. Both are
-      # `required: true` overlays; a deviation here exits 1 and fails this
-      # job (tools/shell/run-lane.ts's `exp.required ? 1 : 0` tail).
-      - name: fetch SpiderMonkey pinned (Firefox 153.0 jsshell)
-        run: deno run -A tools/shell/fetch.ts sm-pinned
-      - name: SpiderMonkey pinned lane (required)
-        run: deno run -A tools/shell/run-lane.ts sm-pinned
-      - name: fetch JSC pinned (rev 318852@main, x64 only)
-        # No arm64 channel for jsc-built-products (or its repo-owned mirror
-        # of this exact rev) — fetch.ts refuses cleanly on other arches.
-        if: runner.arch == 'X64'
-        run: deno run -A tools/shell/fetch.ts jsc-pinned
-      - name: JSC pinned lane (required, x64 only)
-        if: runner.arch == 'X64'
-        run: deno run -A tools/shell/run-lane.ts jsc-pinned
-
-      # --- Deno suites -------------------------------------------------------
-      - name: runtime
-        working-directory: runtime
-        run: |
-          deno task check
-          deno task test
-      - name: wasi-shims
-        working-directory: wasi-shims
-        run: deno task test
-      - name: ct-runner
-        working-directory: ct-runner
-        run: deno task test
-      - name: release bundle (embedder artifact gate)
-        run: deno test -A tools/release-bundle/bundle_test.ts
-      - name: conformance (official CM suite, Deno lane)
-        working-directory: harness
-        run: deno task conformance
-
-      # --- Seeded scheduler runs (spec-allowed nondeterminism) ---------------
-      - name: runtime under DELTIC_SCHED_SEED=1
-        working-directory: runtime
-        run: deno task test
-        env:
-          DELTIC_SCHED_SEED: "1"
-      - name: runtime under DELTIC_SCHED_SEED=4242
-        working-directory: runtime
-        run: deno task test
-        env:
-          DELTIC_SCHED_SEED: "4242"
-      - name: conformance under DELTIC_SCHED_SEED=1
-        working-directory: harness
-        run: deno task conformance
-        env:
-          DELTIC_SCHED_SEED: "1"
-
-      # --- Ports (unit suites only; consumer conformance legs need the
-      # --- polymorph checkouts and are follow-up scope, issue #6) ------------
-      - name: ports/webcrypto
-        working-directory: ports/webcrypto
-        run: deno test --allow-read tests/
-      - name: ports/websocket
-        working-directory: ports/websocket
-        run: deno task test
-      - name: ports/webrtc
-        working-directory: ports/webrtc
-        # node-datachannel is a Node-API addon with linux prebuilds for both
-        # x64 and arm64 (arm64 proven on the dev box; see tools/probes).
-        # NON-BLOCKING for now: GH Actions runners give libdatachannel no
-        # usable ICE path for same-host loopback pairing — all
-        # connection-forming tests time out on BOTH arches while the addon
-        # loads and non-connection tests pass (first run: 1 passed /
-        # 8 timed-out). The dev-box lane remains the real gate; issue #21
-        # tracks the runner-networking fix (loopback candidates /
-        # bindAddress / werift).
-        continue-on-error: true
-        run: |
-          deno install --allow-scripts=npm:node-datachannel
-          deno test -A webrtc.test.ts
+      # The job body lives in the `gha` just module (one workflow job = one
+      # `gha::` recipe, so `just ci` is exactly CI); step-level rationale
+      # lives on the root-justfile recipes it composes. Suite order,
+      # arch-conditional lanes (jsc-pinned is x64-only) and the tolerated
+      # webrtc suite (issue #21) are all encoded there.
+      - run: just gha::core
 
   browser:
     runs-on: ubuntu-24.04
@@ -164,44 +71,24 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@v2
         with:
-          tool: wasm-tools@${{ env.WASM_TOOLS_VERSION }}
+          tool: wasm-tools@${{ env.WASM_TOOLS_VERSION }},just@${{ env.JUST_VERSION }}
       - uses: denoland/setup-deno@v2
         with:
           deno-version: ${{ env.DENO_VERSION }}
-
-      - name: build the translator shim (wasm32)
-        run: cargo build -p translator-shim --target wasm32-unknown-unknown --release
-      - name: generate the conformance corpus
-        working-directory: harness
-        run: deno task gen
 
       - name: cache playwright browsers
         uses: actions/cache@v4
         with:
           # run-lane.ts pins playwright@1.62.1 and a REPO-LOCAL browser cache
           # (PLAYWRIGHT_BROWSERS_PATH=$PWD/.browser-cache) — cache that path,
-          # not ~/.cache/ms-playwright (rehearsal finding).
+          # not ~/.cache/ms-playwright (rehearsal finding). The recipe's
+          # install step below restores into it.
           path: .browser-cache
           key: playwright-1.62.1-${{ runner.os }}-${{ runner.arch }}
-      - name: install browsers (chromium, firefox)
-        run: PLAYWRIGHT_BROWSERS_PATH=$PWD/.browser-cache deno run -A npm:playwright@1.62.1 install --with-deps chromium firefox
 
-      - name: chromium lane (required — expects exact Deno-lane parity)
-        run: deno run -A tools/browser/run-lane.ts chromium
-      - name: firefox lane (required — JSPI pref set by the driver)
-        run: deno run -A tools/browser/run-lane.ts firefox
-
-      # WebKit is best-effort per docs/architecture.md §3/§12 (issue #11): the
-      # lane's expectation overlay
-      # encodes JSC's missing multi-memory; GH's ubuntu-24.04 matches the ABI
-      # playwright's WebKit wants, so no library staging should be needed —
-      # but the lane stays non-blocking until it has a track record.
-      - name: install webkit (best-effort)
-        continue-on-error: true
-        run: PLAYWRIGHT_BROWSERS_PATH=$PWD/.browser-cache deno run -A npm:playwright@1.62.1 install --with-deps webkit
-      - name: webkit lane (best-effort)
-        continue-on-error: true
-        run: deno run -A tools/browser/run-lane.ts webkit
+      # shim + corpus + browser install (--with-deps) + the chromium/firefox
+      # required lanes + the best-effort webkit lane, per the recipes.
+      - run: just gha::browser
 
   # Every GREEN main ref update ships a prerelease (issue #16's interim
   # scheme): tag pre-<shorthash>, shim artifacts + SHA256SUMS. Gated on this

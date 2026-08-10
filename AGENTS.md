@@ -23,28 +23,31 @@ implementation safe.
 
 ## Gates (exact commands)
 
-Run the ones your change can affect; a full pass before commit looks like:
+The justfile is the command surface: recipe bodies are the exact commands,
+and each CI job runs exactly one `gha::` recipe (`just ci` = exactly CI;
+`.github/justfile` holds the job bodies). Run the recipes your change can
+affect; the full pass before commit is:
 
 ```sh
-cargo build --workspace
-cargo test -p translator-shim -p bindgen -p testgen
-(cd runtime && deno task check && deno task test)
-(cd harness && deno task conformance)        # official CM suite, Deno lane
-(cd wasi-shims && deno task test)
-(cd ct-runner && deno task test)
-deno test -A tools/release-bundle/bundle_test.ts  # embedder-bundle release asset
-(cd ports/websocket && deno task test)       # + deno task conformance (spawns their echod)
-deno run --allow-read tools/smoke-tls/run.ts --exec  # polymorph-tls suite (issue #18)
-(cd ports/webcrypto && deno test --allow-read tests/)
-(cd ports/webrtc && deno test -A webrtc.test.ts)
-deno run -A tools/browser/run-lane.ts chromium   # firefox / webkit likewise
-deno run -A tools/shell/run-lane.ts sm-pinned    # pinned engine shells (required
-                                                 # gates; jsc-pinned is x64-only)
-deno run -A --unstable-net exams/iroh-endpoint/run.ts   # needs iroh-relay on PATH
+just gates    # everything below, in this order
 ```
 
-Scheduler-order sensitivity: rerun affected suites with `DELTIC_SCHED_SEED=1`
-and `=4242` (seeded-shuffle mode; FIFO when unset).
+```sh
+just build test-rust      # cargo build --workspace; translator-shim/bindgen/testgen tests
+just test-runtime         # runtime check + tests (deps: shim, fixtures, corpus)
+just test-wasi-shims test-ct-runner
+just test-bundle          # embedder-bundle release asset
+just conformance          # official CM suite, Deno lane
+just sched-seeds          # seeded-shuffle reruns: DELTIC_SCHED_SEED=1, =4242 (FIFO when unset)
+just test-ports           # ports/webcrypto + ports/websocket unit suites
+just test-webrtc          # non-blocking in CI (#21); the dev box is the real gate
+just shells               # pinned engine shells, required gates (jsc-pinned is x64-only)
+just browsers             # chromium + firefox lanes (`just browsers-install` once)
+just websocket-conformance  # their suite under this host (spawns their echod)
+just smoke-tls            # polymorph-tls suite (issue #18)
+just smoke-c0             # C0 smoke legs
+just iroh-exam            # needs iroh-relay on PATH
+```
 
 Conformance discipline: the harness fails loudly on unexpected failures *and*
 on stale xfails; per-browser deltas live in `harness/browser/expectations/`

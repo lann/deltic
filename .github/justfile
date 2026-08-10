@@ -1,0 +1,89 @@
+# CI job bodies: each workflow job runs exactly one `gha::` recipe, so
+# `just ci` is exactly CI and the workflow files carry no logic beyond
+# environment setup (checkout, toolchains, caches). Step-level rationale
+# lives on the root-justfile recipes these compose.
+
+set working-directory := '..'
+
+# Wrap one recipe in a GitHub Actions log group (plain passthrough
+# locally).
+[private]
+_step recipe:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ "${GITHUB_ACTIONS:-}" = "true" ]; then
+        echo "::group::just {{recipe}}"
+        status=0
+        just {{recipe}} || status=$?
+        echo "::endgroup::"
+        if [ $status -ne 0 ]; then
+            echo "::error title=just {{recipe}} failed::exit status $status"
+            exit $status
+        fi
+    else
+        just {{recipe}}
+    fi
+
+# Like _step, but failures are tolerated: the CI-side replacement for the
+# workflow-level `continue-on-error` the collapsed steps used to carry. A
+# failure surfaces as a ::warning annotation, never as a job failure.
+[private]
+_step-tolerated recipe:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ "${GITHUB_ACTIONS:-}" = "true" ]; then
+        echo "::group::just {{recipe}} (non-blocking)"
+        status=0
+        just {{recipe}} || status=$?
+        echo "::endgroup::"
+        if [ $status -ne 0 ]; then
+            echo "::warning title=just {{recipe}} (non-blocking)::exit status $status — tolerated; see the recipe's comment for why"
+        fi
+    else
+        just {{recipe}} || echo "just {{recipe}}: FAILED (tolerated in CI; see the recipe's comment)"
+    fi
+
+# The required per-push/PR matrix job (ci.yml `core`).
+core:
+    @just gha::_step build
+    @just gha::_step test-rust
+    @just gha::_step shim
+    @just gha::_step fixtures
+    @just gha::_step corpus
+    @just gha::_step shells
+    @just gha::_step test-runtime
+    @just gha::_step test-wasi-shims
+    @just gha::_step test-ct-runner
+    @just gha::_step test-bundle
+    @just gha::_step conformance
+    @just gha::_step sched-seeds
+    @just gha::_step test-ports
+    @just gha::_step-tolerated test-webrtc
+
+# The post-merge browser job (ci.yml `browser`; gates the prerelease).
+browser:
+    @just gha::_step shim
+    @just gha::_step corpus
+    @just gha::_step "browsers-install --with-deps"
+    @just gha::_step "browser-lane chromium"
+    @just gha::_step "browser-lane firefox"
+    @just gha::_step-tolerated "browsers-install-webkit --with-deps"
+    @just gha::_step-tolerated "browser-lane webkit"
+
+# Never gates: the drivers themselves exit 0 on deviations, 2 on
+# infrastructure failure.
+# The findings-only canary lanes (canary.yml, x64 leg).
+canary:
+    @just gha::_step shim
+    @just gha::_step corpus
+    @just gha::_step "shell-lane sm-nightly --json sm-results.json"
+    @just gha::_step "shell-lane jsc-trunk --json jsc-results.json"
+    @just gha::_step "deno-canary --json deno-canary-results.json"
+
+# JSC trunk has no arm64 channel — the two lanes with arm64 coverage.
+# The findings-only canary lanes (canary.yml, arm64 leg).
+canary-arm:
+    @just gha::_step shim
+    @just gha::_step corpus
+    @just gha::_step "shell-lane sm-nightly --json sm-results.json"
+    @just gha::_step "deno-canary --json deno-canary-results.json"

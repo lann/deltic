@@ -30,6 +30,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: just@1.54.0
       - uses: denoland/setup-deno@v2
         with:
           deno-version: "2.9.5"
@@ -48,32 +51,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
-      - name: build translator shim (release)
-        run: |
-          cargo build -p translator-shim --target wasm32-unknown-unknown --release
-          cp target/wasm32-unknown-unknown/release/translator_shim.wasm deltic-translator-shim.wasm
-
-      - name: build translator shim (size-tuned)
-        # Flags exactly as documented in crates/translator-shim/README.md
-        # (reproduces the published size figures without editing the
-        # workspace manifest).
-        run: |
-          cargo build -p translator-shim --release --target wasm32-unknown-unknown \
-            --config 'profile.release.opt-level="z"' \
-            --config profile.release.lto=true \
-            --config profile.release.codegen-units=1 \
-            --config 'profile.release.panic="abort"' \
-            --config 'profile.release.strip=true'
-          cp target/wasm32-unknown-unknown/release/translator_shim.wasm deltic-translator-shim-min.wasm
-
-      - name: build embedder bundle
-        # The consumer-facing platform-neutral ES module (browser pages/
-        # workers + plain Node): tools/release-bundle/entry.ts, gated by
-        # tools/release-bundle/bundle_test.ts in the core matrix.
-        run: deno run -A tools/release-bundle/build.ts --out deltic-embedder.mjs
-
-      - name: checksums
-        run: sha256sum deltic-translator-shim.wasm deltic-translator-shim-min.wasm deltic-embedder.mjs > SHA256SUMS
+      - name: build the release artifacts
+        # `just release-artifacts` (root justfile): the standard shim, the
+        # size-tuned shim (flags per crates/translator-shim/README.md), the
+        # embedder bundle (tools/release-bundle/entry.ts, gated by
+        # bundle_test.ts in the core matrix), and SHA256SUMS.
+        run: just release-artifacts
 
       - name: create prerelease
         run: |
