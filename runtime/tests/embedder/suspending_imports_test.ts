@@ -252,3 +252,140 @@ Deno.test("suspending(): marker mechanics (brand, identity, record scan)", () =>
   assertTrue(!anySuspendingImport(undefined));
   assertTrue(!anySuspendingImport({}));
 });
+
+// ---------------------------------------------------------------------------
+// A2: decorator form, resource methods/statics, receiver binding
+// ---------------------------------------------------------------------------
+
+Deno.test({
+  name: "A2: @suspending on a provider-class method parks, with `this` bound to the provider",
+  ignore: !ready,
+  fn: async () => {
+    // Two pins in one: the stage-3 decorator marks the prototype method the
+    // plain arm reads off the instance, and the A2 receiver rule makes the
+    // extracted method see its instance state (pre-A2 the plain arm called
+    // extracted functions unbound — a stateful class provider broke with
+    // `this === undefined`).
+    class MathProvider {
+      #bias: number;
+      constructor(bias: number) {
+        this.#bias = bias;
+      }
+      @suspending
+      add(a: number, b: number): Promise<number> {
+        return later(a + b + this.#bias);
+      }
+      greet(who: string): string {
+        return `hello ${who}`;
+      }
+    }
+    const c = await instantiateFixture(testdata("imports"), {
+      log: () => {},
+      "host:api/math": new MathProvider(100),
+    });
+    assertEq(await c.exports.run(2, 40), 142);
+  },
+});
+
+Deno.test({
+  name: "A2: receiver binding alone — an unmarked stateful class provider works synchronously",
+  ignore: !ready,
+  fn: async () => {
+    // The receiver fix is independent of parking: no marks, no Promises,
+    // plain mode — instance state must still be reachable.
+    class MathProvider {
+      #bias = 1000;
+      add(a: number, b: number): number {
+        return a + b + this.#bias;
+      }
+      greet(who: string): string {
+        return `hello ${who}`;
+      }
+    }
+    const c = await instantiateFixture(testdata("imports"), {
+      log: () => {},
+      "host:api/math": new MathProvider(),
+    }, { jspi: false });
+    assertEq(await c.exports.run(2, 40), 1042);
+  },
+});
+
+const methodReady =
+  (await readArtifact("runtime/tests/embedder/suspending-method.wasm")) !==
+    null && isSupported();
+
+Deno.test({
+  name: "A2: @suspending on a host-resource METHOD parks the frame (the pollable.block shape)",
+  ignore: !methodReady,
+  fn: async () => {
+    // The load-bearing scope extension: `[method]gauge.read` is the same
+    // WIT shape as `[method]pollable.block`, the site the tier-(c) WASI
+    // blocking profile hangs off. The brand authority is the class
+    // prototype, read at wrap time; the guest-driven CONSTRUCTOR stays
+    // synchronous (C2) while the method parks.
+    class Gauge {
+      #v: number;
+      constructor(v: number) {
+        this.#v = v;
+      }
+      @suspending
+      read(): Promise<number> {
+        return later(this.#v * 2);
+      }
+      @suspending
+      static calibrate(): Promise<number> {
+        return later(7);
+      }
+    }
+    const c = await instantiateFixture(
+      "runtime/tests/embedder/suspending-method.wasm",
+      { "host:api/dev": { Gauge } },
+    );
+    assertEq(await c.exports.probe(21), 42);
+    assertEq(await c.exports.calib(), 7);
+  },
+});
+
+Deno.test("A2: the decorator refuses non-method positions at class-definition time", () => {
+  let raised: unknown;
+  try {
+    // deno-lint-ignore no-unused-vars
+    class Bad {
+      // deno-lint-ignore no-explicit-any
+      @(suspending as any)
+      get x(): number {
+        return 1;
+      }
+    }
+  } catch (e) {
+    raised = e;
+  }
+  assertTrue(raised instanceof TypeError, `expected TypeError, got ${raised}`);
+  assertTrue(
+    String(raised).includes("getter"),
+    `should name the offending kind, got: ${raised}`,
+  );
+});
+
+Deno.test("A2: the legacy experimentalDecorators convention is refused with guidance", () => {
+  // Simulate what `experimentalDecorators: true` would pass: (prototype,
+  // key, descriptor). Marking the prototype would brand the wrong object
+  // and corrupt the descriptor, so it must throw instead.
+  const proto = { read() {} };
+  let raised: unknown;
+  try {
+    // deno-lint-ignore no-explicit-any
+    (suspending as any)(
+      proto,
+      "read",
+      Object.getOwnPropertyDescriptor(proto, "read"),
+    );
+  } catch (e) {
+    raised = e;
+  }
+  assertTrue(raised instanceof TypeError, `expected TypeError, got ${raised}`);
+  assertTrue(
+    String(raised).includes("stage-3"),
+    `should point at the fix, got: ${raised}`,
+  );
+});
