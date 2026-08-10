@@ -1,0 +1,18 @@
+package deltic:stream-pass;
+
+/// Pass-through probes for a stream traversing host -> guest -> host with the
+/// guest never reading it (issue #54's investigation companion): the readable
+/// end should transfer by identity, with no payload copy through this guest.
+world stream-pass {
+  /// Host sink: receives the forwarded stream, returns the element count it
+  /// read off it.
+  import sink: async func(data: stream<u8>) -> u64;
+
+  /// Returns its input stream unchanged (result-position pass-through).
+  export pass-through: async func(input: stream<u8>) -> stream<u8>;
+  /// Hands its input stream to the imported sink (import-position
+  /// pass-through) and relays the sink's count.
+  export forward: async func(input: stream<u8>) -> u64;
+  /// Result-position pass-through for a non-numeric element type.
+  export pass-through-text: async func(input: stream<string>) -> stream<string>;
+}

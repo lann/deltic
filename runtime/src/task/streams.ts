@@ -65,6 +65,15 @@ export function sameElemType(a: ValType | null, b: ValType | null): boolean {
 /** definitions.py `Buffer.MAX_LENGTH`. */
 export const BUFFER_MAX_LENGTH = 2 ** 28 - 1;
 
+/**
+ * One rendezvous chunk. u8 payloads travel as `Uint8Array` — the lift out of
+ * guest memory and the conventions layer's lowering both produce typed
+ * chunks, and every buffer in the copy path keeps them whole (issue #54: the
+ * typed shape is what makes both the guest-memory store and a host→host
+ * hand-off bulk). Every other element type travels as a plain array.
+ */
+export type PayloadChunk = ComponentValue[] | Uint8Array;
+
 /** definitions.py `CopyResult` (line 977). */
 export enum CopyResult {
   COMPLETED = 0,
@@ -127,11 +136,11 @@ export class GuestBuffer {
   }
 
   /** definitions.py `ReadableBufferGuestImpl.read`. */
-  read(n: number): ComponentValue[] {
+  read(n: number): PayloadChunk {
     assert_(n <= this.remain(), "buffer read beyond remaining");
-    let vs: ComponentValue[];
+    let vs: PayloadChunk;
     if (this.t !== null) {
-      vs = loadListFromValidRange(this.cx, this.ptr, n, this.t) as ComponentValue[];
+      vs = loadListFromValidRange(this.cx, this.ptr, n, this.t) as PayloadChunk;
       this.ptr += n * elemSize(this.t, this.cx.opts.memory!.ptrType());
     } else {
       vs = new Array(n).fill(null);
@@ -141,7 +150,7 @@ export class GuestBuffer {
   }
 
   /** definitions.py `WritableBufferGuestImpl.write`. */
-  write(vs: ComponentValue[]): void {
+  write(vs: PayloadChunk): void {
     assert_(vs.length <= this.remain(), "buffer write beyond remaining");
     if (this.t !== null) {
       storeListIntoValidRange(this.cx, vs, this.ptr, this.t);
@@ -150,9 +159,9 @@ export class GuestBuffer {
       // definitions.py `WritableBufferGuestImpl.write`:
       // `assert(all(v == () for v in vs))` — a zero-width stream carries no
       // payload, so anything but the placeholder means a element-type mix-up
-      // upstream.
+      // upstream (a typed chunk here would be the same mix-up).
       assert_(
-        vs.every((v) => v === null),
+        !(vs instanceof Uint8Array) && vs.every((v) => v === null),
         "zero-width buffer written with a non-empty element",
       );
     }

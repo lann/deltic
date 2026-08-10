@@ -191,24 +191,19 @@ Deno.test({
 });
 
 Deno.test({
-  name: "streams: double-wrapping one shared object is a runtime assert",
+  name: "streams: wrapping one shared object is idempotent (same wrapper back)",
   ignore: false,
   fn: () => {
-    // R-fix review note 3: a second host wrapper would silently orphan the
-    // first one's activity binding for future lowers, so the guest would be
-    // fed by a wrapper nothing is pumping. Refuse instead.
+    // Amendment A5 (pass-through investigation): a stream that round-trips
+    // host -> guest -> host lifts back as the SAME wrapper the host already
+    // holds. The old behavior — a hard "already wrapped" assert — turned the
+    // spec-legal transfer chain into a failure; the hazard it guarded
+    // (a second HostActivity silently orphaning the first wrapper's pumping)
+    // is gone by construction when the wrapper is cached per shared object.
     const hs = hostStream<number>({ kind: "u32" });
-    let err: unknown;
-    try {
-      hostStreamFor<number>(hs.value);
-    } catch (e) {
-      err = e;
-    }
-    assertEq(
-      String(err).includes("already wrapped by a host end"),
-      true,
-      `expected the double-wrap assert, got: ${err}`,
-    );
+    const again = hostStreamFor<number>(hs.value);
+    assertEq(again === hs, true, "hostStreamFor returns the cached wrapper");
+    assertEq(again.value === hs.value, true, "same shared object");
   },
 });
 

@@ -10,7 +10,11 @@ containing object as `this`; amendment A3 (2026-08-11) lets `instantiate`
 accept untranslated artifacts (`{ componentBytes, translator }`) and run
 the translation internally; amendment A4 (2026-08-11) blesses the
 translation envelope as the build-time artifact
-(`artifactsFromEnvelope`).** This document supersedes `descriptor-ir.md`'s interim
+(`artifactsFromEnvelope`); amendment A5 (2026-08-11) makes host wrapping
+of one stream/future idempotent (pass-through round trips —
+host→guest→host — hand back the same handle machinery instead of
+asserting), legalizes host↔host rendezvous for every element type, and
+pins u8 stream chunks as `Uint8Array` in both directions.** This document supersedes `descriptor-ir.md`'s interim
 "host value mapping" table as the destination for host-facing value shapes.
 The runtime's *raw* boundary (`instance.exports`, `HostImports`) keeps the
 `definitions.py` interpreter shapes as an **internal** surface; the
@@ -349,8 +353,29 @@ class DroppedError extends Error { … }    // awaiting a dropped future rejects
   `Promise<T>` or `Future<T>`. Bindgen adapts and **owns the pumping**:
   the driving arms auto-close on end/`DROPPED` (eliminating the
   deadlock-masking activity-lifetime footgun — R-fix review note 2), and
-  double-wrap / cross-store reuse are runtime-asserted errors, not silent
-  misbehavior (note 3).
+  cross-store reuse is a runtime-asserted error, not silent misbehavior
+  (note 3).
+- **Stream values survive round trips** (amendment A5). A `stream`/`future`
+  is an identity: lifting one that the host already handled — a
+  host-created stream a guest passed back (result or import position), or
+  a guest-created stream on its second hop — is **idempotent**, yielding a
+  handle over the same underlying end rather than the v0.2
+  double-wrap error. Consequences, all normative:
+  - host → guest → host pass-through works with the guest never reading;
+    the payload then moves host↔host without touching guest memory;
+  - a readable end may hop the boundary any number of times (each lower
+    transfers it, exactly as between two guests);
+  - host↔host rendezvous is legal for **every** element type — the
+    same-instance restriction applies to component instances only;
+  - a `Stream.create()` writer keeps feeding the same stream across hops
+    (the writer half addresses the shared end, not a particular handle).
+- **u8 chunks are `Uint8Array` in both directions** (amendment A5, the
+  write-side mirror of `Chunk<u8>`): `StreamWriter.write`/`writeAll` take
+  `Chunk<T>`, and a `Uint8Array` chunk is treated as already-lowered bytes
+  — passed by reference to the rendezvous (borrowed until the returned
+  promise settles) and copied exactly once, at the rendezvous itself.
+  Reads hand back that copy unchanged: one copy end-to-end for
+  host↔host, one memory copy each way when a guest is the peer.
 - Writer-side host ends (`hostStream()`-era API) remain the low-level seam
   underneath; the conventions layer exposes them as
   `Stream.create<T>(): { stream: Stream<T>, writer: StreamWriter<T> }`
