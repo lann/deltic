@@ -1,8 +1,9 @@
 // wasmtime-model entry semantics: the HOLD RULE + the DEFERRED ENTRY DECISION
 // (issue #43).
 //
-// These tests pin the semantics established by
-// `exams/wasmtime-exclusivity/wasmtime-actual-semantics.md`, which corrected
+// These tests pin the semantics established by the CM-4 investigation
+// (issue #43, where the evidence is distilled; the exam kit is archived at
+// 4f3351f:exams/wasmtime-exclusivity/), which corrected
 // the earlier (false) belief that wasmtime releases its instance-entry gate
 // when a task resolves. It does not:
 //
@@ -20,7 +21,7 @@
 //     suspends the caller until the first subtask status event, so the
 //     executor first drains the work queued ahead of the call
 //     (concurrent.rs :1497-1522, :3040-3160). deltic uses the order-robust
-//     restatement from `exams/wasmtime-exclusivity/spec-amendment.md` — *the
+//     restatement (issue #43) — *the
 //     call reports STARTING only if the callee is still unstarted after the
 //     instance's runnable work has been drained to quiescence* — because
 //     wasmtime's own FIFO-dependent formulation would not survive
@@ -28,13 +29,20 @@
 //     predicate; `createAsyncStartCall` (intrinsics/fact_calls.ts) is its
 //     only consumer.
 //
+// Adjudicated 2026-08-10 (issue #43): entry-status *timing* is not
+// normative. The HOLD RULE is spec semantics; the deferred decision is
+// deltic's scheduler policy, which makes the suite's schedule-overfitted
+// `sync-streams.wast:145` STARTED assertion (an upstream test defect —
+// pristine definitions.py answers STARTING) hold under any seed.
+//
 // The shape exercised below is the pump/poke one: a callback-lifted "pump"
 // task resolves (`task.return`) and then parks mid-frame in a synchronous
 // read that is NOT ready, while a same-instance "poke" task tries to enter.
 // Expected, per the wasmtime model: poke is NOT admitted for the whole parked
 // span (STARTING at the lower), and starts only once the pump's invocation
 // exits. Note this is deliberately the OPPOSITE of the exam's
-// `test_resolved_task_gates_entry` (cm4-run-tests.patch), which encoded
+// `test_resolved_task_gates_entry` (cm4-run-tests.patch, archived at
+// 4f3351f:exams/wasmtime-exclusivity/), which encoded
 // deltic's since-removed release-at-resolution rule.
 //
 // The no-interleaving assertion uses the shared-state discipline of the

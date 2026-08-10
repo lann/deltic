@@ -320,10 +320,13 @@ export const XFAIL: XfailEntry[] = [
   // (a resolved producer blocked mid-sync-write keeps gating), and the
   // async-lowered call's initial status is decided only after the callee
   // instance's runnable work has been drained to quiescence — by which time
-  // the producer has exited and the next task reports STARTED. See
-  // exams/wasmtime-exclusivity/wasmtime-actual-semantics.md; the former
-  // release-at-BLOCK divergence is gone. (Before the M2 jspi flip this file
-  // was xfailed outright.)
+  // the producer has exited and the next task reports STARTED. Adjudicated
+  // 2026-08-10 (issue #43): the test's hard STARTED assertion is
+  // schedule-dependent — an upstream test defect overfitting wasmtime's
+  // deferred-entry policy (pristine definitions.py answers STARTING) —
+  // and deltic's drain policy satisfies it as written under any seed. The
+  // former release-at-BLOCK divergence is gone. (Before the M2 jspi flip
+  // this file was xfailed outright.)
   // entry pruned. ---
   // --- async/trap-if-block-and-sync.json: see entries ---
   {

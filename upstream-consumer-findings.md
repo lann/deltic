@@ -39,8 +39,9 @@ the collision near-certain on any host that interleaves there.
 
 **The precise semantics (corrected 2026-08-10; see
 `upstream-component-model-repo-findings.md` CM-4 and
-`exams/wasmtime-exclusivity/wasmtime-actual-semantics.md`):** the
-collision window is **deltic-specific**, not spec-pinned.
+[deltic#43](https://github.com/lann/deltic/issues/43); exam kit archived
+at `4f3351f:exams/wasmtime-exclusivity/`):** the
+collision window was **deltic-specific**, not spec-pinned.
 
 - *Before* `task.return`, a callback task's instance-entry gate holds
   across mid-frame blocks on every implementation surveyed (deltic,
@@ -52,16 +53,18 @@ collision window is **deltic-specific**, not spec-pinned.
   the same way (`GuestCall::is_ready`, concurrent.rs:765). Under wasmtime
   the poller *cannot* be resumed inside the pump's parked signing window
   — the collision is **unreachable by semantics**, not by timing.
-  `definitions.py` agrees on the gate lifetime. **deltic today is the
-  outlier**: its release-at-resolution rule (2026-08-09 CM-4 working
-  assumption, since corrected) admits same-instance tasks during the
-  post-resolution parked span — that admitted window is where this trap
-  lives. The official suite (`sync-streams.wast`) pins neither rule; it
-  pins deferred entry *timing* (CM-4, corrected).
+  `definitions.py` agrees on the gate lifetime. **deltic was the
+  outlier** until #43 landed: its since-removed release-at-resolution
+  rule (the 2026-08-09 CM-4 working assumption) admitted same-instance
+  tasks during the post-resolution parked span — that admitted window is
+  where this trap lived. The official suite (`sync-streams.wast`) pins
+  neither gate rule; its STARTED assertion is schedule-dependent (CM-4,
+  adjudicated 2026-08-10: an upstream test defect overfitting wasmtime's
+  deferred-entry scheduler policy).
 
 The endpoint's pump does its `block_on(sign)` **after** `bind` resolved,
-inside the window deltic's current rule admits, with the `RefCell` borrow
-live.
+inside the window deltic's since-removed rule admitted, with the
+`RefCell` borrow live.
 
 **Why the wasmtime leg is green — a semantics guarantee, not timing
 luck (corrected 2026-08-10):** the previous revision of this entry
@@ -70,8 +73,8 @@ corrected model predicts the opposite — under wasmtime the poller's
 timer event sits gated in `pending` until the pump's invocation exits,
 at any signing latency. (Falsifiable both ways: add ~1 ms to the
 wasmtime host's `sign`; the corrected model says it stays green.) Under
-deltic the same window is open by our own rule, and the 5 ms poll
-cadence lands in it ~90% of the time with a `crypto.subtle` signer.
+pre-#43 deltic the same window was open by our own rule, and the 5 ms
+poll cadence landed in it ~90% of the time with a `crypto.subtle` signer.
 
 **Disposition (2026-08-10, updated after deltic#43 landed):** deltic now
 implements wasmtime's hold + deferred-entry model

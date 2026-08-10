@@ -209,7 +209,9 @@ ending at resolution-plus-block rather than activation end" — was a
 mischaracterization of wasmtime corrected on 2026-08-10 (wasmtime holds
 the gate for the whole invocation and defers the entry *decision*; see
 upstream-component-model-repo-findings.md CM-4 and
-exams/wasmtime-exclusivity/wasmtime-actual-semantics.md). deltic's
+[deltic#43](https://github.com/lann/deltic/issues/43), where the
+evidence is distilled — exam kit archived at
+`4f3351f:exams/wasmtime-exclusivity/`). deltic's
 release-at-resolution rule was **removed the same day**
 ([#43](https://github.com/lann/deltic/issues/43)): the runtime now
 implements the hold rule (gate lifetime = the core invocation, pristine
