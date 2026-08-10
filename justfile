@@ -162,6 +162,30 @@ smoke-c0: shim
 websocket-conformance: shim
     cd ports/websocket && deno task conformance
 
+# The host-boundary microbench (bench/boundary/README.md): calls/sec per
+# ABI shape for the CURRENT tree, on plain node (callback + jspi) and
+# deno. Manual instrument, not a gate — numbers are box-relative; the
+# committed README carries the baseline and the issues it feeds (#8,
+# #54; #17's record). `just bench-boundary with-jco` adds the incumbent
+# jco lane (npm tree + transpile, prepared on first use).
+bench-boundary *jco: shim
+    #!/usr/bin/env bash
+    set -euo pipefail
+    (cd bench/boundary/guest && cargo build --release --target wasm32-wasip2)
+    deno run -A tools/release-bundle/build.ts --out bench/boundary/deltic-embedder.local.mjs
+    if [ "{{jco}}" = "with-jco" ]; then
+        cd bench/boundary
+        [ -d node_modules ] || npm ci --no-audit --no-fund
+        node jco-transpile.mjs transpile guest/target/wasm32-wasip2/release/boundary_bench_guest.wasm \
+            --name bench -I async -o generated
+        cd ../..
+        node bench/boundary/sweep.mjs deltic-embedder.local.mjs \
+            ../../target/wasm32-unknown-unknown/release/translator_shim.wasm --with-jco
+    else
+        node bench/boundary/sweep.mjs deltic-embedder.local.mjs \
+            ../../target/wasm32-unknown-unknown/release/translator_shim.wasm
+    fi
+
 # The iroh endpoint exit exam (needs iroh-relay on PATH).
 iroh-exam: shim
     deno run -A --unstable-net exams/iroh-endpoint/run.ts

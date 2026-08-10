@@ -1,0 +1,18 @@
+[package]
+name = "boundary-bench-guest"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wit-bindgen = { version = "=0.60.0", features = ["async"] }
+
+[profile.release]
+opt-level = "s"
+
+# Standalone on purpose (not a workspace member): the bench guest builds
+# for wasm32-wasip2 with its own lock, like the fixture guests.
+[workspace]

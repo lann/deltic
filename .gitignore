@@ -11,3 +11,8 @@ dist/
 *.tmp
 # ports/webcrypto conformance runner output (conformance/run.ts)
 ports/webcrypto/conformance/results-*.jsonl
+
+# bench/boundary: local artifacts (the recipe rebuilds them)
+bench/boundary/deltic-embedder.local.mjs
+bench/boundary/generated/
+bench/boundary/node_modules/

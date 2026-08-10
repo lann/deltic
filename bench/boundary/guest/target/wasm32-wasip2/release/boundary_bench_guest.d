@@ -1,0 +1,1 @@
+/home/lmartin/.paseo/worktrees/036ujoty/fast-fish/bench/boundary/guest/target/wasm32-wasip2/release/boundary_bench_guest.wasm: /home/lmartin/.paseo/worktrees/036ujoty/fast-fish/bench/boundary/guest/src/lib.rs /home/lmartin/.paseo/worktrees/036ujoty/fast-fish/bench/boundary/guest/wit/bench.wit
