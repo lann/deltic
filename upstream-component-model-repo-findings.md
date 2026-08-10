@@ -180,43 +180,77 @@ In `cancel_copy`, when the pending event is a stream `COMPLETED`, deliver
 
 ---
 
-## CM-4: entry-gating duration — definitions.py's `exclusive_thread` outlives wasmtime's "sync call in progress"
+## CM-4: async-lower entry timing — definitions.py decides STARTING eagerly where wasmtime defers
 
 **Status:** DRAFT — candidate upstream issue against `definitions.py`.
-**Working assumption adopted** (operator decision, 2026-08-09): deltic
-proceeds on the **release rule** — the wast-suite/wasmtime semantics,
-entry-gating ends at resolution — as the expected upstream resolution.
-Already implemented (runtime/src/task/mod.ts, exec/boundary.ts,
-jspi/bridge.ts) and now codified in architecture.md §1's corpus-exception
-clause. Flip-back trigger: upstream adjudicating for the hold rule.
-**Found:** 2026-08-08, during the JSPI flip (M2 exit; `sync-streams.wast:208` is the arbiter)
+**Working assumption** (operator decision, 2026-08-10, **superseding the
+2026-08-09 adoption of the release rule**): deltic proceeds on
+**wasmtime's actual model — hold rule + deferred entry decision** — as
+the expected upstream resolution. Gate lifetime: whole core invocation
+(wasmtime and the reference already agree). Entry status: an
+async-lowered call reports STARTING only if the callee is still unstarted
+after the instance's runnable work is drained to quiescence. deltic's
+currently-shipping release-at-resolution rule is a deltic-only divergence
+slated for removal — migration tracked at
+[#43](https://github.com/lann/deltic/issues/43). Flip-back trigger:
+upstream adjudicating otherwise.
+**Found:** 2026-08-08, during the JSPI flip (M2 exit; `sync-streams.wast:208` is the arbiter).
+**Corrected:** 2026-08-10 — the original evidence section
+mischaracterized wasmtime (claimed its gate ends at resolution; it does
+not). Full corrected mechanism:
+`exams/wasmtime-exclusivity/wasmtime-actual-semantics.md` (source line
+refs for main and v47.0.3 + runtime trace).
 
-### Evidence
+### Evidence (corrected 2026-08-10)
 
-- `definitions.py` gates instance entry on `exclusive_thread`, held for the
-  **whole activation** of a non-reentrant task — a task that has already
-  resolved (`task.return` executed) but continues running (the legal
-  producer pattern) still blocks new entries until its thread finishes.
-- wasmtime 47.0.3 gates on **"a sync call in progress"**
-  (`ConcurrentInstanceState.do_not_enter`, concurrent.rs:501, bracketed at
-  :1998/:2008, with the stackful-async exemption at :2701): a resolved
-  producer blocked mid-sync-write does **not** gate the next entry.
-- The official suite asserts wasmtime's semantics: `sync-streams.wast:208`
-  expects a STARTED (not blocked-on-entry) result while a resolved producer
-  is parked mid-copy.
+- `definitions.py` gates instance entry on `exclusive_thread`, held for
+  the whole activation; `canon_lower`'s async path starts the callee
+  **eagerly, inline**, so the STARTING/STARTED status reflects the call
+  instant — while a resolved-but-ready holder is still parked, the caller
+  gets STARTING.
+- wasmtime (main, identically v47.0.3) holds
+  `ConcurrentInstanceState.do_not_enter` for the **same lifetime** (each
+  core invocation: enter/exit_instance at concurrent.rs:2004–2021
+  [v47: :1998/:2008], bracketing callback initial invocations
+  :2652/:2662, sync-lift invocations :2696/:2714 with the stackful
+  exemption, and each callback invocation :942/:960; `task_return` never
+  touches it). What differs is **timing**: `start_call`
+  (:3040–3160) queues the callee and suspends the caller until the first
+  status event; a gated callee yields a `Status::Starting` event and
+  parks pending (:1497–1522). Ready gate-holders queued ahead of the call
+  run to invocation exit first. Trace proof:
+  `exams/wasmtime-exclusivity/trace-sync-streams-wasmtime-dev.log` —
+  `$C.get` is resumed, exited, and *deleted* before `$C.set`'s readiness
+  is ever evaluated.
+- The official suite (`sync-streams.wast:145`) therefore does **not** pin
+  release-at-resolution; it rules out exactly the reference's
+  hold+**eager** combination. It is satisfied by wasmtime's
+  hold+deferred, and also by release+eager (deltic's current rule).
+- The reference's own unit tests (`test_callback_interleaving`, both
+  hold-encoding sites) are **consistent with wasmtime** — no unit-test
+  collateral in a wasmtime-aligned fix.
 
 ### Why wasmtime looks right
 
-Post-resolution execution is explicitly legal in 0.3; making it hold the
-instance's entry gate turns every producer into an accidental mutex for its
-whole (unbounded) background lifetime. The gate's purpose — non-reentrance
-of the *call* — ends when the call's synchronous span ends.
+The reference reports "not started" about a state whose only obstacle is
+a holder that is already unblocked and merely unscheduled — a scheduling
+artifact surfaced as ABI-visible status. The deferred rule reports the
+status of a settled state, preserves every existing unit-test
+expectation, and keeps Invariant #3 (single-shadow-stack LIFO) airtight
+with no carve-out, since no same-instance execution is ever admitted
+while any invocation has live frames parked. (The previously-argued
+"producer becomes an accidental instance-wide mutex" liveness cost of the
+hold rule is real but bounded: the deferral ends at the producer's
+invocation exit, and the flagship + suite accept it.)
 
 ### Suggested change
 
-Scope the reference's entry gate to the sync-call-in-progress span (release
-on resolution + block), or document the divergence and mark the suite test
-as the normative source.
+Defer `canon_lower`'s async-path entry decision: report STARTING only if
+the callee remains unstarted after the instance's runnable work is
+exhausted (drain to quiescence — order-robust, unlike wasmtime's own
+FIFO-dependent formulation). `exclusive_thread` lifetime, the callback
+event loop, and the entire unit-test corpus stay untouched. Sketch:
+`exams/wasmtime-exclusivity/spec-amendment.md`.
 
 ### 2026-08-09 review: not a recent-spec-change lag, and structurally invisible upstream
 
@@ -241,13 +275,16 @@ provenance + determinism check; full transcripts in
   `post-return.wast` pending #680 alignment) — `sync-streams.wast` is not
   on it. So: wasmtime CI green, spec CI green, and the reference↔suite
   contradiction has no detector by construction.
-- **wasmtime's pass is deterministic, not scheduling accident.**
-  Structurally: `$D.run` never yields between the first rendezvous and the
-  `$C.set` call, so the entry-gate check occurs at a fully deterministic
-  machine state — the STARTED-vs-gated outcome is a pure function of the
-  gating rule. Empirically: 50/50 identical passes under wasmtime
-  49.0.0-dev (3ebfbe5af, 2026-08-07) with
-  `-W component-model-async=y -W component-model-more-async-builtins=y`.
+- **wasmtime's pass is deterministic — but the 2026-08-09 mechanism
+  attribution was wrong (corrected 2026-08-10).** Empirically: 50/50
+  identical passes under wasmtime 49.0.0-dev (3ebfbe5af, 2026-08-07) with
+  `-W component-model-async=y -W component-model-more-async-builtins=y`;
+  reconfirmed with trace on a276ccbe1 (2026-08-10). Mechanically the
+  determinism rests on **deferred entry + FIFO order + the producer's
+  readiness preceding the `set` lower** (the ready `$C.get` runs to exit
+  before `$C.set`'s readiness is evaluated), *not* on a gating rule that
+  ends at resolution — see
+  `exams/wasmtime-exclusivity/wasmtime-actual-semantics.md`.
   (Vintage note: the wasmtime 47.0.1 *release* CLI cannot even parse the
   current suite text — its bundled wast crate predates the 2026-07 #655
   syntax adherence pass — so any 47-era corroboration must use the crate
@@ -255,48 +292,50 @@ provenance + determinism check; full transcripts in
 
 Net: the filing should present this as an internal spec-repo inconsistency
 (reference vs its own test corpus) that only external implementations can
-currently observe, propose the gate-scoping fix (or normative-source
-ruling), and suggest the structural fix — run the wast suite against the
-reference (or at least flag reference-affecting suite assertions) in the
-spec repo's own CI.
+currently observe, propose the **entry-timing fix** (defer the async-lower
+status decision; gate lifetime untouched), and suggest the structural fix
+— run the wast suite against the reference (or at least flag
+reference-affecting suite assertions) in the spec repo's own CI.
 
-### 2026-08-09 filing artifacts (ready to paste)
+### Filing artifacts (2026-08-09 set, re-scoped by the 2026-08-10 correction)
 
+- **`exams/wasmtime-exclusivity/wasmtime-actual-semantics.md`** +
+  **`trace-sync-streams-wasmtime-dev.log`** — THE wasmtime-side evidence:
+  gate lifetime from source (main + v47.0.3 line refs, all
+  `do_not_enter` sites), deferred-entry mechanism, and the runtime trace
+  showing `$C.get` exits before `$C.set` is admitted.
 - **`exams/wasmtime-exclusivity/cm4-run-tests.patch`** — adds
-  `test_resolved_task_gates_entry` to the reference's own `run_tests.py`
-  (sync-streams.wast's shape in the file's idiom); fails against pristine
-  `definitions.py` at the suite-pinned expectation (STARTING observed
-  where the wast suite demands admission). THE demonstration diff.
+  `test_resolved_task_gates_entry` to the reference's own `run_tests.py`.
+  Still valid as the reference-side contradiction demo (fails against
+  pristine `definitions.py` at the STARTING assertion). **Caveat:** its
+  shared-state assertions (`poke_saw == 1`, `pump_observed == 2`) encode
+  the *release rule*, not wasmtime's semantics — under hold+deferred the
+  interloper is admitted only after the holder exits. A wasmtime-aligned
+  filing should trim it to the STARTING/RETURNED skeleton or re-derive
+  expectations.
 - **`exams/wasmtime-exclusivity/cm4-reference-fix.patch`** — the
-  resolution-scoped gate transplanted into `definitions.py` (3 hunks:
-  release at block for resolved holders; only-if-holder releases;
-  held-guarded callback-loop release/retake). Verdict: makes the new test
-  pass, and reveals the **second contradiction** — the reference's own
-  `test_callback_interleaving` fails, because its second progress-free
-  poll window *encodes* the hold-semantics (the gated producer is
-  admitted and completes inside the window once the resolved producer's
-  post-resolution sync `future_read` stops holding the slot; full trace
-  in `exams/wasmtime-exclusivity/root-cause.md`). Any spec-side fix must
-  also rewrite that window. Shipped as a demonstration, not
-  ready-to-merge.
-- **`exams/wasmtime-exclusivity/verify-cm4.sh`** — reproduces all four
-  legs from pristine copies. Note the reference harness hangs after any
-  failing assertion (non-daemon threads; pre-existing, reproducible by
-  injecting `assert(False)` into stock `test_async_backpressure`) — run
+  release-rule experiment (3 hunks). **No longer the proposed fix**; kept
+  as the demonstration that release+eager also satisfies the wast corpus
+  and of its cost (breaks `test_callback_interleaving`, whose second
+  progress-free window and STARTING tail encode hold semantics — full
+  trace in `root-cause.md`). The wasmtime-aligned fix touches
+  `canon_lower` timing instead and has zero unit-test collateral.
+- **`exams/wasmtime-exclusivity/verify-cm4.sh`** — legs 0–1 (stock pass;
+  new test fails pristine) remain the contradiction repro; legs 2–3
+  document the release-rule experiment's behavior. Note the reference
+  harness hangs after any failing assertion (non-daemon threads) — run
   under `timeout`, judge by traceback.
-- **`exams/wasmtime-exclusivity/spec-amendment.md`** — plain-language
-  sketch of the amendment itself: why the release-at-resolution rule
-  should win, the five spec-repo artifacts it touches, and the one real
-  cost — Invariant #3 (Explainer.md:3007–3011) needs its serialization
-  promise scoped to pre-resolution execution, a toolchain-visible carve-out
-  the other filing artifacts don't call out. Also records the authorship
-  fact (both corpora are Luke Wagner's; the wast side is the newer vintage).
+- **`exams/wasmtime-exclusivity/spec-amendment.md`** — the amendment
+  sketch, rewritten 2026-08-10 for the corrected model: deferred entry
+  decision, no gate-lifetime change, no Invariant #3 carve-out, no
+  unit-test rewrites; order-robust drain-to-quiescence formulation.
 
-Net-net for the filing: definitions.py's unit tests and the repo's wast
-suite pin **opposite** entry-gating semantics for resolved tasks;
-wasmtime implements (and its CI deterministically validates) the wast
-side; nothing validates the other; the two patches above make both facts
-reproducible inside the spec repo itself.
+Net-net for the filing: `definitions.py` and the repo's wast suite
+disagree about **when the async-lower entry status is decided** (eager
+instant vs after-drain); wasmtime implements (and its CI deterministically
+validates) the deferred side with an invocation-lifetime gate identical to
+the reference's; nothing upstream validates the reference against the wast
+corpus; the artifacts above make all of this reproducible.
 
 ---
 

@@ -1,5 +1,22 @@
 # wasmtime exclusivity check — is the sync-streams pass deterministic?
 
+> **CORRECTION (2026-08-10) — see `wasmtime-actual-semantics.md`, which
+> supersedes this file's wasmtime claims.** Source + trace verification
+> against wasmtime main (and v47.0.3) shows wasmtime does **not** release
+> its entry gate at resolution: `do_not_enter` is held for the whole core
+> invocation (same lifetime as the reference's `exclusive_thread`), across
+> post-`task.return` mid-frame parks included. Its sync-streams pass comes
+> from **deferred entry evaluation + FIFO scheduling**: the async caller
+> suspends until the first status event, the ready-parked `$C.get` runs to
+> *exit* first, and `$C.set` is admitted only after `get` is deleted — no
+> same-instance execution ever overlaps the parked span. Consequently: the
+> "STARTED while a resolved task sits parked mid-frame" reading of the
+> official test below is wrong for wasmtime; §"What the official test
+> already demonstrates" item 3 and the "one true scheduling accident"
+> section describe the **release-rule** (deltic/fix-patch) execution, not
+> wasmtime's. The determinism measurement (50/50) and the CI-provenance
+> analysis stand.
+
 Evidence backing `upstream-component-model-repo-findings.md` CM-4's
 2026-08-09 review and the IROH-1 consumer finding. Question posed by the
 operator: wasmtime runs the official CM test suite — is *its* pass on the

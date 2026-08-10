@@ -537,20 +537,25 @@ export function blockCurrentActivation<T>(input: {
   cancellable: boolean;
   produce: (cancelled: Cancelled) => T;
 }): Promise<T> {
-  // UPSTREAM DIVERGENCE (wasmtime supersedes definitions.py — the same class
-  // as the CM-3 note in intrinsics/stream_builtins.ts `takeCancelEvent`).
+  // DELTIC-ONLY DIVERGENCE — release-at-resolution. [CORRECTED 2026-08-10:
+  // the wasmtime attribution below was wrong. wasmtime HOLDS its entry gate
+  // (`ConcurrentInstanceState.do_not_enter`) for the whole core invocation,
+  // across post-`task.return` mid-frame parks — same lifetime as the
+  // reference's `exclusive_thread`; its sync-streams.wast pass comes from
+  // deferred entry evaluation + FIFO scheduling, not gate release. See
+  // exams/wasmtime-exclusivity/wasmtime-actual-semantics.md. This block is
+  // slated for removal by the hold + deferred-entry migration, issue #43.]
   //
-  // A RESOLVED task whose implicit thread blocks mid-frame must stop gating
-  // its instance's entry. The reference holds `inst.exclusive_thread` from
-  // `enter_implicit_thread` until the callback loop's per-wait release or
-  // `exit_implicit_thread`, so a producer that calls `task.return` and then
-  // blocks in a synchronous `stream.write` (test/async/sync-streams.wast)
-  // keeps every later task gated at entry — an async-lowered call into the
-  // instance reports STARTING. wasmtime's entry gate instead tracks "a sync
-  // call in progress" (`ConcurrentInstanceState.do_not_enter`,
-  // concurrent.rs:501-503, 2023-2025), which ends at RESOLUTION, and
-  // sync-streams.wast:208 asserts wasmtime's answer: `$C.set` reports
-  // STARTED while `$C.get` sits resolved and blocked in its write.
+  // Current shipping behavior: a RESOLVED task whose implicit thread blocks
+  // mid-frame stops gating its instance's entry. The reference holds
+  // `inst.exclusive_thread` from `enter_implicit_thread` until the callback
+  // loop's per-wait release or `exit_implicit_thread`, so a producer that
+  // calls `task.return` and then blocks in a synchronous `stream.write`
+  // (test/async/sync-streams.wast) keeps every later task gated at entry —
+  // an async-lowered call into the instance reports STARTING under the
+  // reference's eager entry check. Releasing here makes sync-streams.wast
+  // pass under deltic's eager check; wasmtime reaches the same green via
+  // deferred entry with the gate held.
   //
   // The release is deliberately AT THE BLOCK, not at resolution: releasing
   // at `task.return` freed the slot mid-activation for tasks that resolve

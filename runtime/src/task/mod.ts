@@ -332,10 +332,10 @@ export class Task {
     if (this.ft.async === true && this.needsExclusive()) {
       // Release-if-held rather than assert-held: a resolved task that then
       // BLOCKED already released it (see blockCurrentActivation's
-      // release-at-block for resolved tasks — the wasmtime-superseding
-      // "exclusivity follows the sync call in progress" rule,
-      // ConcurrentInstanceState.do_not_enter), and every resolved task
-      // passes through here afterwards.
+      // release-at-block for resolved tasks — a DELTIC-ONLY rule; the
+      // former wasmtime attribution was corrected 2026-08-10, see
+      // exams/wasmtime-exclusivity/wasmtime-actual-semantics.md and
+      // issue #43), and every resolved task passes through here afterwards.
       if (this.inst.exclusiveThread === thread) {
         this.inst.exclusiveThread = null;
       } else {
