@@ -239,7 +239,7 @@ export async function runSuite(
     if (freshCases) {
       const freshTests = await newTests();
       const freshList = await freshTests.all();
-      const match = await findByName(freshList, name);
+      const match = await findByName(freshList, name, i);
       if (match === undefined) {
         throw new Error(`case '${name}' vanished on re-enumeration`);
       }
@@ -363,7 +363,20 @@ export async function runSuite(
 }
 
 // deno-lint-ignore no-explicit-any
-async function findByName(list: any[], name: string): Promise<any> {
+async function findByName(list: any[], name: string, hint?: number): Promise<any> {
+  // Same-index fast path. Enumeration order is a hint, not a contract: real
+  // suites enumerate deterministically, so the re-enumerated case is
+  // virtually always at its census index — one name() round-trip instead of
+  // a front-to-back scan. The scan (harness.mjs's freshCases branch, which
+  // the fallback below mirrors verbatim) is quadratic in suite size, and
+  // each name() here is an interpreted CABI call (~8 us): a 19k-case suite
+  // pays ~182M of them, dominating the run's wall clock. An order-unstable
+  // suite just misses the hint and falls back; drift detection is unchanged
+  // (`undefined` still means the case vanished).
+  if (hint !== undefined && hint < list.length) {
+    const candidate = list[hint];
+    if (String(await candidate.name()) === name) return candidate;
+  }
   for (const c of list) {
     if (String(await c.name()) === name) return c;
   }

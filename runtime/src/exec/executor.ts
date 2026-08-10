@@ -186,6 +186,21 @@ export interface ComponentHandle {
   loadedPlan: LoadedPlan;
 }
 
+/**
+ * Compiled core modules per plan identity — see `compileModules`. Keyed by
+ * the `WirePlan` object (the embedder passes the same plan for every
+ * instantiation of one `ComponentArtifacts`), with the byte buffers that fed
+ * the compile re-checked by identity on every hit. WeakMap: entries die with
+ * the plan.
+ */
+interface ModuleCacheEntry {
+  componentBytes: Uint8Array;
+  /** Per wire-module slot: the adapter bytes compiled, `undefined` for embedded. */
+  adapterRefs: (Uint8Array | undefined)[];
+  modules: Promise<WebAssembly.Module[]>;
+}
+const moduleCache = new WeakMap<WirePlan, ModuleCacheEntry>();
+
 export async function instantiateComponent(
   input: InstantiateInput,
 ): Promise<ComponentHandle> {
@@ -388,7 +403,32 @@ class Executor {
   }
 
   async compileModules(): Promise<void> {
-    const compiled = await Promise.all(this.wire.modules.map((m, i) => {
+    // Reuse compiled modules across instantiations of the same plan.
+    // Fresh-instance-per-case suite runs re-instantiate one component
+    // thousands of times, and recompiling costs real time per instantiation
+    // even when V8's byte-keyed module dedup hits (it still re-hashes every
+    // byte — ~7 ms for a 14 MB component). `WebAssembly.Module` is immutable
+    // and freely instantiable many times, so reuse cannot change semantics
+    // PROVIDED the compile inputs are the same objects: a hit requires the
+    // plan (WeakMap key), the component bytes, and every adapter buffer to
+    // be identical by reference. In-place *content* mutation of a reused
+    // buffer is caught before this runs by `verifyComponent`'s sha256 check
+    // whenever `verifyHash` is on (the default); a caller who disables that
+    // and mutates reused buffers gets stale modules — the same caller error
+    // as mutating them mid-compile today.
+    const cached = moduleCache.get(this.wire);
+    if (
+      cached !== undefined &&
+      cached.componentBytes === this.componentBytes &&
+      this.wire.modules.every((m, i) =>
+        m.kind === "embedded" ||
+        cached.adapterRefs[i] === this.adapterBytes.get(m.file)
+      )
+    ) {
+      this.modules.push(...await cached.modules);
+      return;
+    }
+    const compiled = Promise.all(this.wire.modules.map((m, i) => {
       if (m.kind === "embedded") {
         const end = m.offset + m.len;
         if (end > this.componentBytes.length) {
@@ -412,7 +452,19 @@ class Executor {
       }
       return WebAssembly.compile(bytes.slice().buffer as ArrayBuffer);
     }));
-    this.modules.push(...compiled);
+    const entry: ModuleCacheEntry = {
+      componentBytes: this.componentBytes,
+      adapterRefs: this.wire.modules.map((m) =>
+        m.kind === "embedded" ? undefined : this.adapterBytes.get(m.file)
+      ),
+      modules: compiled,
+    };
+    moduleCache.set(this.wire, entry);
+    // A failed compile must not poison the plan's cache slot.
+    void compiled.catch(() => {
+      if (moduleCache.get(this.wire) === entry) moduleCache.delete(this.wire);
+    });
+    this.modules.push(...await compiled);
   }
 
   /**
