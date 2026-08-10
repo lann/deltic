@@ -67,7 +67,7 @@ contracts throughout the repo. Related documents:
   the tests. Each such case must be a named finding in
   `upstream-component-model-repo-findings.md` (currently CM-3 and CM-4;
   CM-4's corrected model — hold-lifetime gate + deferred entry decision —
-  is tracked for runtime adoption at
+  landed in the runtime via
   [#43](https://github.com/lann/deltic/issues/43); amendment sketch:
   `exams/wasmtime-exclusivity/spec-amendment.md`) and flips back if
   upstream adjudicates the other way. Bare wasmtime behavior with no

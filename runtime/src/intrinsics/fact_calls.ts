@@ -75,6 +75,7 @@ import {
   ComponentInstanceState,
   NeedsJspi,
   currentTask,
+  maybeCurrentTask,
   needsJspi,
   packSubtaskResult,
   PendingCapability,
@@ -854,14 +855,69 @@ export function createAsyncStartCall(
     // anything from the caller, so unlike Fix 1 this wait cannot deadlock:
     // it is the reference's atomic run-to-first-block, reconstructed across
     // the engine's microtask hops.
+    //
+    // THE DEFERRED ENTRY DECISION (issue #43; wasmtime's model, see
+    // exams/wasmtime-exclusivity/wasmtime-actual-semantics.md "The
+    // scheduling, from source"). The determinacy wait above is also where
+    // the initial *status* is decided, so it is where the deferral lives.
+    //
+    // In wasmtime a guest->guest call queues the callee's `StartImplicit`
+    // and the caller suspends until the first subtask status event
+    // (concurrent.rs :3040-3160); the executor first drains the work queued
+    // ahead of it, so a ready gate holder runs to invocation exit and
+    // releases `do_not_enter` BEFORE the new call's readiness is evaluated
+    // (:1497-1522). deltic's callee thread is likewise already spawned and
+    // parked at `enter_implicit_thread`'s gate wait at this point; what
+    // changes here is only WHEN the caller reads `subtask.state`.
+    //
+    // Order-robust formulation (spec-amendment.md, chosen over wasmtime's
+    // FIFO-dependent one so the seeded-shuffle reruns stay green): while the
+    // callee is still parked at the entry gate, the caller waits until the
+    // callee instance's runnable work is exhausted
+    // (`Store.hasRunnableWork`). Then:
+    //   * the holder was ready -> it ran to `exit_implicit_thread`, released
+    //     the gate, the callee entered: `subtask.state` is STARTED (or the
+    //     callee already RETURNED) -- test/async/sync-streams.wast:145;
+    //   * the holder was NOT ready (parked mid-frame on an un-rendezvous'd
+    //     operation), or the holder IS this caller (a nested lower, excluded
+    //     from the scan): quiescence is immediate and the caller reports
+    //     STARTING -- hold semantics, observably.
+    //
+    // Backpressure-queue admission is untouched: the callee registered in
+    // `num_waiting_to_enter` synchronously at `thread.resume()` above,
+    // before any draining, so the deterministic-profile ordering pins
+    // (async-calls-sync.wast) see the same admission order as before.
+    //
+    // PLAIN MODE IS DELIBERATELY UNTOUCHED, and provably needs no drain: a
+    // needs-exclusive task holds `exclusiveThread` only across a core
+    // invocation (the callback loop releases it across every wait), and
+    // without JSPI a wasm frame cannot park mid-invocation at all. So in
+    // plain mode the gate, when held, is held by the *currently running*
+    // activation -- the one obstacle a drain can never remove. Zero cost for
+    // sync-only components, and no suspendability reclassification:
+    // `async-start-call` was already `Suspending`-wrapped for the
+    // determinacy park (exec/executor.ts, "async-start-call is wrapped").
     if (ctx.suspensionMode === "jspi") {
-      const store = prepared.callerInst.store as unknown as {
-        waiting: { task?: unknown }[];
-      };
+      const store = prepared.callerInst.store;
+      const calleeInst = prepared.calleeInst;
+      // The caller's task: excluded from the drain scan (it is the asker).
+      // `maybeCurrentTask` rather than `currentTask` because a host-driven
+      // entry can reach here with no ambient task at all.
+      const callerTask = maybeCurrentTask();
+      // STARTING + parked == parked at the entry gate: `[async-start]` runs
+      // immediately after `enter_implicit_thread` succeeds, so any callee
+      // that got past the gate has already left STARTING.
+      const gatedAtEntry = (): boolean =>
+        subtask.state === SubtaskState.STARTING &&
+        !subtask.resolved() &&
+        !thread.done() &&
+        thread.waiting();
       const determinate = (): boolean =>
-        subtask.resolved() ||
-        thread.done() ||
-        store.waiting.some((w) => w.task === task);
+        gatedAtEntry()
+          ? !store.hasRunnableWork(calleeInst, callerTask)
+          : subtask.resolved() ||
+            thread.done() ||
+            store.waiting.some((w) => w.task === task);
       if (!determinate()) {
         return blockCurrentActivation({
           store: prepared.callerInst.store,

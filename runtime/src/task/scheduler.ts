@@ -755,6 +755,71 @@ export class Store {
   }
 
   /**
+   * "Does component instance `inst` still have runnable work?" — the
+   * drain-to-quiescence predicate behind the **deferred entry decision**
+   * (issue #43).
+   *
+   * wasmtime decides an async-lowered call's initial status only after the
+   * executor has drained the work queued ahead of it: a queued
+   * `GuestCall(StartImplicit)` is popped, and if `is_ready` is false
+   * (`do_not_enter || backpressure`) the caller is told STARTING
+   * (concurrent.rs :1497-1522, :3040-3160). That formulation is FIFO-order
+   * dependent; deltic uses the order-robust one from
+   * `exams/wasmtime-exclusivity/spec-amendment.md`: *the call reports
+   * STARTING only if the callee is still unstarted after the instance's
+   * runnable work has been exhausted* — drain to quiescence, not pop-one.
+   * That is what keeps `sync-streams.wast` green under `DELTIC_SCHED_SEED`
+   * shuffles, which wasmtime's own rule would not be.
+   *
+   * "Runnable work of `inst`" is, exhaustively:
+   *
+   *   (a) a settled-but-unserviced activation tail (`settled`) — bookkeeping
+   *       the reference runs atomically inside `Thread.resume`, so the
+   *       instance is mid-step, not quiescent;
+   *   (b) a waiting entry (thread or `SuspensionPoint`) of `inst` that is
+   *       `ready()` — the scheduler will resume it on the next tick. A gate
+   *       holder parked mid-frame on an un-rendezvous'd operation is NOT
+   *       ready and therefore contributes nothing: that is the "holder
+   *       cannot be drained" case, whose answer is STARTING;
+   *   (c) a thread of `inst` in `awaiting` whose promise is not a scheduler
+   *       park — i.e. genuinely in flight across an engine microtask hop.
+   *       A JSPI-parked activation appears in `awaiting` *and* owns a
+   *       `SuspensionPoint` in `waiting` (`SuspensionPoint.owner`), and is
+   *       accounted for by (b) instead; counting it here would make the
+   *       instance permanently non-quiescent.
+   *
+   * `excludeTask` is the CALLER's task, and is excluded everywhere: the
+   * caller cannot be drained — it is the activation asking the question.
+   * This is what makes the "only obstacle is the current running activation"
+   * shape (a nested lower from inside the gate holder's own invocation)
+   * answer STARTING immediately, with no park at all.
+   */
+  hasRunnableWork(inst: unknown, excludeTask: unknown): boolean {
+    // deno-lint-ignore no-explicit-any
+    const instOf = (x: any): unknown => x?.task?.inst;
+    // deno-lint-ignore no-explicit-any
+    const mine = (x: any): boolean =>
+      instOf(x) === inst && x?.task !== excludeTask;
+    for (const s of this.settled) {
+      if (mine(s.t)) return true;
+    }
+    for (const w of this.waiting) {
+      if (mine(w) && w.ready()) return true;
+    }
+    if (this.awaiting.size === 0) return false;
+    const parked = new Set<unknown>();
+    for (const w of this.waiting) {
+      // deno-lint-ignore no-explicit-any
+      const owner = (w as any).owner;
+      if (owner !== undefined && owner !== null) parked.add(owner);
+    }
+    for (const t of this.awaiting) {
+      if (mine(t) && !parked.has(t)) return true;
+    }
+    return false;
+  }
+
+  /**
    * definitions.py `Store.tick` (line 597): resume one ready thread, bracketed
    * by the reentrance gate for a host-initiated entry (`enter_from(None)` /
    * `leave_to(None)`).
