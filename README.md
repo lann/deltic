@@ -59,6 +59,24 @@ just browsers-install && just browser-lane chromium   # same corpus, real browse
 Deno workspace (TS) + cargo workspace (Rust); [`just`](https://github.com/casey/just)
 is the command surface (`just --list`; recipe bodies are the exact commands).
 
+## Translating components
+
+Running a component takes a translation (an execution plan + FACT adapter
+modules). Three ways to get one:
+
+| method | production ships | choose when |
+|---|---|---|
+| **build-time** — [`tools/translate`](tools/translate/) emits a single-file *envelope*; the host reconstitutes it with `artifactsFromEnvelope(envelope, componentBytes)` | component + envelope + runtime — **no translator** | you know your components at build time (most apps; the browser default — saves ~0.5 MB gzip and a compile per visitor). The envelope embeds the component's sha-256, so a stale pair fails loudly at instantiation |
+| **runtime, packaged** — `defaultTranslator()` from [`@deltic/translator`](translator/), passed to `instantiate({ componentBytes, translator })` | your host + the translator asset (~1.85 MB raw, 520 KB gzip) | components arrive dynamically (plugin systems), or dev/server contexts where the asset size is irrelevant. Pair with the artifact cache (`@deltic/runtime/cache`) so each component translates once per client, not once per load |
+| **runtime, explicit** — `Translator.create(bytes)` / `Translator.fromExports(ns)` from `@deltic/runtime/shim` | same, minus the packaged loader | you source the translator wasm yourself: custom delivery, one shared instance across many components, or cache keying via `buildHash` |
+
+Translation itself is sub-millisecond warm in all three; the methods differ
+only in *when* it runs and *what you deploy*. Worked code: the
+[examples](examples/) use the packaged form, [`tools/translate`'s
+README](tools/translate/README.md) shows the build-time deploy recipe, and
+the full decision record is the design note on
+[#16](https://github.com/lann/deltic/issues/16).
+
 ## Documentation
 
 | Where | What |
