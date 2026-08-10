@@ -356,7 +356,13 @@ decide deliberately and document here.
   `latin1+utf16` implemented in the v1 interpreter (the ported reference
   tests forced it immediately; wit-bindgen guests themselves use utf8).
 - **Numbers.** `u64`/`s64` ↔ `BigInt`; everything else ↔ `number`.
-  `list<u8>` ↔ `Uint8Array` (copy; views into guest memory are never exposed).
+  `list<u8>` ↔ `Uint8Array` (copy; views into guest memory are never
+  exposed). Both directions are bulk copies: lift via a `Uint8Array` slice,
+  lower via `Uint8Array.set` (issue #54 — the per-element interpreted store
+  cost ~45 ns/byte and capped host→guest byte traffic at ~22 MB/s). Stream
+  payload copies share these paths, and u8 stream chunks stay `Uint8Array`
+  through host buffers too, so a host-side stream read costs exactly the one
+  rendezvous copy.
 - **Memory views** are re-acquired after any call that can grow memory
   (`ArrayBuffer` detach on `memory.grow`).
 - **Resources.** Host-facing handles are classes with `Symbol.dispose`

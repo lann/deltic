@@ -47,6 +47,7 @@
 // unresolved Promise behaves in JS.
 
 import { assert_ } from "../cabi/trap.ts";
+import { despecialize } from "../cabi/types.ts";
 import type { ComponentValue, ValType } from "../cabi/types.ts";
 import {
   driveStoreAsync,
@@ -56,6 +57,7 @@ import {
 import {
   type ComponentInstanceState,
   CopyResult,
+  type PayloadChunk,
   sameElemType,
   SharedFutureImpl,
   SharedStreamImpl,
@@ -64,27 +66,42 @@ import {
 
 /**
  * The `inst` a host end presents to the rendezvous. definitions.py compares it
- * against `pending_inst` for the "same instance" restriction; a unique
- * sentinel can never collide with a real `ComponentInstanceState`, which is
- * the correct answer — the host is not a component instance.
+ * against `pending_inst` for the "same instance" restriction — a guard against
+ * interleaving two *lifts in one component instance's linear memory*, which is
+ * why it exempts number types (definitions.py `none_or_number_type`). A host
+ * end has no linear memory, so that restriction can never apply to it: each
+ * end gets its OWN sentinel (never equal to a real `ComponentInstanceState`,
+ * and never equal to the peer end's), so a host writer and a host reader may
+ * rendezvous directly for every element type. One shared sentinel used to
+ * stand for "the host" here, which made a post-pass-through host↔host copy of
+ * a non-number element type trap as "intra-component" (found by the #54
+ * pass-through investigation).
  */
-export const HOST_INSTANCE: unknown = Object.freeze({ hostEnd: true });
+function hostEndInstance(role: "read" | "write"): unknown {
+  return Object.freeze({ hostEnd: role });
+}
 
 /**
- * A buffer over a JS array. Sibling of `GuestBuffer`, same four methods, no
+ * A buffer over JS values. Sibling of `GuestBuffer`, same four methods, no
  * memory access. Used in one of two directions:
  *
  *   * as a *readable* buffer (host supplies `values`, the guest reads them);
  *   * as a *writable* buffer (host supplies capacity, the guest fills it and
- *     `taken` is what arrived).
+ *     `taken()` is what arrived).
+ *
+ * u8 payloads stay `Uint8Array` through both directions (issue #54): `read`
+ * slices the typed array (bulk, and the ONE semantically required copy — the
+ * chunk is only borrowed by the stream until the write settles, so the reader
+ * must receive owned bytes), and `write` keeps arriving chunks whole instead
+ * of exploding them element-by-element into a plain array.
  */
 export class HostBuffer {
   progress = 0;
-  readonly taken: ComponentValue[] = [];
+  #chunks: PayloadChunk[] = [];
 
   constructor(
     readonly t: ValType | null,
-    private readonly values: ComponentValue[] | null,
+    private readonly values: PayloadChunk | null,
     readonly length: number,
   ) {}
 
@@ -97,20 +114,57 @@ export class HostBuffer {
   }
 
   /** Guest side is reading from us. */
-  read(n: number): ComponentValue[] {
+  read(n: number): PayloadChunk {
     assert_(n <= this.remain(), "host buffer read beyond remaining");
     const out = this.values === null
       ? new Array(n).fill(null)
       : this.values.slice(this.progress, this.progress + n);
     this.progress += n;
-    return out;
+    return out as PayloadChunk;
   }
 
   /** Guest side is writing into us. */
-  write(vs: ComponentValue[]): void {
+  write(vs: PayloadChunk): void {
     assert_(vs.length <= this.remain(), "host buffer write beyond remaining");
-    for (const v of vs) this.taken.push(v);
+    this.#chunks.push(vs);
     this.progress += vs.length;
+  }
+
+  /**
+   * Everything written into this buffer, in arrival order.
+   *
+   * For a u8 element type the result is a `Uint8Array`; in the common case —
+   * one rendezvous before the read resolves — the writer's chunk is returned
+   * as-is, so the whole host-side read costs exactly the one rendezvous copy.
+   * Every other element type yields a plain array regardless of the shape the
+   * writer used.
+   */
+  taken(): PayloadChunk {
+    const u8 = this.t !== null && despecialize(this.t).kind === "u8";
+    if (u8) {
+      if (this.#chunks.length === 1 && this.#chunks[0] instanceof Uint8Array) {
+        return this.#chunks[0];
+      }
+      // Multiple chunks, or a raw-layer plain-array writer: pack. Element
+      // coercion matches Uint8Array.from, which is what the conventions
+      // layer applied to these values before chunks stayed whole.
+      const out = new Uint8Array(this.progress);
+      let o = 0;
+      for (const c of this.#chunks) {
+        if (c instanceof Uint8Array) out.set(c, o);
+        else for (let i = 0; i < c.length; i++) out[o + i] = c[i] as number;
+        o += c.length;
+      }
+      return out;
+    }
+    if (this.#chunks.length === 1 && Array.isArray(this.#chunks[0])) {
+      return this.#chunks[0];
+    }
+    const out: ComponentValue[] = [];
+    for (const c of this.#chunks) {
+      for (let i = 0; i < c.length; i++) out.push(c[i]);
+    }
+    return out;
   }
 }
 
@@ -315,6 +369,10 @@ export interface HostWritableEnd<T> {
    * Offer `values`. Resolves with how many the guest actually took — a
    * partial copy is normal, not an error (definitions.py copies
    * `min(remain, remain)`). Re-offer the remainder to finish.
+   *
+   * `values` is BORROWED until the returned promise settles (the buffer may
+   * stay parked across several partial reads); mutating it in that window is
+   * misuse. Readers always receive their own copy.
    */
   write(values: T[]): Promise<number>;
   /**
@@ -346,7 +404,12 @@ export interface HostWritableEnd<T> {
 
 /** Host end the embedder READS; the guest writes. */
 export interface HostReadableEnd<T> {
-  /** Resolves with up to `max` values once the guest writes (or `[]` on drop). */
+  /**
+   * Resolves with up to `max` values once the guest writes (or an empty
+   * chunk on drop). A u8 stream resolves with a `Uint8Array` (see
+   * `HostBuffer.taken`); every other element type resolves with a plain
+   * array.
+   */
   read(max: number): Promise<T[]>;
   /** Cancel an in-flight `read`; see `HostWritableEnd.cancelWrite`. */
   cancelRead(): void;
@@ -373,14 +436,18 @@ function bindOnLower(
   const holder = shared as unknown as {
     onLowered?: ((i: ComponentInstanceState) => void) | null;
   };
-  // Double-wrapping one shared object would silently orphan the first
-  // wrapper's activity binding for future lowers — refuse loudly instead
-  // (review advisory, host-streams round). The class field initializes to
-  // null; == null covers both sentinels.
+  // INTERNAL INVARIANT (not the embedder-facing policy): two live wrappers
+  // on one shared object would mean two HostActivities pumping it, and the
+  // second `onLowered` hook would silently orphan the first wrapper's
+  // activity binding for future lowers (review advisory, host-streams
+  // round). The public entry points cannot get here with a wrapped object —
+  // `hostStreamFor`/`hostFutureFor` return the cached wrapper instead
+  // (amendment A5) — so a trip here is a bug in this module. The class field
+  // initializes to null; == null covers both sentinels.
   assert_(
     holder.onLowered == null,
-    "this stream/future is already wrapped by a host end; " +
-      "hostStreamFor/hostFutureFor may wrap a shared object once",
+    "internal: a second host wrapper was built for an already-wrapped " +
+      "stream/future (the wrapper cache should have returned the first)",
   );
   holder.onLowered = (inst) => activity.bind(inst.store);
   // A stream that came *out* of a guest was lifted, never lowered, so the hook
@@ -393,6 +460,9 @@ function mkStreamEnds<T>(
   shared: SharedStreamImpl,
   activity: HostActivity,
 ): { readable: HostReadableEnd<T>; writable: HostWritableEnd<T> } {
+  // Distinct rendezvous identities per end — see `hostEndInstance`.
+  const writeInst = hostEndInstance("write");
+  const readInst = hostEndInstance("read");
   // Which of OUR operations is currently the shared object's pending side.
   // `SharedBase.cancel` retires whatever is parked, so cancelling is only
   // legal (and only meaningful) while the parked side is ours.
@@ -419,7 +489,7 @@ function mkStreamEnds<T>(
         return new Promise<number>((resolve) => {
           parked.write = true;
           shared.write(
-            HOST_INSTANCE,
+            writeInst,
             buf as never,
             // `on_copy`: a partial rendezvous happened. A guest end would be
             // handed a COMPLETED event here and decide for itself whether to
@@ -450,7 +520,16 @@ function mkStreamEnds<T>(
       async writeAll(values: T[]): Promise<number> {
         let sent = 0;
         while (sent < values.length && !shared.dropped) {
-          const n = await this.write(values.slice(sent));
+          // Re-offers keep `write`'s borrow semantics: the first round is the
+          // chunk itself and later rounds a `subarray` VIEW for typed chunks
+          // (review F1: a `slice` here cost a second full copy on the very
+          // path the one-copy contract names), a `slice` for plain arrays.
+          const rest = sent === 0
+            ? values
+            : values instanceof Uint8Array
+            ? values.subarray(sent) as unknown as T[]
+            : values.slice(sent);
+          const n = await this.write(rest);
           if (n === 0) break; // reader gone; nothing more will be taken
           sent += n;
         }
@@ -475,18 +554,18 @@ function mkStreamEnds<T>(
         return new Promise<T[]>((resolve) => {
           parked.read = true;
           shared.read(
-            HOST_INSTANCE,
+            readInst,
             buf as never,
             (reclaim) => {
               reclaim();
               parked.read = false;
               activity.notify();
-              resolve(buf.taken as unknown as T[]);
+              resolve(buf.taken() as unknown as T[]);
             },
             (result: CopyResult) => {
               parked.read = false;
               settle(result);
-              resolve(buf.taken as unknown as T[]);
+              resolve(buf.taken() as unknown as T[]);
             },
           );
           activity.notify();
@@ -509,26 +588,47 @@ function mkStreamEnds<T>(
   };
 }
 
+/**
+ * One host wrapper per shared object, by identity (embedder-api amendment
+ * A5). A stream/future value that round-trips host → guest → host lifts back
+ * as the SAME wrapper the host already holds, so wrapping is idempotent —
+ * there is never a second `HostActivity` competing to pump one shared object
+ * (the hazard the old double-wrap assert guarded against), and the readable
+ * end stays transferable across as many boundary hops as the spec allows.
+ */
+const streamWrappers = new WeakMap<object, HostStream<unknown>>();
+const futureWrappers = new WeakMap<object, HostFuture<unknown>>();
+
 /** Create a host-owned stream of `element` (`null` = zero-width payload). */
 export function hostStream<T>(element: ValType | null): HostStream<T> {
   const shared = new SharedStreamImpl(element);
   const activity = new HostActivity();
   bindOnLower(shared, activity);
   const ends = mkStreamEnds<T>(shared, activity);
-  return { ...ends, value: shared as unknown as ComponentValue };
+  const wrapper = { ...ends, value: shared as unknown as ComponentValue };
+  streamWrappers.set(shared, wrapper as HostStream<unknown>);
+  return wrapper;
 }
 
-/** Wrap a stream that came *out* of a guest (from `liftStream`). */
+/**
+ * Wrap a stream that came *out* of a guest (from `liftStream`). Idempotent:
+ * a shared object that already has a host wrapper (it was created by
+ * `hostStream`, or lifted before) yields that same wrapper.
+ */
 export function hostStreamFor<T>(value: ComponentValue): HostStream<T> {
   const shared = value as unknown as SharedStreamImpl;
   assert_(
     shared instanceof SharedStreamImpl,
     "hostStreamFor expects a lifted stream value",
   );
+  const cached = streamWrappers.get(shared);
+  if (cached !== undefined) return cached as HostStream<T>;
   const activity = new HostActivity();
   bindOnLower(shared, activity);
   const ends = mkStreamEnds<T>(shared, activity);
-  return { ...ends, value };
+  const wrapper = { ...ends, value };
+  streamWrappers.set(shared, wrapper as HostStream<unknown>);
+  return wrapper;
 }
 
 export interface HostFuture<T> {
@@ -556,19 +656,32 @@ export function hostFuture<T>(element: ValType | null): HostFuture<T> {
   const shared = new SharedFutureImpl(element);
   const activity = new HostActivity();
   bindOnLower(shared, activity);
-  return mkFuture<T>(shared, activity, shared as unknown as ComponentValue);
+  const wrapper = mkFuture<T>(
+    shared,
+    activity,
+    shared as unknown as ComponentValue,
+  );
+  futureWrappers.set(shared, wrapper as HostFuture<unknown>);
+  return wrapper;
 }
 
-/** Wrap a future that came *out* of a guest (from `liftFuture`). */
+/**
+ * Wrap a future that came *out* of a guest (from `liftFuture`). Idempotent —
+ * see `hostStreamFor`.
+ */
 export function hostFutureFor<T>(value: ComponentValue): HostFuture<T> {
   const shared = value as unknown as SharedFutureImpl;
   assert_(
     shared instanceof SharedFutureImpl,
     "hostFutureFor expects a lifted future value",
   );
+  const cached = futureWrappers.get(shared);
+  if (cached !== undefined) return cached as HostFuture<T>;
   const activity = new HostActivity();
   bindOnLower(shared, activity);
-  return mkFuture<T>(shared, activity, value);
+  const wrapper = mkFuture<T>(shared, activity, value);
+  futureWrappers.set(shared, wrapper as HostFuture<unknown>);
+  return wrapper;
 }
 
 function mkFuture<T>(
@@ -576,6 +689,9 @@ function mkFuture<T>(
   activity: HostActivity,
   value: ComponentValue,
 ): HostFuture<T> {
+  // Distinct rendezvous identities per end — see `hostEndInstance`.
+  const writeInst = hostEndInstance("write");
+  const readInst = hostEndInstance("read");
   const parked = { any: false };
   const settle = (result: CopyResult): void => {
     parked.any = false;
@@ -589,7 +705,7 @@ function mkFuture<T>(
       const buf = new HostBuffer(shared.t, [v as unknown as ComponentValue], 1);
       return new Promise<void>((resolve) => {
         parked.any = true;
-        shared.write(HOST_INSTANCE, buf as never, (result: CopyResult) => {
+        shared.write(writeInst, buf as never, (result: CopyResult) => {
           settle(result);
           resolve();
         });
@@ -610,10 +726,10 @@ function mkFuture<T>(
       const buf = new HostBuffer(shared.t, null, 1);
       return new Promise((resolve) => {
         parked.any = true;
-        shared.read(HOST_INSTANCE, buf as never, (result: CopyResult) => {
+        shared.read(readInst, buf as never, (result: CopyResult) => {
           settle(result);
           resolve({
-            value: buf.taken[0] as unknown as T | undefined,
+            value: buf.taken()[0] as unknown as T | undefined,
             result,
           });
         });

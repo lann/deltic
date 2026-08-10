@@ -20,13 +20,13 @@ TARGET=wasm32-unknown-unknown
 BUILD_DIR=guests/build
 export CARGO_TARGET_DIR="$PWD/guests/target"
 
-GUESTS="hello values resources async-probe yield-only context-user backpressure-probe stream-echo future-user test-suite"
+GUESTS="hello values resources async-probe yield-only context-user backpressure-probe stream-echo stream-pass future-user test-suite"
 
 # wasm-tools validation features per guest (component-model always on;
 # CM 0.3 async guests additionally need the cm-async feature).
 features_for() {
   case "$1" in
-    async-probe|yield-only|context-user|backpressure-probe|stream-echo|future-user|test-suite)
+    async-probe|yield-only|context-user|backpressure-probe|stream-echo|stream-pass|future-user|test-suite)
       echo "component-model,cm-async" ;;
     *) echo "component-model" ;;
   esac

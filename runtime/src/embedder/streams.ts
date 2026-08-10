@@ -222,16 +222,25 @@ export class Stream<T> {
   async read(max: number): Promise<Chunk<T>> {
     const host = this.#require();
     throwIfFailed(host.value);
-    const raw = await host.readable.read(max) as unknown as ComponentValue[];
+    const raw = await host.readable.read(max) as unknown as
+      | ComponentValue[]
+      | Uint8Array;
     return this.#chunk(raw);
   }
 
-  #chunk(raw: ComponentValue[]): Chunk<T> {
+  #chunk(raw: ComponentValue[] | Uint8Array): Chunk<T> {
     const codec = this.#codec!;
     if (isU8Element(codec.element)) {
-      return Uint8Array.from(raw as number[]) as Chunk<T>;
+      // The exec layer already resolves u8 reads as a Uint8Array (the
+      // rendezvous copy itself — issue #54); pass it through untouched so a
+      // host read costs exactly that one copy. Uint8Array.from covers
+      // raw-layer writers that fed plain arrays.
+      return (raw instanceof Uint8Array
+        ? raw
+        : Uint8Array.from(raw as number[])) as Chunk<T>;
     }
-    return raw.map((v) => codec.toHost(v)) as Chunk<T>;
+    const vs = raw instanceof Uint8Array ? Array.from(raw) : raw;
+    return vs.map((v) => codec.toHost(v as ComponentValue)) as Chunk<T>;
   }
 
   /** Cancel an in-flight `read` (R-fix review advisory 1). */
@@ -289,25 +298,32 @@ export class StreamWriter<T> {
     this.#stream = stream;
   }
 
-  /** Offer values; resolves with how many the reader took. */
-  async write(values: T[]): Promise<number> {
+  /**
+   * Offer values; resolves with how many the reader took.
+   *
+   * `Chunk<T>` mirrors the read side: a u8 stream accepts a `Uint8Array`
+   * (taken as already-lowered bytes), and a plain array of any element type
+   * is lowered per element. u8 chunks travel as `Uint8Array` all the way to
+   * the CABI store's bulk path (issue #54) — which makes a `Uint8Array`
+   * chunk a BORROW until the returned promise settles; mutating it in that
+   * window is misuse. Plain-array chunks are lowered (copied) up front.
+   */
+  async write(values: Chunk<T>): Promise<number> {
     await this.#stream.whenBound();
     const host = hostOf(this.#stream);
     throwIfFailed(host.value);
-    const codec = this.#stream.codec!;
     return await host.writable.write(
-      values.map((v) => codec.fromHost(v)) as unknown as T[],
+      packChunk(values, this.#stream.codec!) as unknown as T[],
     );
   }
 
   /** Offer values until all are taken or the reader goes away. */
-  async writeAll(values: T[]): Promise<number> {
+  async writeAll(values: Chunk<T>): Promise<number> {
     await this.#stream.whenBound();
     const host = hostOf(this.#stream);
     throwIfFailed(host.value);
-    const codec = this.#stream.codec!;
     return await host.writable.writeAll(
-      values.map((v) => codec.fromHost(v)) as unknown as T[],
+      packChunk(values, this.#stream.codec!) as unknown as T[],
     );
   }
 
@@ -513,6 +529,32 @@ export function lowerStreamSource<T>(
   return host.value;
 }
 
+/**
+ * Lower one chunk of stream elements.
+ *
+ * u8 chunks come out as `Uint8Array` — either the caller's own (bytes are
+ * already canonical component values; issue #54's bulk-store path picks the
+ * typed array up unchanged at the rendezvous) or packed from a validated
+ * plain array. A `Uint8Array` offered to a NON-u8 stream keeps the legacy
+ * behavior: elements are fed through the per-element codec like any array.
+ */
+function packChunk<T>(
+  values: readonly T[] | Uint8Array,
+  codec: ElemCodec<T>,
+): ComponentValue[] | Uint8Array {
+  const u8 = isU8Element(codec.element);
+  if (values instanceof Uint8Array) {
+    if (u8) return values;
+    return Array.from(values as ArrayLike<unknown>).map((v) =>
+      codec.fromHost(v as T)
+    ) as ComponentValue[];
+  }
+  const lowered = (values as readonly T[]).map((v) => codec.fromHost(v));
+  return u8
+    ? Uint8Array.from(lowered as number[])
+    : (lowered as ComponentValue[]);
+}
+
 async function pump<T>(
   src: Exclude<StreamSource<T>, Stream<T>>,
   host: HostStream<T>,
@@ -522,10 +564,10 @@ async function pump<T>(
   let failure: unknown;
   let produced = 0;
   try {
-    for await (const batch of batches(src)) {
+    for await (const batch of batches<T>(src)) {
       // Lowering is the likeliest failure (a value of the wrong shape) and it
       // must be attributed to the site, not swallowed into a short stream.
-      const lowered = batch.map((v) => codec.fromHost(v)) as unknown as T[];
+      const lowered = packChunk(batch, codec) as unknown as T[];
       const n = await host.writable.writeAll(lowered);
       produced += n;
       if (n < lowered.length) break; // the reader went away: a clean end
@@ -554,7 +596,7 @@ async function pump<T>(
 /** Normalize every accepted producer shape to an async iterator of batches. */
 async function* batches<T>(
   src: Exclude<StreamSource<T>, Stream<T>>,
-): AsyncGenerator<T[]> {
+): AsyncGenerator<T[] | Uint8Array> {
   if (isReadableStream(src)) {
     const reader = src.getReader();
     try {
@@ -574,8 +616,10 @@ async function* batches<T>(
   for (const v of src as Iterable<T>) yield asBatch<T>(v);
 }
 
-function asBatch<T>(v: unknown): T[] {
-  if (v instanceof Uint8Array) return Array.from(v) as unknown as T[];
+function asBatch<T>(v: unknown): T[] | Uint8Array {
+  // Kept whole: `packChunk` decides whether the bytes are already lowered
+  // (u8 element) or need the per-element codec (any other element type).
+  if (v instanceof Uint8Array) return v;
   if (Array.isArray(v)) return v as T[];
   return [v as T];
 }
