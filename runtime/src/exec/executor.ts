@@ -15,6 +15,7 @@ import { ComponentInstanceState, Store } from "../task/mod.ts";
 import {
   anySuspendingImport,
   assertModeConsistent,
+  type SuspendingImport,
   chooseMode,
   isSuspending,
   planNeedsSuspension,
@@ -226,7 +227,7 @@ export async function instantiateComponent(
 }
 
 type Importable =
-  | WebAssembly.Suspending
+  | SuspendingImport
   | CoreFn
   | WebAssembly.Global
   | WebAssembly.Memory

@@ -34,16 +34,14 @@
 // `reentry_test.ts`/`concurrent_activations_test.ts` for what the engine
 // actually allows; this module does not enforce CM invariants.
 
-import "./types.ts";
+import { jspiApi } from "./types.ts";
 
 /**
  * Opaque public alias for `WebAssembly.Suspending` instances.
  *
- * The real class is declared by this package's GLOBAL augmentation
- * (./types.ts) because JSPI is not yet in the standard TS libs — but a
- * published package must not require consumers to hold that augmentation
- * just to read our signatures (JSR's public-type output drops `declare
- * global`). Public API therefore names this opaque brand; the value is
+ * JSPI is not in the standard TS libs and JSR forbids global-type
+ * augmentation, so the engine surface is module-scoped (`jspiApi()` in
+ * ./types.ts) and the public API names this opaque brand; the value is
  * exactly a `WebAssembly.Suspending`, usable anywhere an import value is
  * expected.
  */
@@ -55,9 +53,7 @@ export type SuspendingImport = { readonly __delticSuspending: unique symbol };
 export function isSupported(): boolean {
   return (
     typeof (globalThis as { WebAssembly?: unknown }).WebAssembly ===
-      "object" &&
-    typeof WebAssembly.promising === "function" &&
-    typeof WebAssembly.Suspending === "function"
+      "object" && jspiApi() !== null
   );
 }
 
@@ -97,7 +93,7 @@ export function makePromising<
   wasmExport: (...args: TArgs) => TReturn,
 ): (...args: TArgs) => Promise<TReturn> {
   assertSupported();
-  return WebAssembly.promising(
+  return jspiApi()!.promising(
     wasmExport as (...args: unknown[]) => unknown,
   ) as (...args: TArgs) => Promise<TReturn>;
 }
@@ -121,7 +117,7 @@ export function makeSuspending<
   fn: (...args: TArgs) => TReturn | Promise<TReturn>,
 ): SuspendingImport {
   assertSupported();
-  return new WebAssembly.Suspending(
+  return new (jspiApi()!.Suspending)(
     fn as (...args: unknown[]) => unknown,
   ) as unknown as SuspendingImport;
 }

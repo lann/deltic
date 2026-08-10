@@ -1,6 +1,6 @@
 // Shared instantiation helper for the JSPI empirical pinning tests.
 
-import "../../src/jspi/types.ts";
+import "./global_types.ts";
 
 const wasmPath = new URL("./fixtures/activation.wasm", import.meta.url);
 const bytes = await Deno.readFile(wasmPath);
