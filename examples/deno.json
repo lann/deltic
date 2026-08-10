@@ -1,0 +1,10 @@
+{
+  "name": "@deltic/examples",
+  "version": "0.0.0",
+  "exports": {},
+  "tasks": {
+    "hello-world": "./hello-world/run.sh",
+    "kitchen-sink": "./kitchen-sink/run.sh",
+    "check": "deno check hello-world/host.ts kitchen-sink/host.ts"
+  }
+}

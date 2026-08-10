@@ -1,4 +1,9 @@
-# Component outputs and cargo build artifacts (rebuild with ./build.sh)
+# Component outputs and cargo build artifacts (rebuild with ./build.sh
+# or the per-example run.sh).
 guests/build/
 guests/target/
 guests/*/target/
+hello-world/build/
+hello-world/guest/target/
+kitchen-sink/build/
+kitchen-sink/guest/target/
