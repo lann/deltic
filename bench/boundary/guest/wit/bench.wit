@@ -1,0 +1,22 @@
+package bench:boundary@0.1.0;
+
+/// The host side of the boundary microbench: echo-shaped imports whose
+/// cost IS the measurement (the host bodies are trivial).
+interface host {
+    /// send-shaped: a payload crosses guest -> host, a small scalar returns.
+    ping: async func(payload: list<u8>) -> u32;
+    /// receive-shaped: a small scalar crosses, a payload returns host -> guest.
+    fetch: async func(size: u32) -> list<u8>;
+    /// send-shaped, sync-lowered (the non-async boundary for comparison).
+    ping-sync: func(payload: list<u8>) -> u32;
+}
+
+world bench {
+    import host;
+    /// Each export loops its import `iters` times with a `size`-byte
+    /// payload and folds the results (defeating dead-code elimination);
+    /// the host times the whole export call.
+    export send: async func(iters: u32, size: u32) -> u64;
+    export recv: async func(iters: u32, size: u32) -> u64;
+    export send-sync: async func(iters: u32, size: u32) -> u64;
+}

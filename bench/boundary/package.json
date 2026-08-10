@@ -1,0 +1,10 @@
+{
+  "name": "boundary-bench",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@bytecodealliance/jco-transpile": "https://github.com/lann/jco/releases/download/all-fixes-dbad4d7/bytecodealliance-jco-transpile-0.6.3-gdbad4d7.tgz",
+    "@bytecodealliance/preview2-shim": "https://github.com/lann/jco/releases/download/all-fixes-dbad4d7/bytecodealliance-preview2-shim-0.20.1-gdbad4d7.tgz",
+    "@polymorph/component-test-js": "github:polymorph-components/polymorph-test#4ce2a7a45d479a22bc8eb2696dd9ebe0b2a3516b"
+  }
+}
