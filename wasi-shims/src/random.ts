@@ -7,9 +7,25 @@ export interface RandomOptions {
   insecureSeed?: readonly [bigint, bigint];
 }
 
+/**
+ * `crypto.getRandomValues` rejects requests over 65536 bytes
+ * (QuotaExceededError), while the WIT requires exactly `len` bytes back
+ * ("Return `len` cryptographically-secure random or pseudo-random bytes",
+ * random.wit) — there is no shorter-return latitude, and callers (Rust
+ * `getrandom`, the Go runtime) fill fixed-size buffers trusting the length.
+ * So: chunk the fill, never clamp it. Still synchronous, satisfying the
+ * WIT's "must not block ... including on requests for [large] numbers of
+ * bytes".
+ */
+const GET_RANDOM_VALUES_MAX = 65536;
+
 function randomBytes(len: bigint): Uint8Array {
   const out = new Uint8Array(Number(len));
-  crypto.getRandomValues(out);
+  for (let i = 0; i < out.length; i += GET_RANDOM_VALUES_MAX) {
+    crypto.getRandomValues(
+      out.subarray(i, Math.min(i + GET_RANDOM_VALUES_MAX, out.length)),
+    );
+  }
   return out;
 }
 
