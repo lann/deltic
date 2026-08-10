@@ -49,13 +49,13 @@ Pre-1.0, but densely gated:
 ```sh
 git clone --recursive https://github.com/lann/deltic
 cd deltic
-cargo build -p translator-shim --target wasm32-unknown-unknown --release
-(cd runtime && deno task test)          # runtime suite
-(cd harness && deno task conformance)   # official CM suite on Deno
-deno run -A tools/browser/run-lane.ts chromium   # same corpus, real browser
+just test-runtime    # runtime suite (builds the shim + fixtures + corpus first)
+just conformance     # official CM suite on Deno
+just browsers-install && just browser-lane chromium   # same corpus, real browser
 ```
 
-Deno workspace (TS) + cargo workspace (Rust).
+Deno workspace (TS) + cargo workspace (Rust); [`just`](https://github.com/casey/just)
+is the command surface (`just --list`; recipe bodies are the exact commands).
 
 ## Documentation
 

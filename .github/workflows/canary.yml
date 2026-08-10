@@ -23,6 +23,7 @@ on:
 env:
   DENO_VERSION: "2.9.5"
   WASM_TOOLS_VERSION: "1.247.0"
+  JUST_VERSION: "1.54.0"
 
 jobs:
   shell-canaries:
@@ -38,16 +39,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@v2
         with:
-          tool: wasm-tools@${{ env.WASM_TOOLS_VERSION }}
+          tool: wasm-tools@${{ env.WASM_TOOLS_VERSION }},just@${{ env.JUST_VERSION }}
       - uses: denoland/setup-deno@v2
         with:
           deno-version: ${{ env.DENO_VERSION }}
-
-      - name: build the translator shim (wasm32)
-        run: cargo build -p translator-shim --target wasm32-unknown-unknown --release
-      - name: generate the conformance corpus
-        working-directory: harness
-        run: deno task gen
 
       # Deliberately NO actions/cache for .shell-cache: trunk/nightly
       # builds change daily by design (fetching fresh IS the lane's
@@ -55,19 +50,7 @@ jobs:
       # can resurrect a broken extraction that fetch.ts's existence
       # check would then trust (bitten once: the first-run jsc layout
       # bug would have been pinned in place by exactly that).
-
-      - name: fetch SpiderMonkey nightly
-        run: deno run -A tools/shell/fetch.ts sm-nightly
-      - name: SpiderMonkey nightly lane
-        run: deno run -A tools/shell/run-lane.ts sm-nightly --json sm-results.json
-
-      - name: fetch JSC trunk (x86_64)
-        run: deno run -A tools/shell/fetch.ts jsc-trunk
-      - name: JSC trunk lane
-        run: deno run -A tools/shell/run-lane.ts jsc-trunk --json jsc-results.json
-
-      - name: Deno canary probe (V8-trailing-edge substitute for a d8 lane)
-        run: deno run -A tools/shell/deno-canary.ts --json deno-canary-results.json
+      - run: just gha::canary
 
       - name: upload results
         if: always()
@@ -114,31 +97,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@v2
         with:
-          tool: wasm-tools@${{ env.WASM_TOOLS_VERSION }}
+          tool: wasm-tools@${{ env.WASM_TOOLS_VERSION }},just@${{ env.JUST_VERSION }}
       - uses: denoland/setup-deno@v2
         with:
           deno-version: ${{ env.DENO_VERSION }}
 
-      - name: build the translator shim (wasm32)
-        run: cargo build -p translator-shim --target wasm32-unknown-unknown --release
-      - name: generate the conformance corpus
-        working-directory: harness
-        run: deno task gen
-
-      # Deliberately NO actions/cache for .shell-cache: trunk/nightly
-      # builds change daily by design (fetching fresh IS the lane's
-      # purpose), and a prefix-restored cache from a failed earlier run
-      # can resurrect a broken extraction that fetch.ts's existence
-      # check would then trust (bitten once: the first-run jsc layout
-      # bug would have been pinned in place by exactly that).
-
-      - name: fetch SpiderMonkey nightly
-        run: deno run -A tools/shell/fetch.ts sm-nightly
-      - name: SpiderMonkey nightly lane
-        run: deno run -A tools/shell/run-lane.ts sm-nightly --json sm-results.json
-
-      - name: Deno canary probe
-        run: deno run -A tools/shell/deno-canary.ts --json deno-canary-results.json
+      # Deliberately NO actions/cache for .shell-cache: see the x64 job.
+      - run: just gha::canary-arm
 
       - name: upload results
         if: always()

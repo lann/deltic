@@ -1,0 +1,186 @@
+# The orchestration surface: repo-wide recipes here, the CI job bodies in
+# .github/justfile (the `gha` module) — each CI job runs exactly one
+# `gha::` recipe, so `just ci` is exactly CI. Recipe bodies are the exact
+# commands (AGENTS.md "Gates" maps onto them 1:1); comments that used to
+# live on workflow steps live on the recipes now.
+
+mod gha '.github'
+
+default:
+    @just --list
+
+# The canary lanes are findings-only crons (`gha::canary`, `gha::canary-arm`).
+# Exactly the CI jobs: the required `core` matrix + the post-merge `browser` job.
+ci: (gha::core) (gha::browser)
+
+# Includes the consumer smokes and exams CI cannot run (they need the
+# polymorph checkouts and iroh-relay; docs/consumers.md).
+# The full pre-commit pass (AGENTS.md "Gates"): everything.
+gates: build test-rust test-runtime test-wasi-shims test-ct-runner test-bundle conformance sched-seeds test-ports test-webrtc shells browsers websocket-conformance smoke-tls smoke-c0 iroh-exam
+
+# Fast sanity: builds + native tests + type-checks, no suites.
+check: build test-rust
+    cd runtime && deno task check
+    cd wasi-shims && deno task check
+    cd ct-runner && deno task check
+
+# ----- builders ---------------------------------------------------------------
+
+build:
+    cargo build --workspace
+
+# The translator shim wasm: every Deno suite below loads this artifact.
+shim:
+    cargo build -p translator-shim --target wasm32-unknown-unknown --release
+
+# wasmtime CLI is optional in build.sh (smoke run only when present).
+# Guest fixture components (examples/guests/build/, gitignored): the
+# runtime e2e suites and ct-runner's fixture tests need them.
+fixtures:
+    ./examples/build.sh
+
+# Rehearsal finding: 20 runtime e2e tests self-skip when it is absent —
+# generation must precede the runtime suite (318/0/3 with; 298/0/23 without).
+# The conformance corpus (harness/generated/).
+corpus:
+    cd harness && deno task gen
+
+# ----- core suites ------------------------------------------------------------
+
+test-rust:
+    cargo test -p translator-shim -p bindgen -p testgen
+
+test-runtime: shim fixtures corpus
+    cd runtime && deno task check && deno task test
+
+test-wasi-shims:
+    cd wasi-shims && deno task test
+
+test-ct-runner: shim fixtures
+    cd ct-runner && deno task test
+
+# The embedder-bundle release-asset gate (deltic-embedder.mjs:
+# build + shape checks for tools/release-bundle/entry.ts).
+test-bundle: shim
+    deno test -A tools/release-bundle/bundle_test.ts
+
+# The harness task chains corpus generation and the shim check itself.
+# The official CM conformance suite, Deno lane.
+conformance:
+    cd harness && deno task conformance
+
+# Scheduler-order sensitivity (docs/architecture.md §6) — spec-allowed
+# nondeterminism; FIFO when DELTIC_SCHED_SEED is unset.
+# The affected suites re-run under seeded-shuffle scheduling.
+sched-seeds: shim fixtures corpus
+    cd runtime && DELTIC_SCHED_SEED=1 deno task test
+    cd runtime && DELTIC_SCHED_SEED=4242 deno task test
+    cd harness && DELTIC_SCHED_SEED=1 deno task conformance
+
+# Consumer conformance legs are separate (`websocket-conformance` below).
+# Ports unit suites.
+test-ports:
+    cd ports/webcrypto && deno test --allow-read tests/
+    cd ports/websocket && deno task test
+
+# node-datachannel is a Node-API addon with linux prebuilds for both x64
+# and arm64. GH Actions runners give libdatachannel no usable ICE path
+# for same-host loopback pairing — connection-forming tests time out on
+# both arches while the addon loads and non-connection tests pass; issue
+# #21 tracks the runner-networking fix (loopback candidates / bindAddress
+# / werift).
+# webrtc unit suite — NON-BLOCKING in CI (#21); the dev box is the real gate.
+test-webrtc:
+    cd ports/webrtc && deno install --allow-scripts=npm:node-datachannel && deno test -A webrtc.test.ts
+
+# ----- engine lanes -----------------------------------------------------------
+
+# Pinned lanes (sm-pinned, jsc-pinned) are required gates — a deviation
+# exits 1; sha256-verified fetches (tools/shell/pins.json). Nightly/trunk
+# lanes (sm-nightly, jsc-trunk) are findings-only — exit 0 even with
+# deviations; 2 is reserved for infrastructure failure.
+# One engine-shell lane: fetch (cached), then run.
+shell-lane lane *args: shim corpus
+    deno run -A tools/shell/fetch.ts {{lane}}
+    deno run -A tools/shell/run-lane.ts {{lane}} {{args}}
+
+# JSC has no arm64 channel (jsc-built-products is x86_64-only), so its
+# lane guards on the arch and skips cleanly elsewhere.
+# The per-push pinned shell gates: sm-pinned everywhere; jsc-pinned on x64.
+shells:
+    just shell-lane sm-pinned
+    @if [ "$(uname -m)" = "x86_64" ]; then just shell-lane jsc-pinned; else echo "jsc-pinned: skipped (no arm64 channel)"; fi
+
+# The Deno canary probe (V8-trailing-edge d8-lane substitute; findings-only).
+deno-canary *args:
+    deno run -A tools/shell/deno-canary.ts {{args}}
+
+# The repo-local cache is what run-lane.ts expects
+# (PLAYWRIGHT_BROWSERS_PATH=$PWD/.browser-cache — cache THAT path in CI,
+# not ~/.cache/ms-playwright). CI passes --with-deps for system
+# libraries; locally a plain `just browsers-install` usually suffices.
+# One-time browser provisioning (chromium + firefox) into .browser-cache/.
+browsers-install *flags:
+    PLAYWRIGHT_BROWSERS_PATH=$PWD/.browser-cache deno run -A npm:playwright@1.62.1 install {{flags}} chromium firefox
+
+# WebKit stays non-blocking until it has a track record (issue #11): the
+# lane's expectation overlay encodes JSC's missing multi-memory, and GH's
+# ubuntu-24.04 matches the ABI playwright's WebKit wants (no library
+# staging expected).
+browsers-install-webkit *flags:
+    PLAYWRIGHT_BROWSERS_PATH=$PWD/.browser-cache deno run -A npm:playwright@1.62.1 install {{flags}} webkit
+
+# chromium and firefox are required (chromium expects exact Deno-lane
+# parity; the firefox driver sets the JSPI pref itself — shipped-channel
+# config, unlike the jsshell); webkit is best-effort per
+# docs/architecture.md §3/§12 (issue #11).
+# One browser lane (chromium / firefox / webkit).
+browser-lane lane *args: shim corpus
+    deno run -A tools/browser/run-lane.ts {{lane}} {{args}}
+
+# The post-merge browser gates.
+browsers:
+    just browser-lane chromium
+    just browser-lane firefox
+
+# ----- consumer smokes + exams (polymorph checkouts; docs/consumers.md) -------
+
+# Translate all eight targets, then execute the suites.
+# polymorph-tls conformance under deltic (issue #18).
+smoke-tls: shim
+    deno run --allow-read tools/smoke-tls/run.ts --exec
+
+# The C0 smoke legs (tools/smoke-c0/REPORT.md).
+smoke-c0: shim
+    cd tools/smoke-c0 && deno task leg1 && deno task leg2 && deno task leg3 && deno task leg4
+
+# Spawns their echod; DENO_CERT rides the task definition.
+# The consumer's REAL websocket conformance suite under this host.
+websocket-conformance: shim
+    cd ports/websocket && deno task conformance
+
+# The iroh endpoint exit exam (needs iroh-relay on PATH).
+iroh-exam: shim
+    deno run -A --unstable-net exams/iroh-endpoint/run.ts
+
+# ----- release ----------------------------------------------------------------
+
+# The standard shim (what every suite runs against), the size-tuned
+# variant (flags per crates/translator-shim/README.md — reproduces the
+# published size figures without editing the workspace manifest), the
+# embedder bundle, and SHA256SUMS — all written to the repo root. NOTE:
+# the size-tuned build leaves the MIN shim in target/; rerun `just shim`
+# before running test suites locally afterwards.
+# The release artifacts, exactly as the release workflow publishes them.
+release-artifacts:
+    cargo build -p translator-shim --target wasm32-unknown-unknown --release
+    cp target/wasm32-unknown-unknown/release/translator_shim.wasm deltic-translator-shim.wasm
+    cargo build -p translator-shim --release --target wasm32-unknown-unknown \
+        --config 'profile.release.opt-level="z"' \
+        --config profile.release.lto=true \
+        --config profile.release.codegen-units=1 \
+        --config 'profile.release.panic="abort"' \
+        --config 'profile.release.strip=true'
+    cp target/wasm32-unknown-unknown/release/translator_shim.wasm deltic-translator-shim-min.wasm
+    deno run -A tools/release-bundle/build.ts --out deltic-embedder.mjs
+    sha256sum deltic-translator-shim.wasm deltic-translator-shim-min.wasm deltic-embedder.mjs > SHA256SUMS
