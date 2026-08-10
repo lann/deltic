@@ -202,11 +202,20 @@ Status: **auto-detection is ON by default** (M2 exit, commit 652c1dc):
 all blocking sites lit, per-declaration suspendability classification
 (async-form copy built-ins never block; sync forms do; cancel forms per
 their own flag), `KNOWN_DIVERGENT` empty, the plain path pinned
-zero-cost for sync-only components. Two spots where wasmtime supersedes
-definitions.py are implemented and tracked upstream: cancel-copy
-completion superseding (CM-3) and entry-gating ending at
-resolution-plus-block rather than activation end (see
-upstream-component-model-repo-findings.md). Host-import lowers are
-deliberately outside the suspension classification — a sync-lowered
-Promise-returning host function degrades to a clean `NeedsJspi`
-capability signal.
+zero-cost for sync-only components. One spot where wasmtime supersedes
+definitions.py is implemented and tracked upstream: cancel-copy
+completion superseding (CM-3). The former second spot — "entry-gating
+ending at resolution-plus-block rather than activation end" — was a
+mischaracterization of wasmtime corrected on 2026-08-10 (wasmtime holds
+the gate for the whole invocation and defers the entry *decision*; see
+upstream-component-model-repo-findings.md CM-4 and
+exams/wasmtime-exclusivity/wasmtime-actual-semantics.md). deltic's
+shipping release-at-resolution rule is a deltic-only divergence slated
+for replacement by the hold + deferred-entry model
+([#43](https://github.com/lann/deltic/issues/43)); note the migration
+touches suspendability classification (a deferred async-lowered call
+trampoline becomes a potential suspension point — #43 carries the
+constraint that the plain path stays zero-cost for sync-only
+components). Host-import lowers are deliberately outside the suspension
+classification — a sync-lowered Promise-returning host function degrades
+to a clean `NeedsJspi` capability signal.

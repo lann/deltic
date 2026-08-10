@@ -9,7 +9,7 @@ filing is the operator's (foreign repos).
 
 ---
 
-## IROH-1 — endpoint holds a `RefCell` borrow across a post-resolution `block_on` (DRAFT)
+## IROH-1 — endpoint holds a `RefCell` borrow across a post-resolution `block_on` (DRAFT — expected to close host-side via deltic#43; see Disposition)
 
 **Repo:** polymorph-iroh. **Where:** `endpoint/src/endpoint_impl.rs:13`
 (claim: "the `RefCell` borrows never cross an await") vs the actual path:
@@ -37,54 +37,55 @@ handshake. The 5 ms bounded-polling cadence (their jco workaround)
 re-arms `wait_until` on the same timescale as the signing window, making
 the collision near-certain on any host that interleaves there.
 
-**The precise semantics (sharpened 2026-08-09; see
+**The precise semantics (corrected 2026-08-10; see
 `upstream-component-model-repo-findings.md` CM-4 and
-`exams/wasmtime-exclusivity/RESULTS.md`):** the boundary is
-**resolution**.
+`exams/wasmtime-exclusivity/wasmtime-actual-semantics.md`):** the
+collision window is **deltic-specific**, not spec-pinned.
 
 - *Before* `task.return`, a callback task's instance-entry gate holds
   across mid-frame blocks on every implementation surveyed (deltic,
   wasmtime, and `definitions.py` alike) — borrows held across a
   pre-resolution `block_on` are safe.
-- *After* `task.return`, the semantics the official suite pins
-  (`test/async/sync-streams.wast:208` — the interloper task is admitted,
-  its body runs, and it touches shared instance memory while the resolved
-  task sits parked mid-frame; wasmtime runs this suite in CI via its
-  `tests/component-model` submodule and passes it **deterministically**,
-  50/50 measured on wasmtime 49.0.0-dev) **admit other same-instance
-  tasks running while the resolved task's thread is blocked mid-frame**.
-  wasmtime's own gate (`ConcurrentInstanceState.do_not_enter`) ends at
-  resolution. `definitions.py` as written disagrees (its
-  `exclusive_thread` is held for the whole activation) — that
-  contradiction is CM-4, a separate filing against the spec repo; the
-  suite + wasmtime are the operative semantics today, and deltic
-  implements them.
+- *After* `task.return`: **wasmtime keeps holding the gate** for the rest
+  of the invocation (`do_not_enter` spans each core invocation; source +
+  trace verified), and gates event delivery to other same-instance tasks
+  the same way (`GuestCall::is_ready`, concurrent.rs:765). Under wasmtime
+  the poller *cannot* be resumed inside the pump's parked signing window
+  — the collision is **unreachable by semantics**, not by timing.
+  `definitions.py` agrees on the gate lifetime. **deltic today is the
+  outlier**: its release-at-resolution rule (2026-08-09 CM-4 working
+  assumption, since corrected) admits same-instance tasks during the
+  post-resolution parked span — that admitted window is where this trap
+  lives. The official suite (`sync-streams.wast`) pins neither rule; it
+  pins deferred entry *timing* (CM-4, corrected).
 
 The endpoint's pump does its `block_on(sign)` **after** `bind` resolved,
-inside that admitted window, with the `RefCell` borrow live.
+inside the window deltic's current rule admits, with the `RefCell` borrow
+live.
 
-**Why the wasmtime leg is green anyway — timing stability, not a
-guarantee (and not even determinism):** wasmtime admits the same
-interleaving (its own suite asserts it, deterministically — but only
-because those tests are closed systems with no clocks or I/O). For real
-programs the runnable set during a block window is fed by wall-clock
-inputs, and the iroh row is green because the window is ~zero: the
-host's sign is native and effectively instantaneous, so the poller's
-5 ms timer essentially never lands inside it. Under deltic the same sign
-is a `crypto.subtle` Promise — a mandatory microtask hop plus real
-latency — and the cadence lands in the widened window ~90% of the time.
-Same semantics, different host timing. Note the shelter erodes under the
-project's own roadmap: non-extractable platform-backed identity keys
-mean slower, genuinely-async signers on every host. Falsifiable
-prediction (suggested repro for this filing): add ~1 ms of latency to
-the wasmtime host's `sign` and the collision should reproduce there
-too.
+**Why the wasmtime leg is green — a semantics guarantee, not timing
+luck (corrected 2026-08-10):** the previous revision of this entry
+predicted latency injection would reproduce the trap on wasmtime; the
+corrected model predicts the opposite — under wasmtime the poller's
+timer event sits gated in `pending` until the pump's invocation exits,
+at any signing latency. (Falsifiable both ways: add ~1 ms to the
+wasmtime host's `sign`; the corrected model says it stays green.) Under
+deltic the same window is open by our own rule, and the 5 ms poll
+cadence lands in it ~90% of the time with a `crypto.subtle` signer.
 
-**Proposed fix (guest-side):** scope the borrow inside `drain`'s inner
-steps, or move signing out of the borrowed region (take what `sign`
-needs, release, sign, re-borrow). General rule: treat every
-**post-resolution** mid-frame block as a potential same-instance
-interleaving point.
+**Disposition (2026-08-10):** with deltic migrating to wasmtime's
+hold + deferred-entry model
+([deltic#43](https://github.com/lann/deltic/issues/43)), this collision
+class closes host-side and the iroh-endpoint exam is expected to go
+deterministically green — rerun it as a #43 gate and mark this entry
+RESOLVED-BY-HOST if so. **No consumer filing needed** on current
+evidence. The guest-side hygiene below remains advisable independent of
+host (borrows across any `block_on` are fragile under future spec
+evolution and under hosts exploring allowed nondeterminism).
+
+**Proposed fix (guest-side, now optional hardening):** scope the borrow
+inside `drain`'s inner steps, or move signing out of the borrowed region
+(take what `sign` needs, release, sign, re-borrow).
 
 **Workaround in-tree:** the exam retries scenarios 2–4 (observed 8/20
 attempts trip it); residual all-attempts-fail probability < 1%.

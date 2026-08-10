@@ -316,9 +316,12 @@ export const XFAIL: XfailEntry[] = [
   // --- async/sync-barges-in.json: GREEN under jspi auto-detection (M2
   // flip); entry pruned. ---
   // --- async/sync-streams.json: GREEN under jspi auto-detection (M2 flip:
-  // exclusivity now follows the call, not the activation — a resolved
-  // producer blocked mid-sync-write no longer gates the next task's entry;
-  // see blockCurrentActivation's release-at-BLOCK for resolved tasks, wasmtime-supersedes-reference #2);
+  // deltic's release-at-BLOCK for resolved tasks opens the entry gate; a
+  // resolved producer blocked mid-sync-write no longer gates the next
+  // task's entry. NB corrected 2026-08-10: this is a DELTIC-ONLY rule —
+  // wasmtime holds its gate and passes this test via deferred entry
+  // evaluation instead; migration to that model tracked at #43, this file
+  // must stay green across it);
   // entry pruned. ---
   // --- async/trap-if-block-and-sync.json: see entries ---
   {

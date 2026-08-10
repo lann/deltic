@@ -1,5 +1,20 @@
 # CM-4 root cause: the reference's unit tests pin the semantics its wast suite contradicts
 
+> **CORRECTION (2026-08-10) — see `wasmtime-actual-semantics.md`.** This
+> file's reference-side traces are accurate, but its framing of
+> `cm4-reference-fix.patch` as "the wasmtime/deltic rule" is wrong:
+> release-at-resolution is **deltic's** rule only. wasmtime holds its gate
+> for the whole invocation (like pristine `definitions.py`) and passes the
+> wast suite via deferred entry evaluation — under wasmtime's actual
+> semantics `test_callback_interleaving` passes **unchanged**, so the
+> "irreconcilable" verdict below applies to the release-rule fix, not to
+> wasmtime alignment. Likewise `test_resolved_task_gates_entry`'s
+> shared-state assertions (`poke_saw == 1`, `pump_observed == 2`) encode
+> the release rule: under wasmtime's model poke is deferred until pump's
+> invocation exits. The wasmtime-aligned reference fix is an entry-timing
+> change in `canon_lower` (report STARTING only after the instance's
+> runnable work is exhausted), not a gate-lifetime change.
+
 Companion to `RESULTS.md`; produced while building the filing artifacts
 (`cm4-run-tests.patch`, `cm4-reference-fix.patch`). Line numbers are
 pristine `run_tests.py` / `definitions.py` at submodule `73b7ad5`.
