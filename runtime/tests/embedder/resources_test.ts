@@ -159,3 +159,27 @@ Deno.test({
     );
   },
 });
+
+Deno.test({
+  name: "resources: guest constructors complete synchronously in jspi mode",
+  ignore: !ready,
+  fn: async () => {
+    // jspi mode promising-wraps every lifted entry, so the entry returns a
+    // Promise even when the activation never suspends — which a JS class
+    // constructor cannot await. Constructor exports carry a plain-entered
+    // variant for exactly this (exec/boundary.ts CONSTRUCTOR_SYNC_ENTRY);
+    // this pins `new` working under forced jspi, method calls included
+    // (the polymorph-iroh endpoint's `new EndpointOptions(identity)` is the
+    // consumer shape that found the gap).
+    const inst = await instantiateFixture(guest("resources"), {}, {
+      jspi: true,
+    });
+    const c = inst.exports[IFACE];
+    const a = new c.Counter(5n);
+    assertEq(a instanceof c.Counter, true);
+    assertEq(await a.get(), 5n);
+    assertEq(await a.increment(), 6n);
+    a.drop();
+    assertEq(await c.liveCounters(), 0);
+  },
+});

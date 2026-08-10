@@ -44,11 +44,46 @@ export type IrohError =
   | { tag: "invalid-argument"; val: string }
   | { tag: "other"; val: string };
 
-export interface EndpointOptions {
+/** The `identity` resource: a non-extractable Ed25519 key pair. */
+export interface Identity {
+  /** Sync in WIT, Promise-shaped as an export. */
+  endpointId(): Promise<EndpointId>;
+  [Symbol.dispose](): void;
+  drop(): void;
+}
+
+/** The shape of `instance.exports["polymorph:iroh/identity-generate@0.1.0"]`. */
+export interface IdentityGenerateExports {
+  generate(): Promise<Identity>;
+}
+
+/**
+ * The `endpoint-options` resource: constructed around a borrowed
+ * `identity`, then populated through the setters (every setting starts
+ * disabled or unset). Consumed by `Endpoint.bind`.
+ */
+export interface EndpointOptionsInstance {
+  addAlpn(alpn: Uint8Array): Promise<void>;
+  relayUrl(url: string): Promise<void>;
+  udpBindAddr(addr: string): Promise<void>;
+  webrtc(enabled: boolean): Promise<void>;
+  [Symbol.dispose](): void;
+  drop(): void;
+}
+
+export interface EndpointOptionsClass {
+  new (identity: Identity): EndpointOptionsInstance;
+}
+
+/**
+ * The option shape `bindEndpoint` (harness.ts) builds an
+ * `endpoint-options` resource from.
+ */
+export interface BindConfig {
   alpns: Uint8Array[];
-  /** `option<string>`: absent = no home relay. */
+  /** absent = no home relay. */
   relayUrl?: string;
-  /** `option<string>`: absent = bind no UDP socket (the browser profile). */
+  /** absent = bind no UDP socket (the browser profile). */
   udpBindAddr?: string;
   webrtc: boolean;
 }
@@ -96,10 +131,11 @@ export interface Endpoint {
 }
 
 export interface EndpointClass {
-  bind(options: EndpointOptions): Promise<Endpoint>;
+  bind(options: EndpointOptionsInstance): Promise<Endpoint>;
 }
 
 /** The shape of `instance.exports["polymorph:iroh/endpoint@0.1.0"]`. */
 export interface IrohEndpointExports {
+  EndpointOptions: EndpointOptionsClass;
   Endpoint: EndpointClass;
 }

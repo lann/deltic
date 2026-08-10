@@ -15,7 +15,12 @@ import { webcryptoImports } from "../../../ports/webcrypto/src/mod.ts";
 import { websocketImports } from "../../../ports/websocket/src/websocket.ts";
 import { webrtcImports } from "../../../ports/webrtc/src/webrtc.ts";
 import { socketsImports } from "./sockets.ts";
-import type { Endpoint, EndpointOptions, IrohEndpointExports } from "./types.ts";
+import type {
+  BindConfig,
+  Endpoint,
+  IdentityGenerateExports,
+  IrohEndpointExports,
+} from "./types.ts";
 
 const CE_ROOT = new URL("../../../", import.meta.url).pathname;
 const CONSUMER = "/home/lmartin/p/polymorph/polymorph-iroh";
@@ -37,6 +42,7 @@ export const RELAY_PORT = 3340;
 export const RELAY_URL = `http://127.0.0.1:${RELAY_PORT}`;
 
 export const IROH_ENDPOINT_INTERFACE = "polymorph:iroh/endpoint@0.1.0";
+export const IDENTITY_GENERATE_INTERFACE = "polymorph:iroh/identity-generate@0.1.0";
 
 // --- artifact ---------------------------------------------------------------
 
@@ -52,6 +58,17 @@ const REQUIRED_IMPORT_IDS = [
   "polymorph:webcrypto/ed25519-sign@0.1.0",
   "wasi:clocks/monotonic-clock@0.3.0",
   "wasi:sockets/types@0.3.0",
+];
+
+/**
+ * Export-side freshness: the identity/options surface (the resource-shaped
+ * `endpoint-options` and the `identity-generate` interface) postdates the
+ * record-shaped bind an older artifact carries. An artifact without these
+ * predates the surface under exam.
+ */
+const REQUIRED_EXPORT_IDS = [
+  "polymorph:iroh/endpoint@0.1.0",
+  "polymorph:iroh/identity-generate@0.1.0",
 ];
 
 let cachedArtifacts: ComponentArtifacts | undefined;
@@ -107,8 +124,15 @@ export async function loadArtifacts(): Promise<ComponentArtifacts> {
   const translator = await Translator.create(await Deno.readFile(SHIM_WASM));
   let { plan, adapters } = translator.translate(bytes);
 
-  const seen = new Set(plan.imports.map((i: { name: string }) => i.name));
-  const missing = REQUIRED_IMPORT_IDS.filter((id) => !seen.has(id));
+  const staleness = (p: typeof plan): string[] => {
+    const imports = new Set(p.imports.map((i: { name: string }) => i.name));
+    const exports = new Set(p.exports.map((e: { name: string }) => e.name));
+    return [
+      ...REQUIRED_IMPORT_IDS.filter((id) => !imports.has(id)),
+      ...REQUIRED_EXPORT_IDS.filter((id) => !exports.has(id)),
+    ];
+  };
+  const missing = staleness(plan);
   if (missing.length > 0) {
     // Staleness verdict: rebuild from source rather than fail on an old
     // artifact (the dispatch's CAUTION).
@@ -118,10 +142,12 @@ export async function loadArtifacts(): Promise<ComponentArtifacts> {
     await rebuildEndpoint();
     bytes = await Deno.readFile(REBUILT_WASM);
     ({ plan, adapters } = translator.translate(bytes));
-    const seen2 = new Set(plan.imports.map((i: { name: string }) => i.name));
-    const still = REQUIRED_IMPORT_IDS.filter((id) => !seen2.has(id));
+    const still = staleness(plan);
     if (still.length > 0) {
-      throw new Error(`rebuilt artifact still missing imports: ${still.join(", ")}`);
+      throw new Error(
+        `rebuilt artifact still missing ${still.join(", ")} — the consumer ` +
+          `checkout at ${CONSUMER} predates the surface under exam`,
+      );
     }
   }
   cachedArtifacts = { plan, componentBytes: bytes, adapters };
@@ -140,6 +166,7 @@ export interface EndpointInstanceOptions {
 export interface EndpointInstance {
   readonly label: string;
   readonly api: IrohEndpointExports;
+  readonly identityGenerate: IdentityGenerateExports;
   /** Whatever the guest wrote to stdout/stderr through the WASI shims. */
   stdout(): string;
   stderr(): string;
@@ -176,26 +203,46 @@ export async function newEndpointInstance(
   };
   const instance = await instantiate(artifacts, imports);
   const api = instance.exports[IROH_ENDPOINT_INTERFACE] as IrohEndpointExports;
+  const identityGenerate = instance
+    .exports[IDENTITY_GENERATE_INTERFACE] as IdentityGenerateExports;
   if (!api || typeof api.Endpoint?.bind !== "function") {
     throw new Error(
       `export "${IROH_ENDPOINT_INTERFACE}" missing or shapeless; plan exports: ` +
         artifacts.plan.exports.map((e: { name: string }) => e.name).join(", "),
     );
   }
+  if (typeof identityGenerate?.generate !== "function") {
+    throw new Error(`export "${IDENTITY_GENERATE_INTERFACE}" missing or shapeless`);
+  }
   return {
     label: options.label,
     api,
+    identityGenerate,
     stdout: () => shims.captured.stdoutText(),
     stderr: () => shims.captured.stderrText(),
   };
 }
 
-/** `Endpoint.bind`, with the consumer driver's default option shape. */
-export function bindEndpoint(
+/**
+ * `Endpoint.bind`, with the consumer driver's driving shape
+ * (polymorph-iroh/host-jco/src/run-endpoint.mjs): generate an identity,
+ * construct `endpoint-options` around it, populate the setters, bind. The
+ * options resource is consumed by `bind`; the identity's borrow ends at the
+ * constructor, so it is dropped once the endpoint is up.
+ */
+export async function bindEndpoint(
   instance: EndpointInstance,
-  options: EndpointOptions,
+  config: BindConfig,
 ): Promise<Endpoint> {
-  return instance.api.Endpoint.bind(options);
+  const identity = await instance.identityGenerate.generate();
+  const options = new instance.api.EndpointOptions(identity);
+  for (const alpn of config.alpns) await options.addAlpn(alpn);
+  if (config.relayUrl !== undefined) await options.relayUrl(config.relayUrl);
+  if (config.udpBindAddr !== undefined) await options.udpBindAddr(config.udpBindAddr);
+  if (config.webrtc) await options.webrtc(true);
+  const endpoint = await instance.api.Endpoint.bind(options);
+  identity.drop();
+  return endpoint;
 }
 
 // --- relay ------------------------------------------------------------------
