@@ -77,6 +77,35 @@ README](tools/translate/README.md) shows the build-time deploy recipe, and
 the full decision record is the design note on
 [#16](https://github.com/lann/deltic/issues/16).
 
+## Consuming the unstable prereleases
+
+Every green `main` commit publishes
+`@deltic/{runtime,translator,wasi-shims,ct-runner}` to JSR as
+`0.1.0-pre.g<shorthash>` — the same short hash as the corresponding
+`pre-<shorthash>` [GitHub release](https://github.com/lann/deltic/releases),
+so a version names an exact commit. There is no stable line yet
+([#16](https://github.com/lann/deltic/issues/16)): **pin exactly and bump
+deliberately** (hash versions are not ordered, and plain semver ranges
+never resolve to prereleases anyway).
+
+```ts
+import { instantiate } from "jsr:@deltic/runtime@0.1.0-pre.g66727e5/embedder";
+import { defaultTranslator } from "jsr:@deltic/translator@0.1.0-pre.g66727e5";
+```
+
+Deno's [minimum-dependency-age](https://docs.deno.com/runtime/packages/supply_chain/#minimum-dependency-age)
+gate (24 h by default) applies even to exactly-pinned prereleases, so a
+fresh publish won't resolve on day zero. To consume same-day publishes
+while keeping the gate for the rest of your graph, exempt the scope
+(wildcard excludes work as of Deno 2.9):
+
+```jsonc
+// deno.json
+{ "minimumDependencyAge": { "age": "P1D", "exclude": ["jsr:@deltic/*"] } }
+```
+
+(or `--minimum-dependency-age=0` for a one-off run).
+
 ## Documentation
 
 | Where | What |
