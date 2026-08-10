@@ -190,9 +190,11 @@ the expected upstream resolution. Gate lifetime: whole core invocation
 (wasmtime and the reference already agree). Entry status: an
 async-lowered call reports STARTING only if the callee is still unstarted
 after the instance's runnable work is drained to quiescence. deltic's
-currently-shipping release-at-resolution rule is a deltic-only divergence
-slated for removal — migration tracked at
-[#43](https://github.com/lann/deltic/issues/43). Flip-back trigger:
+former release-at-resolution rule was removed the same day — the runtime
+now implements the corrected model
+([#43](https://github.com/lann/deltic/issues/43); `Store.hasRunnableWork`
++ `createAsyncStartCall`, pinned by
+`runtime/tests/entry_deferral_test.ts`). Flip-back trigger:
 upstream adjudicating otherwise.
 **Found:** 2026-08-08, during the JSPI flip (M2 exit; `sync-streams.wast:208` is the arbiter).
 **Corrected:** 2026-08-10 — the original evidence section

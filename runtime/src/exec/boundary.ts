@@ -1625,34 +1625,33 @@ export function* runCallbackLoop(input: {
   let [code, si] = unpackCallbackResult(input.packed);
 
   while (code !== CallbackCode.EXIT) {
-    // Per-iteration holder check rather than a blanket assert: a RESOLVED
-    // task that blocked mid-frame had its slot released at the suspension
-    // point (`blockCurrentActivation`, the wasmtime-superseding entry-gate
-    // rule) and runs the rest of its loop OUTSIDE the exclusivity protocol —
-    // it neither requires the slot to be free nor retakes it. Every
-    // unresolved task holds the slot here exactly as the reference asserts
-    // (definitions.py line 2187), and its release/retake cycle is unchanged.
-    const holding = inst.exclusiveThread === task.implicitThread;
-    if (holding) {
-      assert_(
-        task.needsExclusive(),
-        "callback loop holding the exclusive thread without needing it",
-      );
-      // Releasing the exclusive thread across the wait is what lets *another*
-      // task of the same instance enter and run while this one waits — the
-      // whole point of the callback ABI (definitions.py line 2186).
-      inst.exclusiveThread = null;
-    } else {
-      assert_(
-        task.state === "resolved",
-        "callback loop without holding the exclusive thread",
-      );
-    }
+    // definitions.py line 2187, verbatim shape: the implicit thread of a
+    // needs-exclusive callback task holds the slot on every loop iteration.
+    // (The former per-iteration `holding` check tolerated a resolved task
+    // that had released the slot at a mid-frame block — the release-at-BLOCK
+    // divergence removed by issue #43. Under the hold rule, which is both the
+    // reference's and wasmtime's — `do_not_enter` is set for each callback
+    // invocation, concurrent.rs :942/:960 — the invariant is unconditional.)
+    assert_(
+      task.needsExclusive() &&
+        inst.exclusiveThread === task.implicitThread,
+      "callback loop without holding the exclusive thread",
+    );
+    // Releasing the exclusive thread across the wait is what lets *another*
+    // task of the same instance enter and run while this one waits — the
+    // whole point of the callback ABI (definitions.py line 2188). Equally,
+    // RETAKING it below is what defers event delivery to a parked-between-
+    // invocations task while any invocation of this instance is mid-frame:
+    // the `() => inst.exclusiveThread === null` guard on the wait is the
+    // reference's `wait_for_event_and(lambda: not inst.exclusive_thread)`
+    // (line 2199) and wasmtime's `GuestCall::is_ready` DeliverEvent arm,
+    // which requires `!do_not_enter` (concurrent.rs :765).
+    inst.exclusiveThread = null;
     let event: EventTuple;
     switch (code) {
       case CallbackCode.YIELD: {
         const cancelled = yield* thread.waitUntil(
-          () => !holding || inst.exclusiveThread === null,
+          () => inst.exclusiveThread === null,
           true,
         );
         event = cancelled
@@ -1668,7 +1667,7 @@ export function* runCallbackLoop(input: {
         );
         event = yield* (wset as WaitableSet).waitForEventAnd(
           thread,
-          () => !holding || inst.exclusiveThread === null,
+          () => inst.exclusiveThread === null,
           true,
         );
         break;
@@ -1676,13 +1675,11 @@ export function* runCallbackLoop(input: {
       default:
         trap(`invalid callback code ${code}`);
     }
-    if (holding) {
-      assert_(
-        inst.exclusiveThread === null,
-        "exclusive thread taken while this task was waiting",
-      );
-      inst.exclusiveThread = task.implicitThread;
-    }
+    assert_(
+      inst.exclusiveThread === null,
+      "exclusive thread taken while this task was waiting",
+    );
+    inst.exclusiveThread = task.implicitThread;
     stats.callbackInvocations++;
     const [next] = normalizeCoreValues(
       yield* awaitCore(callback, [event[0], event[1], event[2]], thread),

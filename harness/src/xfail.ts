@@ -315,13 +315,15 @@ export const XFAIL: XfailEntry[] = [
   // --- async/same-component-stream-future.json: root cause: STREAMS ---
   // --- async/sync-barges-in.json: GREEN under jspi auto-detection (M2
   // flip); entry pruned. ---
-  // --- async/sync-streams.json: GREEN under jspi auto-detection (M2 flip:
-  // deltic's release-at-BLOCK for resolved tasks opens the entry gate; a
-  // resolved producer blocked mid-sync-write no longer gates the next
-  // task's entry. NB corrected 2026-08-10: this is a DELTIC-ONLY rule —
-  // wasmtime holds its gate and passes this test via deferred entry
-  // evaluation instead; migration to that model tracked at #43, this file
-  // must stay green across it);
+  // --- async/sync-streams.json: GREEN. Since #43 deltic implements
+  // wasmtime's model: the entry gate is HELD for the whole core invocation
+  // (a resolved producer blocked mid-sync-write keeps gating), and the
+  // async-lowered call's initial status is decided only after the callee
+  // instance's runnable work has been drained to quiescence — by which time
+  // the producer has exited and the next task reports STARTED. See
+  // exams/wasmtime-exclusivity/wasmtime-actual-semantics.md; the former
+  // release-at-BLOCK divergence is gone. (Before the M2 jspi flip this file
+  // was xfailed outright.)
   // entry pruned. ---
   // --- async/trap-if-block-and-sync.json: see entries ---
   {

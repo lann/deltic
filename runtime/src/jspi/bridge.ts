@@ -537,50 +537,18 @@ export function blockCurrentActivation<T>(input: {
   cancellable: boolean;
   produce: (cancelled: Cancelled) => T;
 }): Promise<T> {
-  // DELTIC-ONLY DIVERGENCE — release-at-resolution. [CORRECTED 2026-08-10:
-  // the wasmtime attribution below was wrong. wasmtime HOLDS its entry gate
-  // (`ConcurrentInstanceState.do_not_enter`) for the whole core invocation,
-  // across post-`task.return` mid-frame parks — same lifetime as the
-  // reference's `exclusive_thread`; its sync-streams.wast pass comes from
-  // deferred entry evaluation + FIFO scheduling, not gate release. See
-  // exams/wasmtime-exclusivity/wasmtime-actual-semantics.md. This block is
-  // slated for removal by the hold + deferred-entry migration, issue #43.]
+  // GATE LIFETIME: pristine reference semantics (definitions.py
+  // `block_internal` line 378 does NOT touch `inst.exclusive_thread`). A
+  // RESOLVED task that parks mid-frame in a synchronous built-in KEEPS
+  // gating its instance — identical to wasmtime, whose
+  // `ConcurrentInstanceState.do_not_enter` is set/cleared only by
+  // `enter_instance`/`exit_instance`, i.e. bracketed on the whole core
+  // invocation (exams/wasmtime-exclusivity/wasmtime-actual-semantics.md,
+  // "The gate, from source"). deltic's former release-at-BLOCK divergence
+  // was removed by issue #43; `test/async/sync-streams.wast` is now green
+  // via the DEFERRED ENTRY DECISION in intrinsics/fact_calls.ts
+  // (`createAsyncStartCall`), not via gate release.
   //
-  // Current shipping behavior: a RESOLVED task whose implicit thread blocks
-  // mid-frame stops gating its instance's entry. The reference holds
-  // `inst.exclusive_thread` from `enter_implicit_thread` until the callback
-  // loop's per-wait release or `exit_implicit_thread`, so a producer that
-  // calls `task.return` and then blocks in a synchronous `stream.write`
-  // (test/async/sync-streams.wast) keeps every later task gated at entry —
-  // an async-lowered call into the instance reports STARTING under the
-  // reference's eager entry check. Releasing here makes sync-streams.wast
-  // pass under deltic's eager check; wasmtime reaches the same green via
-  // deferred entry with the gate held.
-  //
-  // The release is deliberately AT THE BLOCK, not at resolution: releasing
-  // at `task.return` freed the slot mid-activation for tasks that resolve
-  // and then return a WAIT code (the ordinary producer shape), reordering
-  // the backpressure queue that async-calls-sync.wast's guest asserts under
-  // the deterministic profile (the handshake pins caught it). A task whose
-  // slot was released here never retakes it: `runCallbackLoop` treats a
-  // resolved non-holder as outside the exclusivity protocol, and
-  // `exit_implicit_thread` releases only if held.
-  const task = input.task as {
-    state?: string;
-    implicitThread?: unknown;
-    ft?: { async?: boolean };
-    needsExclusive?(): boolean;
-    inst?: { exclusiveThread: unknown };
-  } | null;
-  if (
-    task !== null && task?.state === "resolved" &&
-    task.ft?.async === true && task.needsExclusive?.() &&
-    task.inst !== undefined &&
-    task.inst.exclusiveThread === task.implicitThread &&
-    task.implicitThread !== null
-  ) {
-    task.inst.exclusiveThread = null;
-  }
   // WHO is parking — read BEFORE anything below disturbs the ambient. This
   // one value serves both purposes: it is the activation the engine will
   // resume when this point settles (`SuspensionPoint.owner`, the replacement

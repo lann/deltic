@@ -330,20 +330,16 @@ export class Task {
     assert_(thread === this.implicitThread, "exit of a non-implicit thread");
     this.unregisterThread(thread);
     if (this.ft.async === true && this.needsExclusive()) {
-      // Release-if-held rather than assert-held: a resolved task that then
-      // BLOCKED already released it (see blockCurrentActivation's
-      // release-at-block for resolved tasks — a DELTIC-ONLY rule; the
-      // former wasmtime attribution was corrected 2026-08-10, see
-      // exams/wasmtime-exclusivity/wasmtime-actual-semantics.md and
-      // issue #43), and every resolved task passes through here afterwards.
-      if (this.inst.exclusiveThread === thread) {
-        this.inst.exclusiveThread = null;
-      } else {
-        assert_(
-          this.state === "resolved",
-          "exit_implicit_thread without holding the exclusive thread",
-        );
-      }
+      // definitions.py lines 506-508, verbatim shape: assert-held, then
+      // release. The former release-if-held tolerance existed only for the
+      // removed release-at-BLOCK divergence (issue #43); under the hold rule
+      // the implicit thread of a needs-exclusive task holds the slot from
+      // `enter_implicit_thread` to here, without exception.
+      assert_(
+        this.inst.exclusiveThread === thread,
+        "exit_implicit_thread without holding the exclusive thread",
+      );
+      this.inst.exclusiveThread = null;
     }
   }
 

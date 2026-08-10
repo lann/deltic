@@ -9,7 +9,7 @@ filing is the operator's (foreign repos).
 
 ---
 
-## IROH-1 — endpoint holds a `RefCell` borrow across a post-resolution `block_on` (DRAFT — expected to close host-side via deltic#43; see Disposition)
+## IROH-1 — endpoint holds a `RefCell` borrow across a post-resolution `block_on` (RESOLVED-BY-HOST via deltic#43; see Disposition)
 
 **Repo:** polymorph-iroh. **Where:** `endpoint/src/endpoint_impl.rs:13`
 (claim: "the `RefCell` borrows never cross an await") vs the actual path:
@@ -73,15 +73,21 @@ wasmtime host's `sign`; the corrected model says it stays green.) Under
 deltic the same window is open by our own rule, and the 5 ms poll
 cadence lands in it ~90% of the time with a `crypto.subtle` signer.
 
-**Disposition (2026-08-10):** with deltic migrating to wasmtime's
-hold + deferred-entry model
-([deltic#43](https://github.com/lann/deltic/issues/43)), this collision
-class closes host-side and the iroh-endpoint exam is expected to go
-deterministically green — rerun it as a #43 gate and mark this entry
-RESOLVED-BY-HOST if so. **No consumer filing needed** on current
-evidence. The guest-side hygiene below remains advisable independent of
-host (borrows across any `block_on` are fragile under future spec
-evolution and under hosts exploring allowed nondeterminism).
+**Disposition (2026-08-10, updated after deltic#43 landed):** deltic now
+implements wasmtime's hold + deferred-entry model
+([deltic#43](https://github.com/lann/deltic/issues/43)) — the admitted
+window this trap lived in **no longer exists on any surveyed host**, by
+semantics (pinned by `runtime/tests/entry_deferral_test.ts`). Empirical:
+`just iroh-exam` scenarios 1/2/4/5 pass post-#43, including the
+IROH-1-shaped legs (accept parked across a handshake, scenarios 2 and 4);
+the exam's retry workaround for scenarios 2–4 is expected redundant and
+can be retired after a few more green runs. (Scenario 3 fails on this
+machine with a WebRTC backend-resolution error — differentially confirmed
+pre-existing on pristine main, unrelated to #43.) **This entry is
+RESOLVED-BY-HOST; no consumer filing needed.** The guest-side hygiene
+below remains advisable independent of host (borrows across any
+`block_on` are fragile under future spec evolution and under hosts
+exploring allowed nondeterminism).
 
 **Proposed fix (guest-side, now optional hardening):** scope the borrow
 inside `drain`'s inner steps, or move signing out of the borrowed region

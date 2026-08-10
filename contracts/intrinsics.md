@@ -210,12 +210,19 @@ mischaracterization of wasmtime corrected on 2026-08-10 (wasmtime holds
 the gate for the whole invocation and defers the entry *decision*; see
 upstream-component-model-repo-findings.md CM-4 and
 exams/wasmtime-exclusivity/wasmtime-actual-semantics.md). deltic's
-shipping release-at-resolution rule is a deltic-only divergence slated
-for replacement by the hold + deferred-entry model
-([#43](https://github.com/lann/deltic/issues/43)); note the migration
-touches suspendability classification (a deferred async-lowered call
-trampoline becomes a potential suspension point — #43 carries the
-constraint that the plain path stays zero-cost for sync-only
-components). Host-import lowers are deliberately outside the suspension
+release-at-resolution rule was **removed the same day**
+([#43](https://github.com/lann/deltic/issues/43)): the runtime now
+implements the hold rule (gate lifetime = the core invocation, pristine
+definitions.py shape) plus the deferred entry decision — an async-lowered
+call reports STARTING only if the callee is still unstarted after the
+callee instance's runnable work is drained to quiescence
+(`Store.hasRunnableWork`, consumed by `createAsyncStartCall`'s
+determinacy park). Suspendability classification is **unchanged** by the
+migration: `async-start-call` was already `Suspending`-wrapped for the
+determinacy park, and plain mode provably never needs the drain (without
+JSPI a frame cannot park mid-invocation, so a held gate always belongs to
+the currently-running activation — the one obstacle a drain cannot
+remove); the plain path stays zero-cost for sync-only components.
+Host-import lowers are deliberately outside the suspension
 classification — a sync-lowered Promise-returning host function degrades
 to a clean `NeedsJspi` capability signal.
