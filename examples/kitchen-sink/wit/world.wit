@@ -107,6 +107,27 @@ interface api {
   /// reads the (suspending) sensor, and pushes messages through a
   /// channel resource. Returns the sensor reading it observed.
   run-batch: func(messages: u32) -> result<u64, string>;
+
+  /// §8 — the guest CONSUMES a stream the host supplies. On the host a
+  /// `stream<T>` parameter accepts the natural producers — a finite
+  /// array, a ReadableStream, an AsyncIterable, or a Stream handle — and
+  /// the runtime owns the pumping and closes on end.
+  tally: async func(numbers: stream<u32>) -> u64;
+
+  /// §8 — the guest PRODUCES a stream. The host receives a `Stream<u32>`
+  /// handle: `for await` yields CHUNKS (`number[]` batches, `Uint8Array`
+  /// for u8), or `.readable()` gives a web ReadableStream.
+  countdown: async func(start: u32) -> stream<u32>;
+
+  /// §9 — the guest awaits a future the host supplies; a plain Promise
+  /// works where `future<T>` is expected.
+  promised-double: async func(f: future<u32>) -> u32;
+
+  /// §9 — a future-typed RESULT arrives as an EAGER `Future<u32>` handle,
+  /// not `Promise<Future<u32>>` (JS promise resolution would adopt the
+  /// thenable handle and make drop/cancel unreachable). Call without
+  /// awaiting to hold the handle; awaiting the handle yields the value.
+  deferred-answer: async func() -> future<u32>;
 }
 
 world kitchen-sink {

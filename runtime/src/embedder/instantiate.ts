@@ -25,6 +25,7 @@ import {
 } from "../exec/mod.ts";
 import { camelCase, parseLeafName, pascalCase } from "./casing.ts";
 import { isSuspending, suspending } from "../jspi/suspending.ts";
+import { Translator } from "../shim/mod.ts";
 import { NameCollisionError, WitError } from "./errors.ts";
 import { type ImportLeaf, requiredImports } from "./imports.ts";
 import {
@@ -66,6 +67,39 @@ export interface ComponentArtifacts {
   adapters?: Map<string, Uint8Array>;
 }
 
+/**
+ * Untranslated alternative to `ComponentArtifacts` (embedder-api.md
+ * amendment A3): hand `instantiate` the raw component plus the translator
+ * and it runs the translation internally — the pipeline collapses to
+ * bytes-in, instance-out.
+ *
+ * `translator` accepts the translator-shim wasm bytes (simplest; compiles
+ * the shim per call) or an already-created `Translator` (preferred when
+ * instantiating more than one component, or the same component more than
+ * once — create it once and reuse; translation itself is sub-millisecond
+ * warm, the wasm compile is the cost being shared). `requiredImports`
+ * still needs a plan: translate explicitly when you want to inspect the
+ * import surface before instantiating.
+ */
+export interface UntranslatedArtifacts {
+  componentBytes: Uint8Array;
+  translator: Uint8Array | Translator;
+}
+
+/** Either artifacts shape accepted by `instantiate`. */
+export type InstantiateSource = ComponentArtifacts | UntranslatedArtifacts;
+
+async function resolveArtifacts(
+  src: InstantiateSource,
+): Promise<ComponentArtifacts> {
+  if ("plan" in src) return src;
+  const translator = src.translator instanceof Translator
+    ? src.translator
+    : await Translator.create(src.translator);
+  const { plan, adapters } = translator.translate(src.componentBytes);
+  return { plan, componentBytes: src.componentBytes, adapters };
+}
+
 export interface EmbedderOptions {
   /** Opt in to JSPI-backed suspension (see `InstantiateInput.jspi`). */
   jspi?: boolean;
@@ -104,10 +138,11 @@ type Binding =
  * resolution (see `version.ts`).
  */
 export async function instantiate(
-  artifacts: ComponentArtifacts,
+  source: InstantiateSource,
   imports: Record<string, unknown> = {},
   opts: EmbedderOptions = {},
 ): Promise<EmbedderInstance> {
+  const artifacts = await resolveArtifacts(source);
   const facade = new Facade(artifacts, imports);
   const handle = await instantiateComponent({
     plan: artifacts.plan,

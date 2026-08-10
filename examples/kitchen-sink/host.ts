@@ -11,10 +11,12 @@
 //   §6  a guest-implemented resource driven with `using`
 //   §7  run-batch: the guest drives every import, parking twice on JSPI
 //       without knowing it
+//   §8  streams: natural producers in (array / ReadableStream), a
+//       Stream<T> handle out (for-await in chunks)
+//   §9  futures: a Promise in, an EAGER Future handle out
 //
 // Run with: ./run.sh
 
-import { Translator } from "@deltic/runtime/shim";
 import {
   instantiate,
   suspending,
@@ -115,22 +117,25 @@ const imports = {
 
 // --- §1: translate + instantiate --------------------------------------------
 
-const shimWasm = await Deno.readFile(
+const translator = await Deno.readFile(
   new URL(
     "../../target/wasm32-unknown-unknown/release/translator_shim.wasm",
     import.meta.url,
   ),
 );
-const translator = await Translator.create(shimWasm);
 const componentBytes = await Deno.readFile(
   new URL("build/kitchen-sink.component.wasm", import.meta.url),
 );
-const { plan, adapters } = translator.translate(componentBytes);
 
+// `{ componentBytes, translator }` translates internally (A3). When
+// instantiating several components, create one `Translator` explicitly
+// (`Translator.create(bytes)` from @deltic/runtime/shim) and pass it here
+// instead — the wasm compile is the cost worth sharing.
+//
 // A marked import is auto-detection evidence: this instantiation selects
 // JSPI mode by itself. (`jspi: false` would force plain mode, where a
 // Promise from a sync-typed import is refused instead of parked.)
-const component = await instantiate({ plan, componentBytes, adapters }, imports);
+const component = await instantiate({ componentBytes, translator }, imports);
 
 // Interface exports are keyed like interface imports: verbatim WIT id.
 const api = component.exports["deltic:kitchen-sink/api"];
@@ -233,5 +238,46 @@ assertEq(
   "three sends through the channel",
 );
 assertEq(logs.includes("info: batch: done"), true, "guest logged completion");
+
+// --- §8: streams ---------------------------------------------------------------
+
+// Where the guest expects a stream<u32>, pass a natural producer — a
+// finite array is the simplest (auto-closed at the end)...
+assertEq(await api.tally([1, 2, 3, 4]), 10n, "tally an array-as-stream");
+
+// ...or anything ReadableStream/AsyncIterable-shaped.
+assertEq(
+  await api.tally(ReadableStream.from([5, 6, 7])),
+  18n,
+  "tally a ReadableStream",
+);
+
+// A guest-PRODUCED stream arrives as a Stream<u32> handle. `for await`
+// yields CHUNKS — number[] batches (Uint8Array for stream<u8>), never
+// single values — sized by whatever the guest wrote per rendezvous.
+const stream = await api.countdown(3);
+const received: number[] = [];
+for await (const chunk of stream) received.push(...chunk);
+assertEq(received, [3, 2, 1], "countdown chunks, flattened");
+
+// --- §9: futures ---------------------------------------------------------------
+
+// Where the guest expects a future<u32>, a plain Promise works.
+assertEq(
+  await api.promisedDouble(
+    new Promise((r) => setTimeout(() => r(21), 0)),
+  ),
+  42,
+  "promise-as-future",
+);
+
+// A future-typed RESULT is the one deliberate exception to Promise-shaped
+// exports: the call returns an EAGER Future<u32> handle, synchronously.
+// (Wrapping it in a Promise would let JS promise resolution adopt the
+// thenable handle — drop()/cancel() would become unreachable.) Hold it,
+// inspect it, then await it: the handle is thenable and yields the value.
+const fut = api.deferredAnswer();
+assertEq(typeof fut.drop, "function", "deferred-answer returns a handle");
+assertEq(await fut, 42, "awaiting the handle yields the value");
 
 console.log(`kitchen-sink example: OK (${logs.length} log lines)`);

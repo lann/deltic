@@ -10,6 +10,8 @@ export {
   type ComponentArtifacts,
   type EmbedderInstance,
   type EmbedderOptions,
+  type InstantiateSource,
+  type UntranslatedArtifacts,
   instantiate,
   instantiateEmbedder,
 } from "./instantiate.ts";

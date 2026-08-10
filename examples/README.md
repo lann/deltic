@@ -12,7 +12,7 @@ runs both, and CI does too — these cannot silently rot).
 | example | what it teaches |
 |---|---|
 | [`hello-world/`](hello-world/) | the smallest complete embedding: translate → instantiate → call one export; no imports |
-| [`kitchen-sink/`](kitchen-sink/) | a representative tour: imports (sync / fallible / **suspending**), resources both directions, and the non-obvious value spellings (enum, variant, flags, outermost vs nested option/result, the option-boxing rule) |
+| [`kitchen-sink/`](kitchen-sink/) | a representative tour: imports (sync / fallible / **suspending**), resources both directions, **streams and futures** (natural producers in, handles out), and the non-obvious value spellings (enum, variant, flags, outermost vs nested option/result, the option-boxing rule) |
 
 The normative reference behind both is
 [`contracts/embedder-api.md`](../contracts/embedder-api.md).
