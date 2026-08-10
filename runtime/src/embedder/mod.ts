@@ -7,6 +7,7 @@
 // types that cast this facade; no generated code participates.
 
 export {
+  artifactsFromEnvelope,
   type ComponentArtifacts,
   type EmbedderInstance,
   type EmbedderOptions,

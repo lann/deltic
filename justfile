@@ -16,7 +16,7 @@ ci: (gha::core) (gha::browser)
 # Includes the consumer smokes and exams CI cannot run (they need the
 # polymorph checkouts and iroh-relay; docs/consumers.md).
 # The full pre-commit pass (AGENTS.md "Gates"): everything.
-gates: build test-rust test-runtime test-wasi-shims test-ct-runner test-bundle examples conformance sched-seeds test-ports test-webrtc shells browsers websocket-conformance smoke-tls smoke-c0 iroh-exam
+gates: build test-rust test-runtime test-wasi-shims test-ct-runner test-bundle examples test-translate conformance sched-seeds test-ports test-webrtc shells browsers websocket-conformance smoke-tls smoke-c0 iroh-exam
 
 # Fast sanity: builds + native tests + type-checks, no suites.
 check: build test-rust
@@ -45,6 +45,12 @@ fixtures:
 examples: shim
     ./examples/hello-world/run.sh
     ./examples/kitchen-sink/run.sh
+
+# Build-time translation CLI (tools/translate, embedder-api A4): translate
+# to an envelope, reconstitute artifacts without a translator, verify the
+# mismatched-pair refusal.
+test-translate: shim
+    deno test --allow-read --allow-write=/tmp --allow-run tools/translate/translate_test.ts
 
 # Rehearsal finding: 20 runtime e2e tests self-skip when it is absent —
 # generation must precede the runtime suite (318/0/3 with; 298/0/23 without).
