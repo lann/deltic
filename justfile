@@ -84,12 +84,8 @@ test-ports:
     cd ports/websocket && deno task test
 
 # node-datachannel is a Node-API addon with linux prebuilds for both x64
-# and arm64. GH Actions runners give libdatachannel no usable ICE path
-# for same-host loopback pairing — connection-forming tests time out on
-# both arches while the addon loads and non-connection tests pass; issue
-# #21 tracks the runner-networking fix (loopback candidates / bindAddress
-# / werift).
-# webrtc unit suite — NON-BLOCKING in CI (#21); the dev box is the real gate.
+# and arm64.
+# webrtc unit suite.
 test-webrtc:
     cd ports/webrtc && deno install --allow-scripts=npm:node-datachannel && deno test -A webrtc.test.ts
 
