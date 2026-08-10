@@ -5,8 +5,10 @@
 // `sha1-checked` (wit/sha1.wit) is `@unstable(feature = sha1-checked)`:
 // it requires sha1dc collision detection, which platform WebCrypto does
 // not carry (the WIT's own note: "platform-backed providers cannot serve
-// this interface"). Out of scope for this browser-first, `crypto.subtle`-
-// only host — not ported, not stubbed.
+// this interface"). It IS provided by this port — as a fail-closed
+// interface whose two mints refuse with `error.unsupported`; see
+// sha1Checked.ts for why providing a refusal beats leaving the leaf
+// unlinked.
 
 import { errUnsupported, platformCall } from "./errors.ts";
 import { asBufferSource, collectByteStream } from "./util.ts";
