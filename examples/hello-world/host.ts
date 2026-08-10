@@ -2,28 +2,20 @@
 // call: give `instantiate` the component bytes and the translator, get
 // typed-shaped exports back.
 //
-// The two wasm files are read with `Deno.readFile`, so this script runs
-// with a scoped read permission (run.sh passes it):
+// The translator comes from @deltic/translator — on Deno it arrives via a
+// native wasm-module import (permission-free); the only permission this
+// script needs is reading the component it runs:
 //
-//   deno run --allow-read=..,../../target host.ts
+//   deno run --allow-read=build host.ts
 //
-// (Deno's `import ... with { type: "bytes" }` will make this flag-free
-// once it stabilizes — it is behind --unstable-raw-imports as of Deno
-// 2.9, and `type: "text"` is not an option for binaries: lossy UTF-8
-// decoding corrupts them.)
-//
-// Inside this repository `@deltic/runtime` resolves through the Deno
-// workspace; a published consumer uses the same specifier via JSR/npm or
-// the `deltic-embedder.mjs` release bundle (deltic#16 tracks packaging).
+// Inside this repository `@deltic/runtime` and `@deltic/translator`
+// resolve through the Deno workspace; a published consumer uses the same
+// specifiers via JSR/npm (deltic#16 tracks packaging).
 
 import { instantiate } from "@deltic/runtime/embedder";
+import { defaultTranslator } from "@deltic/translator";
 
-const translator = await Deno.readFile(
-  new URL(
-    "../../target/wasm32-unknown-unknown/release/translator_shim.wasm",
-    import.meta.url,
-  ),
-);
+const translator = await defaultTranslator();
 const componentBytes = await Deno.readFile(
   new URL("build/hello.component.wasm", import.meta.url),
 );

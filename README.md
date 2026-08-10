@@ -39,6 +39,7 @@ Pre-1.0, but densely gated:
 | `runtime/` | TS core: plan executor, canonical ABI, 0.3 task scheduler, JSPI bridge, embedder API (`runtime/src/embedder`) |
 | `crates/bindgen` | WIT → TypeScript types for the embedder conventions |
 | `examples/` | **start here to embed**: hello-world + kitchen-sink (WIT + Rust guest + TS host, self-checking), plus the guest fixture corpus |
+| `translator/` | `@deltic/translator`: the packaged translator asset + `defaultTranslator()` per-platform loader (build-time alternative: `tools/translate`) |
 | `wasi-shims/` | minimal WASI providers (p2 baseline + p3 clocks), one per semver track |
 | `ct-runner/` | conformance-suite runner for the polymorph-test L1 contract |
 | `harness/` + `tools/browser` | official-suite harness; Deno lane + Chromium/Firefox/WebKit lanes |
