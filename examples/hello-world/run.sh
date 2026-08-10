@@ -17,4 +17,5 @@ wasm-tools component new \
   -o build/hello.component.wasm
 wasm-tools validate --features component-model build/hello.component.wasm
 
+deno check host.ts
 deno run --allow-read=..,../../target host.ts

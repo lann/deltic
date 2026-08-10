@@ -15,6 +15,7 @@ mkdir -p build
 wasm-tools component new \
   "$CARGO_TARGET_DIR/wasm32-unknown-unknown/release/example_kitchen_sink.wasm" \
   -o build/kitchen-sink.component.wasm
-wasm-tools validate --features component-model build/kitchen-sink.component.wasm
+wasm-tools validate --features component-model,cm-async build/kitchen-sink.component.wasm
 
+deno check host.ts
 deno run --allow-read=..,../../target host.ts

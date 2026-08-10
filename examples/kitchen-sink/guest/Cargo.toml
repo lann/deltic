@@ -8,7 +8,10 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
-wit-bindgen = "=0.60.0"
+# `async-spawn` backs the stream/future producer halves (countdown,
+# deferred-answer): a write is a rendezvous, so it completes in a spawned
+# background task while the reader half returns immediately.
+wit-bindgen = { version = "=0.60.0", features = ["async-spawn"] }
 
 [profile.release]
 opt-level = "s"

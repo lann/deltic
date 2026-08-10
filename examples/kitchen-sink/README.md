@@ -11,6 +11,8 @@ One world exercising the surfaces an embedder actually touches:
 | host-implemented imports: sync, fallible, **suspending** | `notify` interface | `run-batch` | §2 |
 | host-implemented resource (ctor / method / static / dispose) | `notify.channel` | `run-batch` | §3 |
 | guest-implemented resource (`using`) | `api.counter` | `Counter` | §6 |
+| streams: producers in, `Stream<T>` handle out | `tally`, `countdown` | §8 | §8 |
+| futures: Promise in, EAGER `Future<T>` handle out | `promised-double`, `deferred-answer` | §9 | §9 |
 
 Run it:
 
@@ -39,10 +41,20 @@ What to notice:
   handed over as-is (the runtime calls `[Symbol.dispose]` when the guest
   drops its handle); the guest's `counter` comes back as a constructible
   class the host can `using`-scope.
+- **Streams lower from natural producers and lift as handles.** Pass an
+  array / ReadableStream / AsyncIterable where the guest expects a
+  `stream<T>`; a guest-produced stream arrives as a `Stream<T>` handle
+  whose `for await` yields *chunks* (`number[]` batches; `Uint8Array` for
+  `u8`). Guest-side, every stream/future write is a rendezvous — the
+  producer halves run in `spawn_local` tasks (see the guest doc comments).
+- **A future-typed result is the one exception to Promise-shaped
+  exports**: `deferredAnswer()` returns an eager `Future<u32>` handle
+  synchronously (a Promise wrapper would adopt the thenable handle and
+  make `drop`/`cancel` unreachable). Awaiting the handle yields the value.
 
-Deliberately absent (to stay approachable): streams/futures and async-typed
-functions — see `contracts/embedder-api.md` §"Streams and futures" until an
-example covers them.
+Deliberately absent (to stay approachable): async-typed *imports* and
+`error-context` — see `contracts/embedder-api.md` until an example covers
+them.
 
 The authoritative reference is
 [`contracts/embedder-api.md`](../../contracts/embedder-api.md); if this

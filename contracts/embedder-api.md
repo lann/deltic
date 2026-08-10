@@ -6,7 +6,9 @@ declared, per-function capability (`suspending()`), replacing v0.1's
 undeclared "permitted cast"; amendment A2 (2026-08-10) extends A1 to
 host-resource methods/statics (class-prototype authority), adds the
 stage-3 decorator form, and makes interface members receive their
-containing object as `this`.** This document supersedes `descriptor-ir.md`'s interim
+containing object as `this`; amendment A3 (2026-08-11) lets `instantiate`
+accept untranslated artifacts (`{ componentBytes, translator }`) and run
+the translation internally.** This document supersedes `descriptor-ir.md`'s interim
 "host value mapping" table as the destination for host-facing value shapes.
 The runtime's *raw* boundary (`instance.exports`, `HostImports`) keeps the
 `definitions.py` interpreter shapes as an **internal** surface; the
@@ -367,6 +369,14 @@ const instance = await instantiate(artifacts, {
 - Bindgen emits the world's `Imports` type (this record, fully typed) and
   `Exports` type; `instantiate` verifies the world digest
   (`contracts/digest.md`) before trusting either.
+- **Untranslated artifacts** (A3): `instantiate` also accepts
+  `{ componentBytes, translator }` where `translator` is the
+  translator-shim wasm bytes or a shared `Translator` instance, and
+  translates internally — bytes in, instance out. Prefer the shared
+  instance across several instantiations (the wasm compile is the cost
+  worth sharing; warm translation is sub-millisecond).
+  `requiredImports` still takes a plan: translate explicitly to inspect
+  the import surface before instantiating.
 - **Per-interface module authoring** (the consumers' file layout) is a
   helper over the same record: a module's named export, camelCase of the
   interface short-name, provides that interface

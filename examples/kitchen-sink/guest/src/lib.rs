@@ -14,12 +14,18 @@ use std::cell::Cell;
 wit_bindgen::generate!({
     path: "../wit",
     world: "kitchen-sink",
+    // No `async:` option: the WIT's own `async func` markers drive
+    // per-function codegen — the sync exports/imports above stay sync
+    // (keeping the suspending-import demonstration honest: those imports
+    // are sync-LOWERED), while §8/§9's stream/future functions get async
+    // bodies.
 });
 
 use exports::deltic::kitchen_sink::api::{
     Guest, GuestCounter, Level, Perms, Point, Shape,
 };
 use deltic::kitchen_sink::notify;
+use wit_bindgen::rt::async_support::{FutureReader, StreamReader, StreamResult};
 
 struct Component;
 
@@ -136,6 +142,48 @@ impl Guest for Component {
 
         notify::log(notify::Level::Info, "batch: done");
         Ok(reading)
+    }
+
+    /// §8 — consume a host-supplied stream to exhaustion.
+    async fn tally(mut numbers: StreamReader<u32>) -> u64 {
+        let mut sum = 0u64;
+        while let Some(v) = numbers.next().await {
+            sum += u64::from(v);
+        }
+        sum
+    }
+
+    /// §8 — produce a stream. The writer pumps in a spawned task (each
+    /// write is a rendezvous with the host-side reader); the reader half
+    /// returns immediately. Dropping the writer closes the stream.
+    async fn countdown(start: u32) -> StreamReader<u32> {
+        let (mut writer, reader) = wit_stream::new();
+        wit_bindgen::rt::async_support::spawn_local(async move {
+            for v in (1..=start).rev() {
+                let (result, _buf) = writer.write(vec![v]).await;
+                if !matches!(result, StreamResult::Complete(_)) {
+                    break;
+                }
+            }
+        });
+        reader
+    }
+
+    /// §9 — await a host-supplied future (the host passed a Promise).
+    async fn promised_double(f: FutureReader<u32>) -> u32 {
+        f.await * 2
+    }
+
+    /// §9 — produce a future. Same rendezvous rule as streams: the write
+    /// completes only when the host receives the value, so it runs in a
+    /// spawned task while the reader half is handed back.
+    async fn deferred_answer() -> FutureReader<u32> {
+        let (writer, reader) = wit_future::new(|| 0u32);
+        wit_bindgen::rt::async_support::spawn_local(async move {
+            wit_bindgen::yield_async().await;
+            let _ = writer.write(42).await;
+        });
+        reader
     }
 }
 
