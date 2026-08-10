@@ -30,7 +30,18 @@ build:
     cargo build --workspace
 
 # The translator shim wasm: every Deno suite below loads this artifact.
+# Size-tuned (S0's figures: ~1.8 MB raw / ~0.5 MB gzip, vs 3.8 MB stock
+# release): the shim is a shipped asset (issue #16), so the wasm build opts
+# into z/lto/abort via scoped env vars — the workspace [profile.release]
+# stays stock so testgen/bindgen keep fast builds and fast corpus runs.
+# Semantics are untouched (same crate, same deps); the conformance gate is
+# the check that matters and runs on this artifact.
 shim:
+    CARGO_PROFILE_RELEASE_OPT_LEVEL=z \
+    CARGO_PROFILE_RELEASE_LTO=fat \
+    CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 \
+    CARGO_PROFILE_RELEASE_PANIC=abort \
+    CARGO_PROFILE_RELEASE_STRIP=symbols \
     cargo build -p translator-shim --target wasm32-unknown-unknown --release
 
 # wasmtime CLI is optional in build.sh (smoke run only when present).
