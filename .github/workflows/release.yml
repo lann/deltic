@@ -28,7 +28,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: true
-          fetch-depth: 0 # commit count = the JSR prerelease number
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
@@ -91,21 +90,27 @@ jobs:
           TAG: ${{ steps.tag.outputs.tag }}
 
       - name: publish unstable prereleases to JSR
-        # Version scheme (issue #16, interim): 0.1.0-pre.<main commit count>
-        # — monotonic, derived from the ref being released, and unique per
-        # commit (JSR refuses duplicate versions, which also makes re-runs
-        # of this workflow no-ops-by-failure like the tag guard above).
+        # Version scheme (issue #16, interim): 0.1.0-pre.g<shorthash> —
+        # correlates 1:1 with this run's `pre-<shorthash>` release tag. The
+        # `g` prefix (git-describe's convention) is load-bearing: a bare
+        # short hash can be all-digits-with-leading-zero, which is INVALID
+        # semver (numeric identifiers forbid leading zeros) and would fail
+        # ~0.4% of publishes at random. Hash versions are unique per commit
+        # (JSR refuses duplicates, making re-runs no-ops-by-failure like
+        # the tag guard) but deliberately NOT monotonic under semver
+        # ordering: unstable prereleases are pinned exactly, never ranged.
         # The stamped versions are CI-working-tree-only (never committed);
         # cross-package workspace deps are rewritten by `deno publish`.
         # Auth: OIDC (permissions.id-token) — the @deltic packages must
         # exist on jsr.io and be linked to this repository (one-time
         # manual setup; see the #16 checklist).
         run: |
-          COUNT=$(git rev-list --count HEAD)
-          VERSION="0.1.0-pre.${COUNT}"
+          VERSION="0.1.0-pre.g${SHORT}"
           echo "publishing @deltic/* ${VERSION}"
           for p in runtime translator wasi-shims ct-runner; do
             jq --arg v "$VERSION" '.version = $v' "$p/deno.json" > "$p/deno.json.tmp"
             mv "$p/deno.json.tmp" "$p/deno.json"
           done
           deno publish --allow-dirty
+        env:
+          SHORT: ${{ steps.tag.outputs.short }}
