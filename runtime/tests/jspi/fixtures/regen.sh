@@ -10,7 +10,11 @@ for wat in *.wat; do
   wasm="${wat%.wat}.wasm"
   echo "==== $wat -> $wasm"
   wasm-tools parse "$wat" -o "$wasm"
-  wasm-tools validate "$wasm"
+  # `cm-async` is needed by fact-callback-suspend.wat (async lifts/lowers).
+  # Note the authority on validity is the translator itself (wasmparser 0.252
+  # via wasmtime-environ), not this CLI -- see
+  # crates/translator-shim/testdata/gen.sh for the same caveat.
+  wasm-tools validate --features component-model,cm-async "$wasm"
 done
 
 echo "==== done"
