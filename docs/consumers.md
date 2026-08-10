@@ -74,15 +74,16 @@ once its deltic coverage twin exists — on operator signal, not autonomously.
 | Repo | deltic twin | jco legs |
 |---|---|---|
 | webcrypto | deno legs merged ([#352](https://github.com/polymorph-components/polymorph-webcrypto/pull/352)); no browser twin needed | **retained indefinitely** — the Chromium side of the Deno platform-gap ledger, and the standing venue for [#17](https://github.com/lann/deltic/issues/17) |
-| tls | deno + browser merged (their [#36](https://github.com/polymorph-components/polymorph-tls/pull/36), [#39](https://github.com/polymorph-components/polymorph-tls/pull/39)) | **removed** (their [#40](https://github.com/polymorph-components/polymorph-tls/pull/40)) |
+| tls | deno + browser merged (their [#36](https://github.com/polymorph-components/polymorph-tls/pull/36), [#39](https://github.com/polymorph-components/polymorph-tls/pull/39)) | removed (their [#40](https://github.com/polymorph-components/polymorph-tls/pull/40)), then **reverted for the [#17](https://github.com/lann/deltic/issues/17) measurements** (their [#41](https://github.com/polymorph-components/polymorph-tls/pull/41)); re-lands on operator signal |
 | iroh | `host-deltic` merged (their [#36](https://github.com/polymorph-components/polymorph-iroh/pull/36)) | removal prepared, parked as **draft** (their [#39](https://github.com/polymorph-components/polymorph-iroh/pull/39); closes their #10 on landing; follow-ups: their #37 polling retirement, #38 bench call counts) |
 | websocket | deno merged (their [#40](https://github.com/polymorph-components/polymorph-websocket/pull/40)); browser in review (their [#41](https://github.com/polymorph-components/polymorph-websocket/pull/41)) | queued behind their #41 |
 | webrtc-datachannels | deno merged (their [#149](https://github.com/polymorph-components/polymorph-webrtc-datachannels/pull/149)); browser twin needs a page-context runner (no `RTCPeerConnection` in workers) | blocked on the page runner |
 | test | n/a — already jco-free as a gate | keeps publishing the jco-era compat surface webcrypto's retained lanes pin |
 
-Consequence for [#17](https://github.com/lann/deltic/issues/17): as removals
-land, the jco-vs-deltic head-to-head stays measurable only in webcrypto
-(tls's remains reproducible at its pre-removal SHA).
+Ordering rule (operator, 2026-08-10): the
+[#17](https://github.com/lann/deltic/issues/17) perf comparison runs
+**before** a repo's jco legs are deleted — tls's removal was reverted to
+honor it. webcrypto stays measurable indefinitely either way.
 
 ## Deno substitutes for Node (C0 evidence)
 
