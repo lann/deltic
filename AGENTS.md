@@ -40,7 +40,7 @@ just test-bundle          # embedder-bundle release asset
 just conformance          # official CM suite, Deno lane
 just sched-seeds          # seeded-shuffle reruns: DELTIC_SCHED_SEED=1, =4242 (FIFO when unset)
 just test-ports           # ports/webcrypto + ports/websocket unit suites
-just test-webrtc          # non-blocking in CI (#21); the dev box is the real gate
+just test-webrtc          # ports/webrtc unit suite
 just shells               # pinned engine shells, required gates (jsc-pinned is x64-only)
 just browsers             # chromium + firefox lanes (`just browsers-install` once)
 just websocket-conformance  # their suite under this host (spawns their echod)

@@ -41,9 +41,9 @@ jobs:
 
       # The job body lives in the `gha` just module (one workflow job = one
       # `gha::` recipe, so `just ci` is exactly CI); step-level rationale
-      # lives on the root-justfile recipes it composes. Suite order,
-      # arch-conditional lanes (jsc-pinned is x64-only) and the tolerated
-      # webrtc suite (issue #21) are all encoded there.
+      # lives on the root-justfile recipes it composes. Suite order and
+      # arch-conditional lanes (jsc-pinned is x64-only) are all encoded
+      # there.
       - run: just gha::core
 
   browser:
@@ -96,8 +96,8 @@ jobs:
   # criterion by construction. Notes: (a) the concurrency group above
   # cancels superseded runs, so rapid consecutive pushes release only the
   # surviving tip — a cancelled run was never green; (b) continue-on-error
-  # steps (webrtc on runners #21, webkit lane) do not block a release, by
-  # the same policy that keeps them non-blocking in CI.
+  # steps (the webkit lane) do not block a release, by the same policy
+  # that keeps them non-blocking in CI.
   release:
     needs: [core, browser]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
