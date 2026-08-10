@@ -541,7 +541,17 @@ function mkCalleeTask(input: {
       task,
       thread,
       inst,
-      callback: callback!,
+      // The callback re-entry is the second of the three entries that can
+      // reach a blocking built-in (jspi/bridge.ts's invariant) and gets the
+      // same per-callee treatment as the initial entry above: a callee that
+      // parks (WAIT) and then, on a later callback activation, reaches a
+      // *synchronous* blocking built-in (wit-bindgen's `block_on` shape —
+      // e.g. a composed iroh endpoint signing a CertificateVerify via
+      // `waitable-set.wait` mid-handshake) suspends inside the plain
+      // callback frame otherwise: `SuspendError` (jspi pin (c)). Caught by
+      // the first composed consumer workload (wosh client), not by
+      // cross-abi-calls.wast, whose callees only ever block via WAIT codes.
+      callback: canBlock ? enterWasm(callback!, mode) : callback!,
       packed,
       stats: ctx.stats,
     });
