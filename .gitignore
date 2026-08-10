@@ -1,4 +1,6 @@
 /target/
+# @deltic/translator packaged asset (copied by `just shim`)
+translator/translator_shim.wasm
 harness/generated/
 examples/guests/build/
 node_modules/
@@ -17,3 +19,5 @@ bench/boundary/deltic-embedder.local.mjs
 bench/boundary/generated/
 bench/boundary/node_modules/
 bench/boundary/guest/target/
+# @deltic/translator packaged asset (copied by `just shim`)
+translator/translator_shim.wasm

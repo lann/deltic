@@ -4,6 +4,7 @@
     "./harness",
     "./wasi-shims",
     "./ct-runner",
-    "./examples"
+    "./examples",
+    "./translator"
   ]
 }

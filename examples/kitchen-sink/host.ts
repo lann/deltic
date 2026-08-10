@@ -22,6 +22,7 @@ import {
   suspending,
   WitError,
 } from "@deltic/runtime/embedder";
+import { defaultTranslator } from "@deltic/translator";
 
 // Tiny self-checks so the example fails loudly if the API drifts.
 // (`undefined` is meaningful in the conventions — the outermost-option
@@ -117,20 +118,16 @@ const imports = {
 
 // --- §1: translate + instantiate --------------------------------------------
 
-const translator = await Deno.readFile(
-  new URL(
-    "../../target/wasm32-unknown-unknown/release/translator_shim.wasm",
-    import.meta.url,
-  ),
-);
+const translator = await defaultTranslator();
 const componentBytes = await Deno.readFile(
   new URL("build/kitchen-sink.component.wasm", import.meta.url),
 );
 
-// `{ componentBytes, translator }` translates internally (A3). When
-// instantiating several components, create one `Translator` explicitly
-// (`Translator.create(bytes)` from @deltic/runtime/shim) and pass it here
-// instead — the wasm compile is the cost worth sharing.
+// `{ componentBytes, translator }` translates internally (A3);
+// `defaultTranslator()` is @deltic/translator's packaged, per-realm-cached
+// loader (on Deno: a native wasm-module import — no permissions). Apps
+// that know their components at build time can skip the translator
+// entirely: see tools/translate (embedder-api A4).
 //
 // A marked import is auto-detection evidence: this instantiation selects
 // JSPI mode by itself. (`jspi: false` would force plain mode, where a

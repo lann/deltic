@@ -18,4 +18,4 @@ wasm-tools component new \
 wasm-tools validate --features component-model,cm-async build/kitchen-sink.component.wasm
 
 deno check host.ts
-deno run --allow-read=..,../../target host.ts
+deno run --allow-read=build host.ts

@@ -43,6 +43,7 @@ shim:
     CARGO_PROFILE_RELEASE_PANIC=abort \
     CARGO_PROFILE_RELEASE_STRIP=symbols \
     cargo build -p translator-shim --target wasm32-unknown-unknown --release
+    cp target/wasm32-unknown-unknown/release/translator_shim.wasm translator/translator_shim.wasm
 
 # wasmtime CLI is optional in build.sh (smoke run only when present).
 # Guest fixture components (examples/guests/build/, gitignored): the
@@ -62,6 +63,7 @@ examples: shim
 # mismatched-pair refusal.
 test-translate: shim
     deno test --allow-read --allow-write=/tmp --allow-run tools/translate/translate_test.ts
+    cd translator && deno task check && deno task test
 
 # Rehearsal finding: 20 runtime e2e tests self-skip when it is absent —
 # generation must precede the runtime suite (318/0/3 with; 298/0/23 without).
