@@ -1,7 +1,26 @@
-# examples/ — Rust guest fixture corpus
+# examples/
+
+Two things live here, for two audiences:
+
+## Embedder examples (start here if you're using deltic)
+
+Complete, self-contained, self-checking WIT + Rust-guest + TS-host pairs.
+Each directory can be copied out of the repo and built as-is; each `run.sh`
+builds the guest component and runs the host under Deno (`just examples`
+runs both, and CI does too — these cannot silently rot).
+
+| example | what it teaches |
+|---|---|
+| [`hello-world/`](hello-world/) | the smallest complete embedding: translate → instantiate → call one export; no imports |
+| [`kitchen-sink/`](kitchen-sink/) | a representative tour: imports (sync / fallible / **suspending**), resources both directions, and the non-obvious value spellings (enum, variant, flags, outermost vs nested option/result, the option-boxing rule) |
+
+The normative reference behind both is
+[`contracts/embedder-api.md`](../contracts/embedder-api.md).
+
+## Rust guest fixture corpus (`guests/`)
 
 Guest components built with **wit-bindgen** (the compatibility target of this
-project, docs/architecture.md §1/§11). The future TS host runs these as its executable
+project, docs/architecture.md §1/§11). The TS host runs these as its executable
 wit-bindgen-compat claim. Each guest is a pure computational reactor — **no
 WASI imports** — so componentization needs no wasip1 adapter.
 

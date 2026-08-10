@@ -38,6 +38,7 @@ Pre-1.0, but densely gated:
 | `crates/translator-shim` | wasmtime-environ + FACT → versioned plan format (wasm32, runs everywhere) |
 | `runtime/` | TS core: plan executor, canonical ABI, 0.3 task scheduler, JSPI bridge, embedder API (`runtime/src/embedder`) |
 | `crates/bindgen` | WIT → TypeScript types for the embedder conventions |
+| `examples/` | **start here to embed**: hello-world + kitchen-sink (WIT + Rust guest + TS host, self-checking), plus the guest fixture corpus |
 | `wasi-shims/` | minimal WASI providers (p2 baseline + p3 clocks), one per semver track |
 | `ct-runner/` | conformance-suite runner for the polymorph-test L1 contract |
 | `harness/` + `tools/browser` | official-suite harness; Deno lane + Chromium/Firefox/WebKit lanes |
@@ -61,6 +62,7 @@ is the command surface (`just --list`; recipe bodies are the exact commands).
 
 | Where | What |
 |---|---|
+| [`examples/`](examples/) | runnable embedder examples: [hello-world](examples/hello-world/) (smallest complete embedding) and [kitchen-sink](examples/kitchen-sink/) (imports incl. suspending, resources both directions, value-shape tour) |
 | [`docs/architecture.md`](docs/architecture.md) | the system design and decisions, with rationale (§-numbered; cited from code comments) |
 | [`docs/milestones.md`](docs/milestones.md) | the verified milestone record (S0 → C3) |
 | [`docs/consumers.md`](docs/consumers.md) | the polymorph adoption track: jco blocker mapping, cutover evidence, in-repo ports |
