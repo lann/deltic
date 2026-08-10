@@ -40,6 +40,11 @@ export { GuestResource, HostResourceRegistry } from "./resources.ts";
 
 export { camelCase, type LeafName, parseLeafName, pascalCase } from "./casing.ts";
 
+// Per-declaration suspendability (contracts/embedder-api.md §"Functions and
+// async", amendment A1): declares that a sync-typed host import may return a
+// Promise, parking the calling wasm frame (JSPI engines only).
+export { suspending } from "../jspi/suspending.ts";
+
 export {
   asTrackKeySpelling,
   compareSemver,

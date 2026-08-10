@@ -13,8 +13,10 @@ import type { ComponentValue, FuncType, ValType } from "../cabi/types.ts";
 import { Trap } from "../cabi/trap.ts";
 import { ComponentInstanceState, Store } from "../task/mod.ts";
 import {
+  anySuspendingImport,
   assertModeConsistent,
   chooseMode,
+  isSuspending,
   planNeedsSuspension,
   suspendingImport,
   trampolineCanBlock,
@@ -338,6 +340,9 @@ class Executor {
 
   /** Scratch: set by `importValue` while one module's imports are resolved. */
   private sawBlockingImport = false;
+  /** LoweredIndex-es whose host functions carry the `suspending()` brand —
+   * populated by `buildLoweredImport`, read by `importValue` (A1). */
+  private readonly suspendableLowerings = new Set<number>();
   /** Host trap held across a FACT exception barrier (see `HostTrapState`). */
   readonly trapState: HostTrapState = { pending: undefined };
   /** Export path -> why it has no runtime surface (see `buildExport`). */
@@ -376,7 +381,15 @@ class Executor {
     //     and start-function suspension mapping: the conformance suite's
     //     builtin-trap-poisons-instance / dont-block-start files, green
     //     under detection.
-    this.suspensionMode = chooseMode(input.jspi, planNeedsSuspension(loaded.wire));
+    this.suspensionMode = chooseMode(
+      input.jspi,
+      // Auto-detection evidence, two independent sources: the PLAN (a
+      // stackful async lift or a blocking built-in — per-declaration), and
+      // the IMPORTS RECORD (a `suspending()`-marked host function: the
+      // embedder's declared intent to park a sync-lowered frame, which no
+      // plan field can express — embedder-api.md amendment A1).
+      planNeedsSuspension(loaded.wire) || anySuspendingImport(this.hostImports),
+    );
   }
 
   async verifyComponent(): Promise<void> {
@@ -864,6 +877,25 @@ class Executor {
     const optionsAsync = (i: number) =>
       this.wire.canonicalOptions[i]?.async === true;
     const d = decl as { kind: string; async?: unknown; options?: unknown };
+    // Host lowers (A1): `trampolineCanBlock` classifies DECLARATIONS and a
+    // `lower-import` declaration says nothing about the host's intent — the
+    // evidence is the `suspending()` brand on the host function, recorded by
+    // `buildLoweredImport` into `suspendableLowerings` (which resolving this
+    // very def just populated, one frame down). A marked lower is a genuine
+    // blocker: it marks the importer (transitive suspendability →
+    // promising-wrapped entries, satisfying jspi pin (c)) and gets the
+    // Suspending wrap so a returned Promise parks the frame instead of
+    // tripping the boundary's guard.
+    if (d.kind === "lower-import") {
+      const lowered = (d as unknown as { lowered: number }).lowered;
+      if (!this.suspendableLowerings.has(lowered)) return value;
+      this.sawBlockingImport = true;
+      this.noteImport();
+      return suspendingImport(
+        value as (...a: never[]) => unknown,
+        "jspi",
+      ) as unknown as Importable;
+    }
     if (!trampolineCanBlock(d, optionsAsync)) return value;
     // `async-start-call` is wrapped (its jspi-only determinacy park must be
     // able to suspend the caller) but does NOT mark the importer: see
@@ -1037,12 +1069,23 @@ class Executor {
     }
     const ft = this.funcType(decl.type, `import '${label}'`);
     const opts = this.resolveOptions(decl.options);
+    const suspendable = isSuspending(value);
+    // The Suspending-wrap decision is taken in `importValue`, which sees the
+    // trampoline only AFTER `createTrampoline`'s trap-recording wrapper has
+    // replaced this function's identity — a brand on the CoreFn would die
+    // there (measured: the returned Promise coerced to 0 through the
+    // unwrapped import). Record the decision as executor state instead,
+    // keyed by LoweredIndex; `importValue` runs later on the same call
+    // stack, so the set is populated by construction when it reads.
+    if (suspendable) this.suspendableLowerings.add(decl.lowered);
     return createLoweredImport({
       name: label,
       ft,
       opts,
       hostFn: value as (...args: unknown[]) => unknown,
       stats: this.stats,
+      mode: this.suspensionMode,
+      suspendable,
     });
   }
 

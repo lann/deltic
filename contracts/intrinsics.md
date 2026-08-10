@@ -225,6 +225,20 @@ determinacy park, and plain mode provably never needs the drain (without
 JSPI a frame cannot park mid-invocation, so a held gate always belongs to
 the currently-running activation — the one obstacle a drain cannot
 remove); the plain path stays zero-cost for sync-only components.
-Host-import lowers are deliberately outside the suspension
-classification — a sync-lowered Promise-returning host function degrades
-to a clean `NeedsJspi` capability signal.
+Host-import lowers joined the suspension classification on 2026-08-10
+(embedder-api.md amendment A1): a `suspending()`-marked import is a
+genuine blocker — Suspending-wrapped, importer-contaminating (transitive
+suspendability, so entries get promising-wrapped per pin (c)), and
+evidence for auto-detection — with the park implemented as
+`blockCurrentActivation` on the recorded settlement
+(`readyFunc`-driven; result lowering deferred to `produce` so realloc
+re-entry runs under the resume-time attribution claim, the issue-#24
+discipline). The park is the reference's plain non-cancellable
+`thread.wait_until(subtask.resolved)` (canon_lower line 2286); the gate
+stays held across it (the #43 hold rule). UNMARKED sync-lowered
+Promise-returning host functions still degrade to the clean `NeedsJspi`
+capability signal in every mode — marking is the embedder's explicit,
+per-declaration opt-in, never inferred. Pinned by
+`runtime/tests/embedder/suspending_imports_test.ts` (park round trip,
+resume-time realloc, pin-(c) start trap, refusal messages) and the
+plain-mode guard in `runtime/tests/async_lower_test.ts`.
