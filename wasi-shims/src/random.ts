@@ -9,13 +9,24 @@ export interface RandomOptions {
 
 /**
  * `crypto.getRandomValues` rejects requests over 65536 bytes
- * (QuotaExceededError), while the WIT requires exactly `len` bytes back
- * ("Return `len` cryptographically-secure random or pseudo-random bytes",
- * random.wit) — there is no shorter-return latitude, and callers (Rust
- * `getrandom`, the Go runtime) fill fixed-size buffers trusting the length.
- * So: chunk the fill, never clamp it. Still synchronous, satisfying the
- * WIT's "must not block ... including on requests for [large] numbers of
- * bytes".
+ * (QuotaExceededError), while the 0.2 WIT this fragment serves requires
+ * exactly `len` bytes back ("Return `len` cryptographically-secure random
+ * or pseudo-random bytes", random.wit @0.2.x) — no shorter-return
+ * latitude, and callers (Rust `getrandom`, the Go runtime) fill fixed-size
+ * buffers trusting the length. So: chunk the fill, never clamp it.
+ *
+ * TRACK DIVERGENCE, for a future @0.3 fragment: `wasi:random@0.3.0`
+ * renames the parameter to `max-len` and PERMITS short reads
+ * ("Implementations MAY return fewer bytes than requested"; callers must
+ * loop; ≥1 byte required for max-len > 0). Authority moved with the WASI
+ * consolidation: `WebAssembly/WASI proposals/random/wit/random.wit` — the
+ * archived wasi-random repo's 0.3 rc still shows the old exact-len text.
+ * Chunk-to-full remains conforming there too ("up to max-len" includes
+ * exactly max-len) and makes conforming callers' mandatory loops terminate
+ * in one pass, so this helper serves both tracks unchanged.
+ *
+ * Either way the fill stays synchronous, satisfying both tracks' "must not
+ * block ... including on requests for [large] numbers of bytes".
  */
 const GET_RANDOM_VALUES_MAX = 65536;
 
