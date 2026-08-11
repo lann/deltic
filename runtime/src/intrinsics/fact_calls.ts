@@ -716,6 +716,42 @@ export function createSyncStartCall(
         // Not cancellable: a sync-lowered caller has no way to observe or
         // request cancellation mid-call -- the reference's wait here carries
         // no cancellation branch.
+        // LENDER RELEASE ON EVERY SETTLE PATH (#102).
+        //
+        // Enumeration of how this `SuspensionPoint` can reach a terminal
+        // state (jspi/bridge.ts `SuspensionPoint`), and whether `produce`
+        // runs on each:
+        //
+        //  1. `resume(false)` -> `produce` returns the packed result.
+        //     RUNS. This is the success path; release stays INSIDE `produce`,
+        //     before the results are shaped, so its ordering relative to the
+        //     produced value is unchanged by this fix.
+        //  2. `resume(false)` -> `produce` throws (a trap computed at resume
+        //     time). PARTIALLY RUNS. Release is `produce`'s first statement
+        //     so it is already discharged here, but the `onSettled` backstop
+        //     makes that independent of statement order.
+        //  3. `resume(true)` — a CANCELLED resume. Unreachable by
+        //     construction: this park is `cancellable: false` and
+        //     `SuspensionPoint.resume` asserts `cancellable || !cancelled`
+        //     (#93). Note the assert fires BEFORE `#done` is set, so such a
+        //     call leaves the point still parked and never settles it — a
+        //     scheduler bug, not a guest-reachable exit; there is no
+        //     non-poisoning continuation to release into.
+        //  4. `abandon(reason)` — store teardown / abandonment: fails the
+        //     import's Promise WITHOUT calling `produce`. DOES NOT RUN. This
+        //     is the #102 hole; `onSettled` covers it.
+        //  5. Never settled at all (the store is dropped while this point
+        //     sits in `store.waiting`, e.g. the caller's whole host call was
+        //     abandoned). No JS runs, so nothing can release; the lent
+        //     handles die with the store, which is the reference's own
+        //     outcome. Out of scope for amendment 2 (no non-poisoning exit).
+        //  6. Trap-poisoning of the parked instance: does not settle this
+        //     point by itself — it reaches the guest either as (2) (a
+        //     produce-time trap) or as (4) (teardown abandons the park), so
+        //     it is covered by those two rows, not a third mechanism.
+        //
+        // `releaseLenders` is idempotent (#91), so the backstop is a no-op
+        // whenever `produce` already ran.
         return blockCurrentActivation({
           store: prepared.callerInst.store,
           task: currentTask(),
@@ -725,6 +761,7 @@ export function createSyncStartCall(
             lenderScope.releaseLenders();
             return shapeResults(callerResults as CoreValue[] | null);
           },
+          onSettled: () => lenderScope.releaseLenders(),
         });
       }
       // A capability signal is expressly NON-poisoning (see above), so
@@ -1011,12 +1048,34 @@ export function createAsyncStartCall(
             thread.done() ||
             store.waiting.some((w) => w.task === task);
       if (!determinate()) {
+        // Same settle-path enumeration as the sync form above (#102). Here
+        // the lender scope is the `Subtask` itself, discharged by
+        // `deliverResolve`, and `report()` is what eventually delivers it —
+        // either eagerly (the resolved branch) or, for a live subtask, via
+        // the handle it hands the guest. So the backstop must fire ONLY when
+        // `report()` did not complete: on the success path the subtask is
+        // typically still live and in the caller's table, and unwinding it
+        // there would cancel a perfectly good call.
+        //
+        // `report()` not completing means the guest never received the
+        // subtask index (it either threw before `handles.add`, or after it
+        // with the index lost), so nothing will ever deliver this subtask's
+        // resolution — exactly the state `unwindSubtaskLenders` exists for
+        // (contracts/intrinsics.md v0.2 amendment 2).
+        let produced = false;
         return blockCurrentActivation({
           store: prepared.callerInst.store,
           task: currentTask(),
           readyFunc: determinate,
           cancellable: false,
-          produce: () => report(),
+          produce: () => {
+            const r = report();
+            produced = true;
+            return r;
+          },
+          onSettled: () => {
+            if (!produced) unwindSubtaskLenders(subtask);
+          },
         });
       }
     }
