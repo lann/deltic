@@ -11,9 +11,13 @@
 //   RUN INSTRUCTIONS
 //   ----------------
 //   LANE IDS: sm-pinned, sm-nightly (SpiderMonkey); jsc-pinned, jsc-trunk
-//   (JSC). Pinned lanes (sm-pinned, jsc-pinned) are REQUIRED gates in
-//   ci.yml's `core` job; nightly/trunk lanes stay findings-only canaries in
-//   canary.yml.
+//   (JSC); node-pinned (Node.js), bun-pinned (Bun) — the runtime lanes run
+//   the same bundle via the tools/shell/host-node.mjs preamble. Pinned
+//   engine-shell lanes (sm-pinned, jsc-pinned) and node-pinned are REQUIRED
+//   gates in ci.yml's `core` job; bun-pinned runs there too but is
+//   findings-only until it has a track record (its expectation carries
+//   `required: false` — the WebKit-lane precedent); nightly/trunk lanes
+//   stay findings-only canaries in canary.yml.
 //
 //   One-time shell fetch (into ./.shell-cache, gitignored):
 //
@@ -21,11 +25,15 @@
 //     deno run -A tools/shell/fetch.ts sm-nightly
 //     deno run -A tools/shell/fetch.ts jsc-pinned  # x86_64 CI only
 //     deno run -A tools/shell/fetch.ts jsc-trunk   # x86_64 CI only
+//     deno run -A tools/shell/fetch.ts node-pinned
+//     deno run -A tools/shell/fetch.ts bun-pinned
 //
 //   Then:
 //
 //     deno run -A tools/shell/run-lane.ts sm-pinned [--json <path>]
 //     deno run -A tools/shell/run-lane.ts jsc-pinned [--json <path>]
+//     deno run -A tools/shell/run-lane.ts node-pinned [--json <path>]
+//     deno run -A tools/shell/run-lane.ts bun-pinned [--json <path>]
 //
 //   Machinery validation against a LOCAL stable jsc (not jsc-pinned/-trunk;
 //   see `harness/shell/expectations/jsc-trunk.ts`'s header for the recipe
@@ -55,6 +63,8 @@ import smPinned from "../../harness/shell/expectations/sm-pinned.ts";
 import smNightly from "../../harness/shell/expectations/sm-nightly.ts";
 import jscPinned from "../../harness/shell/expectations/jsc-pinned.ts";
 import jscTrunk from "../../harness/shell/expectations/jsc-trunk.ts";
+import nodePinned from "../../harness/shell/expectations/node-pinned.ts";
+import bunPinned from "../../harness/shell/expectations/bun-pinned.ts";
 import { bundle } from "./bundle.ts";
 import { defaultShellPaths } from "./fetch.ts";
 
@@ -67,6 +77,8 @@ const EXPECTATIONS: Record<string, ShellLaneExpectation> = {
   "sm-nightly": smNightly,
   "jsc-pinned": jscPinned,
   "jsc-trunk": jscTrunk,
+  "node-pinned": nodePinned,
+  "bun-pinned": bunPinned,
 };
 
 interface Args {
@@ -133,6 +145,18 @@ type Header = any;
  * works even with a non-`.mjs` extension). Neither shell needs
  * `scriptArgs`/`arguments` here — see entry.ts's header.
  *
+ * node/bun run `tools/shell/host-node.mjs` instead — an unbundled preamble
+ * that installs the entry's host capabilities (binary reads, `print`) and
+ * imports `dist/entry.mjs` (bundle.ts's byte-identical ESM-suffixed copy).
+ * The bun lane additionally sets `BUN_JSC_useWasmMultiMemory=1`: bun 1.3.x
+ * vendors WebKit's wasm multi-memory implementation but ships it
+ * default-off, and the CABI routinely needs >1 memory per core module —
+ * stock bun fails 174 corpus commands with "there can at most be one Memory
+ * section for now" (measured 2026-08-11; the flag-flip precedent is the
+ * firefox browser lane setting its own JSPI pref). Bun warns BUN_JSC_*
+ * options are unstable across releases; the pin freezes that risk, and a
+ * re-pin must re-verify the option (see the expectation's header).
+ *
  * The CWD is set to the repo root but the entry does NOT rely on it: JSC
  * trunk bundles run through their shipped wrapper, which chdir()s into the
  * bundle directory before exec'ing `bin/jsc` (whose PT_INTERP is the
@@ -146,11 +170,15 @@ async function runShell(
   libPath: string | null,
 ): Promise<{ code: number; stdout: string; stderr: string }> {
   const bundlePath = join(repoRoot, "tools", "shell", "dist", "entry.js");
+  const hostPath = join(repoRoot, "tools", "shell", "host-node.mjs");
   const args = lane.startsWith("sm-")
     ? [`--module=${bundlePath}`]
-    : ["-m", bundlePath];
+    : lane.startsWith("jsc-")
+    ? ["-m", bundlePath]
+    : [hostPath]; // node-pinned / bun-pinned
   const env: Record<string, string> = {};
   if (libPath) env.LD_LIBRARY_PATH = libPath;
+  if (lane === "bun-pinned") env.BUN_JSC_useWasmMultiMemory = "1";
   const cmd = new Deno.Command(shellBin, {
     args,
     cwd: repoRoot,
@@ -205,7 +233,12 @@ function parseProtocol(stdout: string): { header: Header; files: ShellFile[] } {
 async function main() {
   const args = parseArgs(Deno.args);
   const exp = EXPECTATIONS[args.lane];
-  if (!exp) fail(`unknown lane '${args.lane}' (sm-pinned | sm-nightly | jsc-pinned | jsc-trunk)`);
+  if (!exp) {
+    fail(
+      `unknown lane '${args.lane}' (sm-pinned | sm-nightly | jsc-pinned | ` +
+        `jsc-trunk | node-pinned | bun-pinned)`,
+    );
+  }
 
   await preflight();
 

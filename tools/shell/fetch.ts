@@ -9,8 +9,13 @@
 //                 sha256-verified, mirrored to a repo-owned release (see
 //                 fetchJsc's header for why webkitgtk.org can't be pinned).
 //   jsc-trunk   — JSC trunk LAST-IS (unchanged canary; x86_64 CI only).
+//   node-pinned — Node.js release pinned in pins.json (nodejs.org dist
+//                 tarball), sha256-verified; both linux arches.
+//   bun-pinned  — Bun release pinned in pins.json (oven-sh/bun GitHub
+//                 release zip), sha256-verified; both linux arches.
 //
-// Usage: deno run -A tools/shell/fetch.ts <sm-pinned|sm-nightly|jsc-pinned|jsc-trunk>
+// Usage: deno run -A tools/shell/fetch.ts
+//        <sm-pinned|sm-nightly|jsc-pinned|jsc-trunk|node-pinned|bun-pinned>
 //
 // Extraction: no system `unzip` on the dev box this was written on, and no
 // suitable pure-Deno zip reader was available in the JSR registry at the
@@ -33,6 +38,8 @@ interface Pins {
     sha256: Record<string, string>;
   };
   jsc: { rev: string; url: string; sha256: string; arch: string };
+  node: { version: string; urlTemplate: string; sha256: Record<string, string> };
+  bun: { version: string; urlTemplate: string; sha256: Record<string, string> };
 }
 
 let pinsCache: Pins | null = null;
@@ -64,6 +71,16 @@ export function defaultShellPaths(
     // see fetchJsc below. No LD_LIBRARY_PATH: the wrapper sets its own,
     // overwriting anything we pass.
     return { bin: join(dir, "jsc"), libPath: null };
+  }
+  if (lane === "node-pinned") {
+    // fetchNodePinned extracts with --strip-components=1, so the tarball's
+    // versioned top directory is gone and bin/node is stable across pins.
+    return { bin: join(cacheRoot, lane, "bin", "node"), libPath: null };
+  }
+  if (lane === "bun-pinned") {
+    // fetchBunPinned copies the single static binary out of the zip's
+    // arch-named subdirectory to a stable path.
+    return { bin: join(cacheRoot, lane, "bun"), libPath: null };
   }
   throw new Error(`unknown lane: ${lane}`);
 }
@@ -346,15 +363,131 @@ async function extractJscBundle(zipPath: string, dir: string): Promise<void> {
   await Deno.chmod(join(dir, "bin", "jsc"), 0o755);
 }
 
+/**
+ * node-pinned: official nodejs.org dist tarball, sha256-verified against
+ * pins.json (hashes transcribed from the release's SHASUMS256.txt). Release
+ * tarballs are permanent, so no mirror is needed (sm-pinned situation, not
+ * jsc-pinned). Both linux arches are published — this lane runs on both CI
+ * legs, unlike jsc-pinned.
+ */
+async function fetchNodePinned(): Promise<void> {
+  const pins = await loadPins();
+  // nodejs.org arch naming: x64 / arm64.
+  const arch = Deno.build.arch === "aarch64" ? "arm64" : "x64";
+  const identity = `pin:node-v${pins.node.version}:${arch}`;
+  const dir = join(cacheRoot, "node-pinned");
+  const binPath = join(dir, "bin", "node");
+  if (await cacheMatches(dir, identity)) {
+    console.log(`[fetch] node-pinned already cached at ${binPath} (${identity})`);
+    return;
+  }
+  const url = pins.node.urlTemplate
+    .replaceAll("{version}", pins.node.version)
+    .replace("{arch}", arch);
+  const expectedSha = pins.node.sha256[arch];
+  if (!expectedSha) {
+    throw new Error(`pins.json has no node.sha256 entry for arch '${arch}'`);
+  }
+  console.log(`[fetch] node-pinned (v${pins.node.version}): ${url}`);
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`fetch ${url}: ${res.status} ${res.statusText}`);
+  const bytes = new Uint8Array(await res.arrayBuffer());
+  const actualSha = await sha256Hex(bytes);
+  if (actualSha !== expectedSha) {
+    throw new Error(
+      `node-pinned sha256 mismatch for ${url}\n  expected: ${expectedSha}\n  actual  : ${actualSha}`,
+    );
+  }
+  const tarPath = join(cacheRoot, "node-pinned.tar.xz");
+  await Deno.mkdir(dir, { recursive: true });
+  await Deno.writeFile(tarPath, bytes);
+  // System tar (every runner/dev box in this repo's matrix ships one with
+  // xz support — same dependency posture as extractZip's python3).
+  // --strip-components=1 drops the versioned `node-v{V}-linux-{arch}/` top
+  // directory so defaultShellPaths stays stable across pin bumps.
+  const tar = new Deno.Command("tar", {
+    args: ["-xJf", tarPath, "-C", dir, "--strip-components=1"],
+    stdout: "inherit",
+    stderr: "inherit",
+  });
+  const { code } = await tar.output();
+  if (code !== 0) throw new Error(`tar extraction failed (${tarPath})`);
+  await Deno.remove(tarPath);
+  await Deno.writeTextFile(
+    join(dir, "BUILD_IDENTITY"),
+    `${identity}\nurl: ${url}\nsha256: ${actualSha}\nfetched: ${
+      new Date().toISOString()
+    }\n`,
+  );
+  console.log(`[fetch] node-pinned ready: ${binPath} (${identity}, sha256 verified)`);
+}
+
+/**
+ * bun-pinned: oven-sh/bun GitHub release zip, sha256-verified against
+ * pins.json (hashes transcribed from the release's SHASUMS256.txt). Release
+ * assets are permanent; both linux arches are published. The plain (AVX2)
+ * x64 build is pinned — every runner in this repo's matrix has AVX2; the
+ * `-baseline` variant exists if that ever changes.
+ */
+async function fetchBunPinned(): Promise<void> {
+  const pins = await loadPins();
+  // bun release-asset arch naming: x64 / aarch64.
+  const arch = Deno.build.arch === "aarch64" ? "aarch64" : "x64";
+  const identity = `pin:bun-v${pins.bun.version}:${arch}`;
+  const dir = join(cacheRoot, "bun-pinned");
+  const binPath = join(dir, "bun");
+  if (await cacheMatches(dir, identity)) {
+    console.log(`[fetch] bun-pinned already cached at ${binPath} (${identity})`);
+    return;
+  }
+  const url = pins.bun.urlTemplate
+    .replaceAll("{version}", pins.bun.version)
+    .replace("{arch}", arch);
+  const expectedSha = pins.bun.sha256[arch];
+  if (!expectedSha) {
+    throw new Error(`pins.json has no bun.sha256 entry for arch '${arch}'`);
+  }
+  console.log(`[fetch] bun-pinned (v${pins.bun.version}): ${url}`);
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`fetch ${url}: ${res.status} ${res.statusText}`);
+  const bytes = new Uint8Array(await res.arrayBuffer());
+  const actualSha = await sha256Hex(bytes);
+  if (actualSha !== expectedSha) {
+    throw new Error(
+      `bun-pinned sha256 mismatch for ${url}\n  expected: ${expectedSha}\n  actual  : ${actualSha}`,
+    );
+  }
+  const zipPath = join(cacheRoot, "bun-pinned.zip");
+  await Deno.mkdir(cacheRoot, { recursive: true });
+  await Deno.writeFile(zipPath, bytes);
+  await extractZip(zipPath, dir);
+  await Deno.remove(zipPath);
+  // The zip nests the binary as `bun-linux-{arch}/bun`; copy it up to a
+  // stable, arch-independent path for defaultShellPaths. (Single static
+  // binary — a copy, not a symlink, so the nested dir could even be pruned.)
+  await Deno.copyFile(join(dir, `bun-linux-${arch}`, "bun"), binPath);
+  // Belt and braces on top of extractZip's mode restoration.
+  await Deno.chmod(binPath, 0o755);
+  await Deno.writeTextFile(
+    join(dir, "BUILD_IDENTITY"),
+    `${identity}\nurl: ${url}\nsha256: ${actualSha}\nfetched: ${
+      new Date().toISOString()
+    }\n`,
+  );
+  console.log(`[fetch] bun-pinned ready: ${binPath} (${identity}, sha256 verified)`);
+}
+
 async function main() {
   const lane = Deno.args[0];
   if (lane === "sm-nightly") await fetchSpiderMonkeyNightly();
   else if (lane === "sm-pinned") await fetchSpiderMonkeyPinned();
   else if (lane === "jsc-trunk") await fetchJscTrunk();
   else if (lane === "jsc-pinned") await fetchJscPinned();
+  else if (lane === "node-pinned") await fetchNodePinned();
+  else if (lane === "bun-pinned") await fetchBunPinned();
   else {
     console.error(
-      `usage: deno run -A tools/shell/fetch.ts <sm-pinned|sm-nightly|jsc-pinned|jsc-trunk>`,
+      `usage: deno run -A tools/shell/fetch.ts <sm-pinned|sm-nightly|jsc-pinned|jsc-trunk|node-pinned|bun-pinned>`,
     );
     Deno.exit(2);
   }

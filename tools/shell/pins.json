@@ -13,5 +13,21 @@
     "url": "https://github.com/lann/deltic/releases/download/shell-pins/jsc-built-products-x86_64-318852.zip",
     "sha256": "cab182120ca7efb4c238538f73eb0d457c44b0c581709b8e9d67cc4816646470",
     "arch": "x86_64-only"
+  },
+  "node": {
+    "version": "26.7.0",
+    "urlTemplate": "https://nodejs.org/dist/v{version}/node-v{version}-linux-{arch}.tar.xz",
+    "sha256": {
+      "arm64": "afc7a004018485092ac8985b817b0d5684472bd9472e0b57d2ab88737e50090d",
+      "x64": "982aa24dd8be4c889c6a8ab337ddff3b0896645b20f4239356e80552c16277ee"
+    }
+  },
+  "bun": {
+    "version": "1.3.14",
+    "urlTemplate": "https://github.com/oven-sh/bun/releases/download/bun-v{version}/bun-linux-{arch}.zip",
+    "sha256": {
+      "aarch64": "a27ffb63a8310375836e0d6f668ae17fa8d8d18b88c37c821c65331973a19a3b",
+      "x64": "951ee2aee855f08595aeec6225226a298d3fea83a3dcd6465c09cbccdf7e848f"
+    }
   }
 }

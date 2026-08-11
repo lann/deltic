@@ -117,7 +117,8 @@ the `Suspender` object was removed).
 | Chrome/Chromium ≥ 137 | on by default | browser lane (exact Deno parity) |
 | Firefox | flag: `javascript.options.wasm_js_promise_integration` | browser lane (pref flipped by the driver) |
 | Safari / WebKit | works unflagged on WPE 26.5 (M3 finding); shipping-Safari status: [#11](https://github.com/lann/deltic/issues/11) | browser lane; pinned build capped by JSC's missing multi-memory — implemented and default-on in WebKit trunk (webkit-2342+ rolls reach 1248/0, effective parity; #11) |
-| Node | on by default ≥ 26 | optional distribution target, not a lane — Deno substitutes across the consumer surface ([consumers.md](consumers.md)) |
+| Node | on by default ≥ 26 | pinned runtime lane (`node-pinned`, v26.x: exact Deno parity, no flags; required gate). Node 24 LTS deliberately not laned: flag-gated JSPI (`--experimental-wasm-jspi`) whose older V8 13.6 vintage deviates on 2 corpus commands — see `harness/shell/expectations/node-pinned.ts` |
+| Bun | on by default (1.3.x, vendored JSC) | pinned runtime lane (`bun-pinned`, findings-only until a track record): exact Deno parity under `BUN_JSC_useWasmMultiMemory=1` (driver-set; stock bun ships multi-memory off → 174 failures) — see `harness/shell/expectations/bun-pinned.ts` |
 
 Notes:
 
@@ -129,6 +130,10 @@ Notes:
   differences are normalized in the harness matcher, never in the runtime
   (`TRAP_MESSAGE_EQUIVALENTS`, harness/src/runner.ts) — with them
   reconciled, Firefox and trunk WebKit run at exact Deno-lane parity.
+- The node/bun lanes add **embedding** coverage, not engine coverage (V8 and
+  JSC are already exercised above): module loading, event-loop integration,
+  and runtime I/O quirks — e.g. node's pooled `Buffer`, whose pool-backed
+  `.buffer` must never reach WebAssembly APIs (`tools/shell/host-node.mjs`).
 - **Type reflection (js-types) is phase 3 and flagged everywhere** — function
   signatures are not available from `WebAssembly.Module.imports()`. The
   architecture below sidesteps this (the translator emits all type
@@ -561,11 +566,14 @@ cannot even validate component binaries). The TS harness executes the JSON
 identically under `deno test` and in browsers (`tools/browser/run-lane.ts`:
 static server + automated Chromium / Firefox-with-pref / WebKit, with
 per-lane expectation overlays and stale-delta detection) — and directly
-under engine *shells* (`tools/shell/run-lane.ts`: SpiderMonkey `js`, JSC
-`jsc`; same classification machinery, no browser). Because the corpus is
+under engine *shells* and server runtimes (`tools/shell/run-lane.ts`:
+SpiderMonkey `js`, JSC `jsc`, and node/bun via a host preamble; same
+classification machinery, no browser). Because the corpus is
 engine-shaped, the per-push/PR engine gates are the **pinned shell lanes**
 (`sm-pinned` = the Firefox-release shell matching the browser lane,
-`jsc-pinned` = a sha256-mirrored trunk build; `tools/shell/pins.json`);
+`jsc-pinned` = a sha256-mirrored trunk build, `node-pinned` = the node ≥ 26
+runtime; `bun-pinned` rides along findings-only until it has a track
+record; `tools/shell/pins.json`);
 browser lanes run post-merge, verifying the embedding and shipped-channel
 configs and gating the prerelease. Trunk/nightly shells and a Deno-canary
 probe run weekly as findings-only canaries (`.github/workflows/canary.yml`)
