@@ -23,6 +23,7 @@ import {
   CANCELLED_FALSE,
   CANCELLED_TRUE,
   NeedsJspi,
+  notifyInstancePoisoned,
   PendingCapability,
   popCurrentThread,
   pushCurrentThread,
@@ -164,6 +165,14 @@ export class Thread implements SchedulableThread {
     } catch (e) {
       if (e instanceof NeedsJspi || e instanceof PendingCapability) {
         inst.leaveTo(null);
+      } else {
+        // The bracket stays broken (instance poisoned, comment above) — same
+        // as `Store.tick`: retire the poisoned table's stream/future ends so
+        // parked host peers settle instead of hanging (#66).
+        notifyInstancePoisoned(
+          inst as unknown as { handles: Iterable<unknown> },
+          e,
+        );
       }
       throw e;
     }

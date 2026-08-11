@@ -19,8 +19,13 @@ import {
   hostStream,
   hostStreamFor,
 } from "../exec/host_streams.ts";
-import { CopyResult, ErrorContext as InternalErrorContext } from "../task/mod.ts";
-import { DroppedError } from "./errors.ts";
+import {
+  CopyResult,
+  dropSharedForTeardown,
+  ErrorContext as InternalErrorContext,
+  poisonFailureOf,
+} from "../task/mod.ts";
+import { DroppedError, PeerTrappedError } from "./errors.ts";
 
 /** `Chunk<u8>` is a `Uint8Array`; every other element type chunks as `T[]`. */
 export type Chunk<T> = T extends number ? Uint8Array | T[] : T[];
@@ -111,9 +116,28 @@ function reportProducerFailure(
 }
 
 /** @internal — raise a recorded producer failure, if any. */
-function throwIfFailed(value: unknown): void {
+function throwIfFailed(value: unknown, where = "stream"): void {
   const e = producerFailures.get(value as object);
   if (e !== undefined) throw e;
+  throwIfPeerTrapped(value, where);
+}
+
+/**
+ * @internal — raise the recorded poisoning failure, if any (#66, amendment
+ * A7). Pre-op: an operation started after the peer's instance trapped must
+ * reject rather than park forever. Post-await (with the op's outcome in
+ * hand): an operation the retirement walk settled DROPPED-shaped must reject
+ * rather than fake a clean end — but an op that genuinely COMPLETED before
+ * the trap keeps its result (the fault still surfaces on the export call,
+ * and on this handle's next operation).
+ */
+function throwIfPeerTrapped(
+  value: unknown,
+  where: string,
+  progress?: number,
+): void {
+  const p = poisonFailureOf(value);
+  if (p !== undefined) throw new PeerTrappedError(where, p, progress);
 }
 
 /** True for `stream<u8>` / `future<u8>`, whose chunks are `Uint8Array`. */
@@ -147,7 +171,10 @@ export class Stream<T> {
   }
 
   /** Wrap a freshly created host-owned stream of a known element type. */
-  static fromHostStream<T>(host: HostStream<T>, codec: ElemCodec<T>): Stream<T> {
+  static fromHostStream<T>(
+    host: HostStream<T>,
+    codec: ElemCodec<T>,
+  ): Stream<T> {
     return new Stream<T>(host, codec);
   }
 
@@ -221,10 +248,16 @@ export class Stream<T> {
   /** Low-level read: up to `max` elements; an empty chunk means end-of-stream. */
   async read(max: number): Promise<Chunk<T>> {
     const host = this.#require();
-    throwIfFailed(host.value);
+    const where = this.#codec?.where ?? "stream read";
+    throwIfFailed(host.value, where);
     const raw = await host.readable.read(max) as unknown as
       | ComponentValue[]
       | Uint8Array;
+    // An empty chunk normally means clean end-of-stream; when the peer's
+    // instance trapped it means the retirement walk settled us — reject
+    // instead of faking EOS (amendment A7). A non-empty chunk was really
+    // copied before the trap and is delivered; the next read rejects.
+    if (raw.length === 0) throwIfPeerTrapped(host.value, where);
     return this.#chunk(raw);
   }
 
@@ -254,6 +287,28 @@ export class Stream<T> {
     // Both ends of a host wrapper name the same shared object; dropping once
     // is enough (`SharedStreamImpl.drop` is idempotent).
     this.#host?.readable.drop();
+  }
+
+  /**
+   * @internal — teardown after a trapping import abandoned this handle
+   * (#66, instantiate.ts `releaseAsyncArgs`). Unlike `drop()`, this goes
+   * through `dropSharedForTeardown`, whose parked-side discipline never
+   * wakes the about-to-be-poisoned caller (review B2: a plain drop queued a
+   * DROPPED event into the trapping instance's waitables, and a later
+   * driving loop asserted on the corpse).
+   *
+   * Known asymmetry (review advisory, non-blocking): unlike
+   * `readable.drop()`, this path does not close the wrapper's HostActivity
+   * arm when nothing was parked, so the arm can outlive the stream on an
+   * already-faulted store — at worst misreporting a later genuine deadlock
+   * as the documented hang, on a store that has already trapped.
+   */
+  dropForTeardown(): void {
+    if (this.#dropped) return;
+    this.#dropped = true;
+    if (this.#host !== null) {
+      dropSharedForTeardown(this.#host.value as never);
+    }
   }
 
   [Symbol.dispose](): void {
@@ -311,20 +366,30 @@ export class StreamWriter<T> {
   async write(values: Chunk<T>): Promise<number> {
     await this.#stream.whenBound();
     const host = hostOf(this.#stream);
-    throwIfFailed(host.value);
-    return await host.writable.write(
+    const where = this.#stream.codec?.where ?? "stream write";
+    throwIfFailed(host.value, where);
+    const n = await host.writable.write(
       packChunk(values, this.#stream.codec!) as unknown as T[],
     );
+    // A short take normally means "re-offer later" / "reader done"; when the
+    // reader's instance trapped it means the retirement walk settled us —
+    // reject, carrying the delivered count (amendment A7). A full take
+    // genuinely completed before the trap and stays a success.
+    if (n < values.length) throwIfPeerTrapped(host.value, where, n);
+    return n;
   }
 
   /** Offer values until all are taken or the reader goes away. */
   async writeAll(values: Chunk<T>): Promise<number> {
     await this.#stream.whenBound();
     const host = hostOf(this.#stream);
-    throwIfFailed(host.value);
-    return await host.writable.writeAll(
+    const where = this.#stream.codec?.where ?? "stream write";
+    throwIfFailed(host.value, where);
+    const n = await host.writable.writeAll(
       packChunk(values, this.#stream.codec!) as unknown as T[],
     );
+    if (n < values.length) throwIfPeerTrapped(host.value, where, n);
+    return n;
   }
 
   cancelWrite(): void {
@@ -387,7 +452,10 @@ export class Future<T> implements PromiseLike<T> {
     return new Future<T>(h, Promise.resolve(h), codec);
   }
 
-  static fromHostFuture<T>(host: HostFuture<T>, codec: ElemCodec<T>): Future<T> {
+  static fromHostFuture<T>(
+    host: HostFuture<T>,
+    codec: ElemCodec<T>,
+  ): Future<T> {
     return new Future<T>(host, Promise.resolve(host), codec);
   }
 
@@ -446,8 +514,12 @@ export class Future<T> implements PromiseLike<T> {
 
   #read(): Promise<T> {
     this.#settled ??= (async () => {
-      const { value, result } = await (await this.#hostP).readResult();
+      const host = await this.#hostP;
+      const { value, result } = await host.readResult();
       if (result !== CopyResult.COMPLETED) {
+        // A drop caused by the writer's instance trapping is a fault, not a
+        // "no value" outcome — brand it (#66, amendment A7).
+        throwIfPeerTrapped(host.value, this.#codec.where ?? "future read");
         throw new DroppedError(
           result === CopyResult.CANCELLED
             ? "the future read was cancelled"
@@ -474,6 +546,17 @@ export class Future<T> implements PromiseLike<T> {
   drop(): void {
     if (this.#host !== null) this.#host.drop();
     else void this.#hostP.then((h) => h.drop());
+  }
+
+  /** @internal — see `Stream.dropForTeardown` (#66). */
+  dropForTeardown(): void {
+    if (this.#host !== null) {
+      dropSharedForTeardown(this.#host.value as never);
+    } else {
+      // A deferred future (still in flight) cannot be an import argument;
+      // fall back to the plain drop for completeness.
+      this.drop();
+    }
   }
 
   [Symbol.dispose](): void {

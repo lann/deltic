@@ -117,6 +117,37 @@ export class PendingCapability extends Error {
   }
 }
 
+/**
+ * Hook invoked when a trap breaks an instance's enter/leave bracket in
+ * `Store.tick` (instance poisoning — see the comment at the call site).
+ * task/streams.ts registers the stream/future-end retirement walk here
+ * (#66). An injection seam rather than an import: streams.ts (via
+ * waitable.ts) already imports this module, and a scheduler → streams import
+ * would make `CopyEnd extends Waitable` evaluation-order-sensitive.
+ */
+let onInstancePoisoned:
+  | ((inst: { handles: Iterable<unknown> }, cause: unknown) => void)
+  | null = null;
+
+/** @internal — see `onInstancePoisoned`; registered once by task/streams.ts. */
+export function setOnInstancePoisoned(
+  f: (inst: { handles: Iterable<unknown> }, cause: unknown) => void,
+): void {
+  onInstancePoisoned = f;
+}
+
+/**
+ * @internal — invoke the poisoning hook. For the bracket-break sites that
+ * live outside this module (`Thread.resumeWith`, exec/boundary.ts `poison`):
+ * one seam, all sites.
+ */
+export function notifyInstancePoisoned(
+  inst: { handles: Iterable<unknown> },
+  cause: unknown,
+): void {
+  onInstancePoisoned?.(inst, cause);
+}
+
 // ---------------------------------------------------------------------------
 // Deterministic choice
 // ---------------------------------------------------------------------------
@@ -876,6 +907,11 @@ export class Store {
     } catch (e) {
       if (e instanceof NeedsJspi || e instanceof PendingCapability) {
         inst.leaveTo(null);
+      } else {
+        // The bracket stays broken (instance poisoned, comment above), so
+        // its live stream/future ends can never rendezvous again — retire
+        // them so parked host peers settle instead of hanging (#66).
+        onInstancePoisoned?.(inst, e);
       }
       throw e;
     }
@@ -899,7 +935,10 @@ export class Store {
  * (the spec's deadlock trap), not a hang.
  */
 export function driveSyncLift(
-  task: { state: string; inst: { threads: Iterable<SchedulableThread>; exclusiveThread: unknown } },
+  task: {
+    state: string;
+    inst: { threads: Iterable<SchedulableThread>; exclusiveThread: unknown };
+  },
 ): void {
   while (task.state !== "resolved") {
     const candidates = [...task.inst.threads].filter(

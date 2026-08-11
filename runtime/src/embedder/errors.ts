@@ -10,7 +10,9 @@
 //     trap, so the defensive wrapper is unnecessary by construction.
 //   * `Trap`   — component-fatal, never a value (re-exported from cabi).
 //   * `DroppedError` — awaiting a future whose write end dropped without a
-//     value (R-fix review note 4).
+//     value (R-fix review note 4). Its uncomely sibling `PeerTrappedError`
+//     (below) is a drop that happened because the peer's instance trapped —
+//     branded separately so a fault is never mistaken for a clean end.
 
 export { Trap } from "../cabi/trap.ts";
 
@@ -58,6 +60,34 @@ export class InvalidHandleError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "InvalidHandleError";
+  }
+}
+
+/**
+ * A stream/future operation whose peer end died in a trap-poisoned component
+ * instance (#66; contracts/embedder-api.md amendment A7).
+ *
+ * Discriminated from `DroppedError` on purpose: a clean drop is a normal
+ * outcome (end-of-stream, "no value"), while a poisoned peer means the
+ * component faulted — resolving the operation as if the stream simply ended
+ * would be wrong data reported as success, the same shape
+ * `StreamProducerError` exists to prevent in the other direction. `cause` is
+ * the recorded poisoning failure (its own `cause` is the underlying `Trap`);
+ * `progress` is how many elements a write had delivered before the peer died.
+ */
+export class PeerTrappedError extends Error {
+  override readonly cause: unknown;
+  readonly progress?: number;
+
+  constructor(where: string, cause: unknown, progress?: number) {
+    super(
+      `${where}: the peer component instance trapped, so this ` +
+        `stream/future operation can never complete — ` +
+        `${cause instanceof Error ? cause.message : String(cause)}`,
+    );
+    this.name = "PeerTrappedError";
+    this.cause = cause;
+    if (progress !== undefined) this.progress = progress;
   }
 }
 

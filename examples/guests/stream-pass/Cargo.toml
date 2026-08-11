@@ -9,8 +9,9 @@ crate-type = ["cdylib"]
 
 [dependencies]
 # `async` is a default feature; it provides the guest-side task executor and
-# stream/future support. No `async-spawn`: these exports never pump anything.
-wit-bindgen = "=0.60.0"
+# stream/future support. `async-spawn` backs `open-then-trap`'s background
+# writer; the pass-through exports themselves never pump anything.
+wit-bindgen = { version = "=0.60.0", features = ["async-spawn"] }
 
 [profile.release]
 opt-level = "s"

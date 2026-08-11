@@ -48,10 +48,11 @@ import { assert_, trapIf } from "../cabi/trap.ts";
 import { LiftLowerContext } from "../cabi/context.ts";
 import { loadListFromValidRange } from "../cabi/load.ts";
 import { storeListIntoValidRange } from "../cabi/store.ts";
-import { alignTo, alignment, elemSize } from "../cabi/layout.ts";
+import { alignment, alignTo, elemSize } from "../cabi/layout.ts";
 import { despecialize, valTypeEqual } from "../cabi/types.ts";
 import type { ComponentValue, ValType } from "../cabi/types.ts";
 import { Waitable } from "./waitable.ts";
+import { setOnInstancePoisoned } from "./scheduler.ts";
 
 /** Structural element-type equality (`null` = the zero-width payload).
  * Delegates to `valTypeEqual`: naive `JSON.stringify` comparison throws on
@@ -312,7 +313,9 @@ export class SharedStreamImpl implements SharedBase {
           this.pendingOnCopy!(() => this.resetPending());
         }
         onCopyDone(CopyResult.COMPLETED);
-      } else if (srcBuffer.isZeroLength() && this.pendingBuffer.isZeroLength()) {
+      } else if (
+        srcBuffer.isZeroLength() && this.pendingBuffer.isZeroLength()
+      ) {
         // Zero-length rendezvous: both sides are empty, which is a *completed*
         // handshake rather than a parked write (definitions.py line 1064 —
         // the case `test/async/zero-length.wast` exists to pin).
@@ -515,6 +518,115 @@ export class WritableFutureEnd extends CopyEnd {
     super.drop();
   }
 }
+
+// ---------------------------------------------------------------------------
+// Poisoned-instance retirement (#66)
+// ---------------------------------------------------------------------------
+
+/**
+ * Failures recorded against shared stream/future objects whose peer end died
+ * inside a trap-poisoned instance's handle table. The embedder layer consults
+ * this to reject host operations loudly (contracts/embedder-api.md amendment
+ * A7) instead of letting them hang forever or fake a clean end-of-stream.
+ */
+const poisonFailures = new WeakMap<object, Error>();
+
+/** The recorded poisoning failure for a shared stream/future value, if any. */
+export function poisonFailureOf(shared: unknown): Error | undefined {
+  return typeof shared === "object" && shared !== null
+    ? poisonFailures.get(shared)
+    : undefined;
+}
+
+/** Instances whose async ends have already been retired (idempotence). */
+const retiredInstances = new WeakSet<object>();
+
+/** The structural slice of `ComponentInstanceState` the walk needs. */
+interface PoisonedInstanceLike {
+  readonly index?: number;
+  handles: Iterable<unknown>;
+}
+
+/**
+ * Drop a shared stream/future as *teardown*, without waking a doomed guest.
+ *
+ * Same outcome as `drop()` for host ends and healthy guest peers (a DROPPED
+ * notification), with one difference: a parked side belonging to an entered
+ * — and on every teardown path, about-to-be- or already-poisoned — guest
+ * instance (`mayEnter === false`) is retired silently via `resetPending`.
+ * Notifying it would queue a phantom event into the corpse's waitables, and
+ * a later driving loop servicing it would resume machinery whose instance
+ * can no longer be entered (`tick` asserts enterability). Host sentinels
+ * carry no `mayEnter` key and healthy guest peers park only outside the
+ * bracket (`mayEnter === true`), so both are always notified.
+ *
+ * Used by the poisoning walk below and by the trapping-import abandonment
+ * path (embedder/instantiate.ts `releaseAsyncArgs`). Idempotent.
+ */
+export function dropSharedForTeardown(
+  shared: SharedStreamImpl | SharedFutureImpl,
+): void {
+  if (shared.dropped) return;
+  shared.dropped = true;
+  if (shared.pendingBuffer) {
+    const pi = shared.pendingInst as { mayEnter?: boolean } | null;
+    const parkedInDeadGuest = pi !== null && typeof pi === "object" &&
+      typeof pi.mayEnter === "boolean" && !pi.mayEnter;
+    if (parkedInDeadGuest) shared.resetPending();
+    else shared.resetAndNotifyPending(CopyResult.DROPPED);
+  }
+}
+
+/**
+ * Retire every live stream/future end in a trap-poisoned instance's handle
+ * table (#66).
+ *
+ * Rationale: after a trap breaks the enter/leave bracket, `mayEnter` stays
+ * false forever, so no task of this instance can ever rendezvous again. Its
+ * table's `CopyEnd`s are therefore unreachable-forever — leaving their shared
+ * objects live strands the peers: a parked HOST operation never settles (its
+ * promise hangs), and a LATER host operation would "succeed" against the
+ * corpse (a copy into memory nothing will ever read — silent data loss).
+ * Dropping the shared object now converts both into the spec-shaped DROPPED
+ * outcome, and the recorded failure lets the embedder layer brand it.
+ *
+ * Called from every bracket-break site — exec/boundary.ts `poison()` (the
+ * sync-lift path), scheduler.ts `Store.tick` and thread.ts
+ * `Thread.resumeWith` (traps during a resumed thread), and the FACT
+ * cross-component catches (intrinsics/fact_calls.ts, callee side) — with the
+ * trap as `cause`. Idempotent per instance. The parked-side notification
+ * discipline lives in `dropSharedForTeardown` above.
+ */
+export function retireInstanceAsyncEnds(
+  inst: PoisonedInstanceLike,
+  cause: unknown,
+): void {
+  if (retiredInstances.has(inst)) return;
+  retiredInstances.add(inst);
+  for (const e of inst.handles) {
+    if (!(e instanceof CopyEnd)) continue;
+    const shared = e.shared as SharedStreamImpl | SharedFutureImpl;
+    if (poisonFailures.get(shared) === undefined) {
+      const where = inst.index !== undefined
+        ? `component instance ${inst.index}`
+        : "a component instance";
+      poisonFailures.set(
+        shared,
+        new Error(
+          `${where} trapped while it held an end of this stream/future; ` +
+            `the peer can never rendezvous again`,
+          { cause },
+        ),
+      );
+    }
+    dropSharedForTeardown(shared);
+  }
+}
+
+// `Store.tick`'s bracket-break site reaches the walk through this seam (its
+// module cannot import ours — see `setOnInstancePoisoned`); the sync-lift
+// site (exec/boundary.ts `poison`) imports it directly.
+setOnInstancePoisoned(retireInstanceAsyncEnds);
 
 // ---------------------------------------------------------------------------
 // error-context (definitions.py `class ErrorContext`, line 2782)

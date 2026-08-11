@@ -18,9 +18,8 @@
   "workspace": {
     "links": {
       "jsr:@deltic/ct-runner@0.1.0": {},
-      "jsr:@deltic/examples@0.0.0": {},
-      "jsr:@deltic/harness": {},
-      "jsr:@deltic/runtime": {},
+      "jsr:@deltic/runtime@0.1.0": {},
+      "jsr:@deltic/translator@0.1.0": {},
       "jsr:@deltic/wasi-shims@0.1.0": {}
     }
   }
