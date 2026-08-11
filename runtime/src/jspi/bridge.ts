@@ -460,6 +460,12 @@ export class SuspensionPoint<T = unknown> implements SchedulableThread {
   /** Settle the import's Promise; the engine resumes the wasm activation. */
   resume(cancelled: Cancelled = false): void {
     assert_(!this.#done, "resume of an already-resumed suspension point");
+    // Mirrors task/thread.ts:187-190 (definitions.py:367 `Thread.resume`):
+    // a cancelled resume is only legal at a cancellable block point (#93).
+    assert_(
+      this.cancellable || !cancelled,
+      "cancelled resume of a non-cancellable suspension point",
+    );
     if (SP_TRACE) {
       console.error(`[sp] resume ${dbgId(this)} owner=${dbgId(this.owner)}\n${(new Error().stack ?? "").split("\n").slice(2, 5).join("\n")}`);
     }

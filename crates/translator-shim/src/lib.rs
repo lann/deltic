@@ -83,8 +83,31 @@ fn features() -> wasmparser::WasmFeatures {
     f.insert(wasmparser::WasmFeatures::CM_MAP);
     f.insert(wasmparser::WasmFeatures::CM_IMPLEMENTS);
     f.insert(wasmparser::WasmFeatures::CM_THREADING);
+    // ISSUE #95 TRIPWIRE — do not enable `CM_VALUES`.
+    //
+    // Trusted wasmtime-environ 47.0.3's component frontend has two
+    // `unimplemented!()` panics that a `CM_VALUES`-accepted component can
+    // reach: a component `start` section (translate.rs:1338) and a
+    // component-level value import/export (translate.rs:1499). With the
+    // feature off (the wasmparser 0.252 default excludes it, and nothing
+    // above turns it on), `wasmparser::Validator` rejects both shapes during
+    // validation — a `TranslateError { phase: Validation, .. }` envelope,
+    // never reaching the translator body that panics. That is exercised and
+    // pinned by `tests/cm_values_tripwire.rs`.
+    //
+    // Turning `CM_VALUES` on would convert that validation-phase rejection
+    // into a genuine panic. On the native (test) build that unwinds and is
+    // merely an ugly failure; on the wasm32-unknown-unknown C-ABI build this
+    // crate ships (`just shim`; `Cargo.toml`'s release profile pins
+    // `panic = "abort"` for that target — see the note on `catch_unwind`
+    // below) it is a hard trap with **no JSON envelope at all**, violating
+    // this crate's "never panics on invalid input" claim (see the doc
+    // comment on the C-ABI entry point). If `CM_VALUES` is ever enabled here,
+    // the translate.rs call sites above need a real plan-format mapping (or
+    // an explicit `phase: Unsupported` pre-check) before the flag flips.
     f
 }
+
 
 /// Feature names recorded in `plan.producer.features`. Must describe
 /// `features()` — part of the artifact-cache key.

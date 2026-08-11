@@ -54,11 +54,20 @@ export interface InstanceLike {
 /**
  * definitions.py `ResourceType`: identity + implementing instance + optional
  * destructor. Compared by object identity everywhere.
+ *
+ * `dtorHost` is the JS-initiated-drop variant of `dtor` (#85): in jspi mode
+ * the executor wires it as the `promising`-wrapped raw export (docs §7 —
+ * a host-initiated drop may legally reach a `Suspending` import, so it needs
+ * a suspension-legal entry), and `callDtorGated(allowAsync=true)` prefers it.
+ * Guest-initiated drops always use `dtor` directly: they must complete
+ * synchronously (reference lifts the dtor with `async_ = False`), and a
+ * promising wrapper would turn every such call into a thenable.
  */
 export class ResourceTypeInfo {
   constructor(
     public impl: InstanceLike | null,
     public dtor: ((rep: number) => void) | null = null,
+    public dtorHost: ((rep: number) => unknown) | null = null,
   ) {}
 }
 

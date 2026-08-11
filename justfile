@@ -169,8 +169,10 @@ browsers:
 
 # Translate all eight targets, then execute the suites.
 # polymorph-tls conformance under deltic (issue #18).
+# (--allow-env: tools/smoke-c0/common.ts reads POLYMORPH_ROOT at module
+# scope since the wosh rename; the leg tasks always had it via deno task.)
 smoke-tls: shim
-    deno run --allow-read tools/smoke-tls/run.ts --exec
+    deno run --allow-read --allow-env tools/smoke-tls/run.ts --exec
 
 # The C0 smoke legs (tools/smoke-c0/REPORT.md).
 smoke-c0: shim

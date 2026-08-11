@@ -10,6 +10,8 @@ import { assertEq } from "./support/asserts.ts";
 import { Trap } from "../src/cabi/mod.ts";
 import {
   BLOCKED,
+  createSubtaskCancel,
+  createWaitableJoin,
   createWaitableSetPoll,
   createWaitableSetWait,
 } from "../src/intrinsics/async_builtins.ts";
@@ -33,6 +35,8 @@ import {
   popCurrentThread,
   pushCurrentThread,
   Store,
+  Subtask,
+  SubtaskState,
   Task,
   type TaskOptions,
   Thread,
@@ -385,3 +389,128 @@ Deno.test("stream.cancel-write supersedes an undelivered COMPLETED", () => {
     popCurrentThread(thread);
   }
 });
+
+// ---------------------------------------------------------------------------
+// #87: SITE 5's park must set `hasSyncWaiter` and wait on `hasPendingEvent`,
+// mirroring SITE 4 (stream_builtins.ts:305-323) and definitions.py
+// `Waitable.wait_for_pending_event` (:786-790, reached from
+// `canon_subtask_cancel` :2491).
+// ---------------------------------------------------------------------------
+
+/** A subtask fixture with a manually-driven callee (no lowered import). */
+function mkSubtaskFixture(): {
+  store: Store;
+  inst: ComponentInstanceState;
+  thread: Thread;
+  subtask: Subtask;
+  subtaski: number;
+  asGuest<T>(fn: () => T): T;
+} {
+  const store = new Store();
+  const inst = new ComponentInstanceState(0, store);
+  const subtask = new Subtask();
+  // A callee that has not resolved by the time `onCancel` returns: the
+  // shape SITE 5 parks for. `onCancel` itself is a no-op — resolution
+  // happens later, driven by the test.
+  subtask.onCancel = () => {};
+  const subtaski = inst.handles.add(subtask);
+  const ft: FuncType = { params: [], results: [], async: true };
+  const opts: TaskOptions = {
+    async_: true,
+    callback: true,
+    stringEncoding: "utf8",
+    memory: null,
+  };
+  const task = new Task(ft, opts, inst, () => [], () => {});
+  const thread = new Thread(task, (function* () {})());
+  return {
+    store,
+    inst,
+    thread,
+    subtask,
+    subtaski,
+    asGuest<T>(fn: () => T): T {
+      pushCurrentThread(thread);
+      try {
+        return fn();
+      } finally {
+        popCurrentThread(thread);
+      }
+    },
+  };
+}
+
+/** Resolve `subtask` and arm its SUBTASK event, as the callee eventually does. */
+function resolveSubtask(subtask: Subtask, subtaski: number): void {
+  subtask.resolve(SubtaskState.CANCELLED_BEFORE_RETURNED, []);
+  subtask.setSubtaskPendingEvent(subtaski);
+}
+
+Deno.test(
+  "subtask.cancel (SITE 5, jspi): the sync park sets hasSyncWaiter, so a " +
+    "concurrent waitable.join on the same subtask traps",
+  async () => {
+    const f = mkSubtaskFixture();
+    const cancel = createSubtaskCancel({ async: false }, f.inst, "jspi");
+    const join = createWaitableJoin(f.inst);
+
+    // Kick off the sync cancel: `onCancel` does not resolve the subtask, so
+    // this parks. `blockCurrentActivation` returns a Promise, but the park
+    // itself — including setting `hasSyncWaiter` — happens synchronously
+    // before that Promise is handed back (mirrors SITE 4's fixture-timing
+    // assumption).
+    const pending = f.asGuest(() => cancel(f.subtaski)) as unknown as Promise<
+      number
+    >;
+    assertEq(f.subtask.hasSyncWaiter, true);
+
+    // A concurrent `waitable.join` on the same subtask must trap — this is
+    // the reference's `canon_waitable_join` (definitions.py:2463) admitting
+    // the trap the repo's own join-time check exists for
+    // (async_builtins.ts:362-365), which SITE 5 used to make unreachable.
+    const wset = new WaitableSet();
+    const seti = f.inst.handles.add(wset);
+    assertTraps(
+      () => f.asGuest(() => join(f.subtaski, seti)),
+      "synchronous waiter",
+    );
+
+    // Unwind cleanly: resolve the callee so the park settles, and drain the
+    // store so the pending promise's `.then` isn't left dangling.
+    resolveSubtask(f.subtask, f.subtaski);
+    f.store.tick();
+    const rc = await pending;
+    assertEq(rc, SubtaskState.CANCELLED_BEFORE_RETURNED);
+    assertEq(f.subtask.hasSyncWaiter, false);
+  },
+);
+
+Deno.test(
+  "subtask.cancel (SITE 5, jspi): a plain sync cancel still resolves " +
+    "correctly through the park",
+  async () => {
+    const f = mkSubtaskFixture();
+    const cancel = createSubtaskCancel({ async: false }, f.inst, "jspi");
+
+    const pending = f.asGuest(() => cancel(f.subtaski)) as unknown as Promise<
+      number
+    >;
+    assertEq(f.subtask.resolved(), false);
+    assertEq(f.subtask.hasSyncWaiter, true);
+
+    // The callee resolves later; the park's `readyFunc` (`hasPendingEvent`)
+    // only fires once the event is actually armed — not merely once
+    // `resolved()` is true — so drive both steps to pin the ordering SITE 5
+    // now depends on.
+    f.subtask.resolve(SubtaskState.CANCELLED_BEFORE_RETURNED, []);
+    // Not yet armed: the park must not be ready on `resolved()` alone.
+    assertEq(f.store.tick(), false);
+    f.subtask.setSubtaskPendingEvent(f.subtaski);
+    assertEq(f.store.tick(), true);
+
+    const rc = await pending;
+    assertEq(rc, SubtaskState.CANCELLED_BEFORE_RETURNED);
+    assertEq(f.subtask.hasSyncWaiter, false);
+    assertEq(f.subtask.resolveDelivered(), true);
+  },
+);

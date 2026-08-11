@@ -33,6 +33,7 @@ import {
   type GuestResourceSpec,
   HostResourceRegistry,
   invalidateWrapper,
+  lendWrapper,
   makeWrapper,
   takeRep,
 } from "./resources.ts";
@@ -421,7 +422,22 @@ class Facade {
           }
           return rep;
         }
-        return takeRep(v, false, `borrow<${b.name}>`);
+        // Host `own` wrapper lowered as `borrow<R>` (#86): record the lend
+        // for the duration of this call, so a `drop()` or a GC finalization
+        // in the window cannot destroy a rep the guest still borrows.
+        // definitions.py `lift_borrow` -> `Subtask.add_lender` (line 890);
+        // `#lowerScope` is released where that subtask delivers its
+        // resolution, i.e. when the call ends.
+        const rep = takeRep(v, false, `borrow<${b.name}>`);
+        const release = lendWrapper(v as object);
+        if (self.#lowerScope === null) {
+          // No enclosing lowering scope (a raw/one-off lowering): the lend
+          // has no observable window, so it must not be left dangling.
+          release();
+        } else {
+          self.#lowerScope.push(release);
+        }
+        return rep;
       },
     };
   }

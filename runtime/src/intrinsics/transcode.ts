@@ -224,6 +224,39 @@ function snapshot(bytes: Uint8Array, ptr: number, len: number): Uint8Array {
   return bytes.slice(ptr, ptr + len);
 }
 
+/**
+ * O(1) defensive counterpart to wasmtime's `assert_no_overlap`
+ * (libcalls.rs:166-177): traps (does not merely assert) because this
+ * replaces a guarantee FACT's trampoline construction is supposed to
+ * provide — src/dst are always independently-allocated regions — so a hit
+ * here means that guarantee broke, which is guest-memory-corruption-class
+ * severity, not an internal invariant a caller controls.
+ *
+ * Applied only where a call reads and writes through the SAME backing
+ * `Uint8Array` while interleaving reads and writes (byte-range comparison,
+ * not per-element — O(1) per call). Ops that first `snapshot()` the source
+ * into an independent copy (transcode.ts's `snapshot`, used by every op
+ * above that decodes-then-writes) already break aliasing before the first
+ * write, so they are exempt by construction and do not call this.
+ */
+function trapIfOverlap(
+  src: Uint8Array,
+  srcPtr: number,
+  srcLen: number,
+  dst: Uint8Array,
+  dstPtr: number,
+  dstLen: number,
+): void {
+  if (src.buffer !== dst.buffer) return; // different memories: cannot overlap
+  const srcStart = src.byteOffset + srcPtr;
+  const srcEnd = srcStart + srcLen;
+  const dstStart = dst.byteOffset + dstPtr;
+  const dstEnd = dstStart + dstLen;
+  if (srcStart < dstEnd && dstStart < srcEnd) {
+    trap("transcode src/dst regions overlap");
+  }
+}
+
 // ---------------------------------------------------------------------------
 // The twelve operations
 // ---------------------------------------------------------------------------
@@ -332,6 +365,18 @@ export function createTranscoder(
     case "utf16-to-latin1":
       return (srcPtr, srcLen, dstPtr) => {
         const src = from.bytes();
+        const dst = to.bytes();
+        // This op does not call `snapshot()` (unlike its siblings above):
+        // it reads the full `out` prefix before writing anything to `dst`,
+        // which is the same aliasing-safety property snapshot() buys
+        // elsewhere, just via a builder array instead of a byte copy. The
+        // overlap guard is still added here (O(1): a byte-range compare, not
+        // per-element) as the one op in this file that is safe by algorithm
+        // shape rather than by an explicit `snapshot()` call — cheap
+        // insurance against that reasoning becoming stale under a future
+        // edit (docs/architecture.md §7; wasmtime asserts overlap on every
+        // op unconditionally, libcalls.rs:166-177).
+        trapIfOverlap(src, srcPtr, 2 * srcLen, dst, dstPtr, srcLen);
         const view = new DataView(src.buffer, src.byteOffset, src.byteLength);
         // Note: no surrogate validation here, matching wasmtime — a surrogate
         // is simply > 0xFF and ends the latin1 prefix.
@@ -341,7 +386,6 @@ export function createTranscoder(
           if (u > 0xff) break;
           out.push(u);
         }
-        const dst = to.bytes();
         for (let i = 0; i < out.length; i++) dst[dstPtr + i] = out[i];
         return [out.length, out.length];
       };
@@ -396,11 +440,24 @@ export function createTranscoder(
 
     // (srcPtr, srcLen, dstPtr, dstLen, latin1BytesSoFar) -> dstUnits -------
     case "utf8-to-compact-utf16":
-      return (srcPtr, srcLen, dstPtr, _dstLen, latin1Bytes) => {
+      return (srcPtr, srcLen, dstPtr, dstLen, latin1Bytes) => {
         const s = decodeUtf8OrTrap(snapshot(from.bytes(), srcPtr, srcLen));
         const dst = to.bytes();
         inflateLatin1Bytes(dst, dstPtr, latin1Bytes);
         const view = new DataView(dst.buffer, dst.byteOffset, dst.byteLength);
+        // Defensive dst-capacity guard: wasmtime's equivalent
+        // (`run_utf8_to_utf16`'s `.zip(dst)`, libcalls.rs:308-312) is bounded
+        // by Rust's `Iterator::zip` truncating to the shorter of the two —
+        // it can never overrun `dst`. FACT is supposed to size `dstLen` to
+        // always have room (a full re-encode of a string that was already
+        // partially latin1-encoded never needs more u16 units than
+        // `dstLen - latin1Bytes`), so this should be unreachable; trap
+        // rather than let a broken caller corrupt guest memory past `dst`'s
+        // bound or silently truncate.
+        const capacity = dstLen - latin1Bytes;
+        if (s.length > capacity) {
+          trap("utf8-to-compact-utf16: destination capacity exceeded");
+        }
         let units = 0;
         for (let i = 0; i < s.length; i++) {
           view.setUint16(

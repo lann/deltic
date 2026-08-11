@@ -243,3 +243,56 @@ fails the guest's own assertion. Worth an upstream doc note on `test/async`
 (tests assume the deterministic profile) or making the guests
 order-tolerant. Hosts adding seeded-schedule testing should profile-scope
 pins for such fixtures (we did).
+
+---
+
+## CM-5: `SharedFutureImpl.drop`'s pending-buffer assert looks internally inconsistent
+
+**Status:** DRAFT — candidate upstream issue against `definitions.py`
+**Found:** 2026-08-10, adversarial conformance review of the stream/future
+territory (deltic#84/#98)
+
+### Evidence
+
+`definitions.py:1150` (`SharedFutureImpl.drop`):
+
+```python
+if self.pending_buffer:
+    assert(isinstance(self.pending_buffer, WritableBuffer))
+```
+
+The assert says: if anything is parked on the shared future when an end
+drops, the parked side is a *reader* (a future read parks a WritableBuffer
+— the buffer the value will be written into). But by the surrounding rules
+that state is unreachable from the drop paths:
+
+- a **writable** end may not drop before delivering its value
+  (`WritableFutureEnd.drop`, definitions.py:1183-1184 traps unless
+  `state == DONE`) — so a drop can never find the *reader* still parked via
+  this path with the value undelivered;
+- a **readable** end that parked its read is the pending side itself; when
+  the reader end drops, `CopyEnd.drop` (definitions.py:1098-1101) traps on
+  a busy end before reaching the shared drop;
+- and `definitions.py:2614` independently asserts a readable future end can
+  never observe DROPPED.
+
+The only guest-reachable pending side at shared-drop time is therefore a
+*writer* (pending `ReadableBuffer`, reader dropped first — legal), which is
+exactly what the assert rejects. Either the assert is inverted, or it
+documents an invariant whose enforcing traps make the guarded branch dead;
+in both readings it does not describe reachable states.
+
+### deltic disposition
+
+deltic's port omits the assert (`runtime/src/task/streams.ts`,
+`SharedFutureImpl.drop`) — its teardown extension (#66/#84) *deliberately*
+creates the writer-died-unwritten state for trap-poisoned instances and
+resolves it with a reader-side trap, which the assert would spuriously kill.
+No behavioral divergence on spec-reachable states.
+
+### Suggested upstream fix
+
+Either delete the assert (the neighboring traps already enforce the real
+invariants) or flip it to assert the reachable shape
+(`isinstance(self.pending_buffer, ReadableBuffer)`) with a comment naming
+the reader-dropped-first case.

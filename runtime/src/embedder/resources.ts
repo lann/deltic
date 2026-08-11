@@ -16,6 +16,7 @@
 // | host passes borrow<R>   | wrapper stays valid          | rep reused/allocated      |
 
 import type { ResourceTypeInfo, ValType } from "../cabi/types.ts";
+import { callDtorGated } from "../cabi/handles.ts";
 import { InvalidHandleError } from "./errors.ts";
 import { camelCase, pascalCase } from "./casing.ts";
 
@@ -30,6 +31,29 @@ interface WrapperState {
   owns: boolean;
   rt: ResourceTypeInfo;
   className: string;
+  /**
+   * Host-side `ResourceHandle.num_lends` (#86). The reference models a
+   * host-held `own` as a table entry whose `num_lends` is bumped every time
+   * it is lifted as a `borrow` (definitions.py `Subtask.add_lender`, line
+   * 890, reached from `lift_borrow`, line 1516) and decremented when the
+   * borrowing call's subtask delivers its resolution (`deliver_resolve`,
+   * line 902). `lift_own` and `canon_resource_drop` both trap while it is
+   * non-zero (lines 1508 / 2325).
+   *
+   * Here the host holds bare reps rather than table entries, so the counter
+   * lives on the wrapper. Its lifecycle point is the *lowering scope* of the
+   * call the wrapper was passed into (`instantiate.ts` `#lowerParams`), which
+   * is released exactly when that call ends — the host-side analogue of the
+   * subtask's resolve delivery.
+   */
+  lends: number;
+  /**
+   * A drop (explicit or via the GC backstop) that arrived while `lends > 0`.
+   * The reference would trap; the host has no frame to trap into by then, so
+   * the drop is deferred to the last release instead of running the dtor
+   * under a live guest borrow (which is the use-after-free #86 reports).
+   */
+  pendingDrop: boolean;
 }
 
 /** Base of every runtime-built guest-resource class. */
@@ -51,16 +75,73 @@ export class GuestResource {
  * Backstop for leaked handles (docs/architecture.md §7). A wrapper that becomes unreachable
  * without `drop()` still runs the guest destructor — late, but not never.
  */
-const leaked = new FinalizationRegistry<WrapperState>((s) => {
-  if (s.valid && s.owns) {
-    s.valid = false;
-    try {
-      s.rt.dtor?.(s.rep);
-    } catch {
-      // A destructor that traps during GC has nowhere to report to.
-    }
+const runBackstop = (s: WrapperState): void => {
+  // Idempotence: `valid` is the single guard. A wrapper that was dropped,
+  // transferred, or invalidated already cleared it (and unregistered), so the
+  // backstop can neither double-run a dtor nor resurrect a dead rep.
+  if (!s.valid || !s.owns) return;
+  s.valid = false;
+  if (s.lends > 0) {
+    // A live guest borrow of this rep is outstanding (#86). Running the dtor
+    // now is exactly the use-after-free the reference forbids
+    // (definitions.py line 2325, `trap_if(h.num_lends != 0)`); the last
+    // `releaseLend` runs it instead. The closure held by the lowering scope
+    // keeps `s` alive, so the deferred drop is not lost with the wrapper.
+    s.pendingDrop = true;
+    return;
   }
-});
+  runHostDrop(s);
+};
+
+const leaked = new FinalizationRegistry<WrapperState>(runBackstop);
+
+/**
+ * Simulate the GC backstop firing for `w` (the FinalizationRegistry callback,
+ * verbatim). Test seam: real GC finalization is unschedulable, and #86 is
+ * precisely about what the backstop does in a window a test must control.
+ *
+ * @internal
+ */
+export function simulateFinalizationForTest(w: object): void {
+  const s = wrapperState(w);
+  if (s !== undefined) runBackstop(s);
+}
+
+/**
+ * Run a host-initiated drop of a guest `own` handle.
+ *
+ * The host holds a rep, never a table index, so there is nothing to remove
+ * from a handle table: the observable remainder of definitions.py
+ * `canon_resource_drop` for an owning handle is the gated dtor call
+ * (`callDtorGated`, cabi/handles.ts), with `caller = None` — a host-initiated
+ * call, `Store.invoke`'s `caller = None`.
+ *
+ * Never throws: the two callers are `drop()`/`[Symbol.dispose]()` — where a
+ * trap *is* reportable, so it propagates — and the FinalizationRegistry
+ * callback, where a throw would be swallowed by the engine with no
+ * diagnostic. `runHostDrop` is the latter's form: a trapping dtor poisons the
+ * implementing instance (which `callDtorGated` does) and is additionally
+ * recorded on the store's host-failure channel, so the next driven call
+ * surfaces it instead of silently continuing on a half-destroyed instance
+ * (#86, second defect: the former `catch {}`).
+ */
+function runHostDrop(s: WrapperState): void {
+  try {
+    callDtorGated(s.rt, s.rep, null, true);
+  } catch (e) {
+    recordHostFailure(s.rt, e);
+  }
+}
+
+/** Park a failure that has no frame to propagate into on the store. */
+function recordHostFailure(rt: ResourceTypeInfo, e: unknown): void {
+  const store = (rt.impl as unknown as {
+    store?: { hostFailure: unknown };
+  } | null)?.store;
+  if (store !== undefined && store.hostFailure === undefined) {
+    store.hostFailure = e;
+  }
+}
 
 export function initWrapper(
   w: GuestResource,
@@ -95,11 +176,59 @@ function dropWrapper(w: GuestResource): void {
   s.valid = false;
   leaked.unregister(w);
   if (!s.owns) return; // a borrow was never ours to drop
-  // Host-initiated drop of a guest handle. The host holds a rep, never a
-  // table index, so there is nothing to remove from a handle table: the
-  // observable half of definitions.py `canon_resource_drop` (line 2325) for an
-  // owning handle is exactly `rt.dtor(rep)`.
-  s.rt.dtor?.(s.rep);
+  if (s.lends > 0) {
+    // Lent out to an in-flight guest call (#86): defer rather than destroy a
+    // rep the guest still holds a `borrow` of. `drop(): void` stays
+    // non-blocking either way — the deferred dtor runs from `releaseLend`.
+    s.pendingDrop = true;
+    return;
+  }
+  // The dtor is entered through `callDtorGated`, which is also where a dtor
+  // that returns a Promise (a `promising`-entered dtor calling a `Suspending`
+  // import, docs/architecture.md §7) is tracked: the entry bracket is held
+  // until it settles and the promise is registered in the store's
+  // `pendingHostCalls`, so `drop()` itself never blocks.
+  //
+  // The `promising` entry itself is wired by exec/executor.ts (the `resource`
+  // initializer sets `ResourceTypeInfo.dtorHost` from the raw wasm export in
+  // jspi mode); `callDtorGated(allowAsync=true)` prefers it. In non-JSPI mode
+  // — or when the dtor resolved to a non-wasm callable, which `promising`
+  // rejects — this is a direct call, where a `Suspending` import was already
+  // unreachable from a dtor.
+  callDtorGated(s.rt, s.rep, null, true);
+}
+
+/**
+ * Record that a host-held `own` wrapper was lowered as `borrow<R>` into a
+ * guest call, and return the (idempotent) release for the end of that call.
+ *
+ * definitions.py: `lift_borrow` -> `Subtask.add_lender` (line 890) on the way
+ * in, `Subtask.deliver_resolve` (line 902) on the way out.
+ */
+export function lendWrapper(w: object): () => void {
+  const s = wrapperState(w);
+  if (s === undefined) return () => {};
+  s.lends += 1;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    releaseLend(s);
+  };
+}
+
+function releaseLend(s: WrapperState): void {
+  s.lends -= 1;
+  if (s.lends > 0 || !s.pendingDrop) return;
+  s.pendingDrop = false;
+  // The drop that arrived while the handle was lent. `valid` is already
+  // false (both deferral sites clear it first), so nothing can race this.
+  runHostDrop(s);
+}
+
+/** Host-side `num_lends` — diagnostics and white-box tests. */
+export function wrapperLends(w: object): number {
+  return wrapperState(w)?.lends ?? 0;
 }
 
 /** Invalidate a wrapper without dropping (used to end a borrow's lifetime). */
@@ -119,6 +248,14 @@ export function takeRep(w: unknown, own: boolean, what: string): number {
   }
   const s = requireLive(w, what);
   if (own) {
+    // definitions.py `lift_own` (line 1508): `trap_if(h.num_lends != 0)`. A
+    // handle currently lent to an in-flight call cannot be transferred away.
+    if (s.lends > 0) {
+      throw new InvalidHandleError(
+        `${what}: this ${s.className} handle is still lent out as a borrow ` +
+          `to an in-flight call and cannot be transferred`,
+      );
+    }
     // Transfer: the wrapper is invalidated, and must NOT run the destructor.
     s.valid = false;
     leaked.unregister(w as GuestResource);
@@ -200,6 +337,8 @@ export function buildGuestResourceClass(
         owns: true,
         rt,
         className,
+        lends: 0,
+        pendingDrop: false,
       });
     }
   };
@@ -245,6 +384,8 @@ export function makeWrapper(
     owns,
     rt,
     className: cls.name ?? "resource",
+    lends: 0,
+    pendingDrop: false,
   });
   return w;
 }

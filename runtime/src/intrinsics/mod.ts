@@ -445,18 +445,80 @@ function createTrampolineBody(
 
     // Sync-call task bookkeeping (intrinsics.md §A: "degenerate-case
     // implementation in M0: assert-and-count"). wasmtime 47 signatures:
-    // enter-sync-call/exit-sync-call take no wasm-visible arguments that we
-    // act on in M0; balance is asserted at component teardown by tests.
+    // enter-sync-call carries the caller/callee instance pair, which is what
+    // the reentrance gate below needs; balance of the bracket is asserted at
+    // component teardown by tests.
     // Signatures (wasmtime-environ 47.0.3 `fact.rs:743,754`):
     //   async.enter-sync-call(caller_instance: i32, async: i32,
     //                         callee_instance: i32) -> ()
     //   async.exit-sync-call() -> ()
     case "enter-sync-call":
       return (
-        _callerInstance?: number,
+        callerInstance?: number,
         async_?: number,
-        _calleeInstance?: number,
+        calleeInstance?: number,
       ) => {
+        // Reference reentrance gate. Every guest->guest call in
+        // definitions.py routes through the callee's lift wrapper:
+        //   canon_lower (line 2312) calls
+        //     `callee(on_start, on_resolve, caller = thread.task.inst)`,
+        //   and `callee` is `Store.lift`'s `func_inst` (lines 578-585), whose
+        //   first act is
+        //     `trap_if(not inst.may_enter_from(caller))`   (line 581)
+        //   with `entering_set(caller) = callee.self_and_ancestors()
+        //                                - caller.self_and_ancestors()`
+        //   (lines 230-234).
+        // A sync fused adapter is an *optimization* of that path, so the gate
+        // belongs here (issue #99).
+        //
+        // Note on the shape of the entering set, which is what makes this
+        // check safe for the legal shapes:
+        //   * caller == callee, or either an ancestor of the other -> the
+        //     entering set is empty and this never traps. Those pairs never
+        //     reach this trampoline anyway: FACT emits an unconditional
+        //     `CannotEnterComponent` trap for them at compile time
+        //     (wasmtime-environ 47.0.3 `fact/trampoline.rs:120-127`), which
+        //     is what `test/async/trap-on-reenter.wast` cases 2 and 3 pin.
+        //   * an *idle* sibling -> `mayEnter` is true, no trap. This is what
+        //     `test/async/sync-barges-in.wast` needs: an async callee that is
+        //     merely blocked has already run `leave_to` (its `canon_lift`
+        //     returned), so a sync sibling may barge in.
+        //   * an *entered* sibling -> trap, which is the A -> C -> A cycle.
+        //
+        // CONTRACT / reachability: a pure guest-to-guest sibling cycle is
+        // unreachable by construction, because component instance imports
+        // form a DAG (a callee must be instantiated before its caller, so it
+        // cannot hold an import of its caller; `wasm-tools` rejects the
+        // mutual-import composition outright). wasmtime relies on exactly
+        // that to elide the runtime check in fused adapters -- see the
+        // comment in `may_enter`, wasmtime 47.0.3
+        // `runtime/component/concurrent.rs:1876-1886`, and
+        // `enter_guest_sync_call` (concurrent.rs:1723) which performs no
+        // reentrance check at all. The gate is kept anyway because the
+        // reference mandates it and no corpus test pins the permissive
+        // behaviour; it is cheap, and it is the honest place for the
+        // invariant to be asserted rather than assumed.
+        //
+        // Deliberately *not* done here: `enter_from` / `leave_to` around the
+        // bracket. The reference locks the callee for the duration, which
+        // would additionally trap host-mediated reentrance (host -> A.f ->
+        // C.g -> host import -> host invokes C.g). Doing it needs the trap /
+        // capability-signal distinction that only `exec/boundary.ts` has
+        // (a `NeedsJspi` bail out of a sync callee skips `exit-sync-call`
+        // and would poison a healthy instance), and the general form of that
+        // hole is the missing `ComponentInstance.parent` chain already
+        // recorded in `task/mod.ts` `enteringSet`. Reported, not smuggled in.
+        if (
+          typeof callerInstance === "number" &&
+          typeof calleeInstance === "number"
+        ) {
+          const callerInst = ctx.componentInstance(callerInstance >>> 0);
+          const calleeInst = ctx.componentInstance(calleeInstance >>> 0);
+          trapIf(
+            !calleeInst.mayEnterFrom(callerInst),
+            "cannot enter component instance",
+          );
+        }
         // `async_` records whether the callee is *async-lifted*. wasmtime
         // stores it on the guest task it creates here
         // (`concurrent.rs:1723` `enter_guest_sync_call`, whose `callee_async`

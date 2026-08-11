@@ -244,3 +244,69 @@ Deno.test("transcode: memories are re-read after growth", () => {
   fn(0, 3, 64);
   assertEq(read(m, 64, 3), [1, 2, 3]);
 });
+
+// ---------------------------------------------------------------------------
+// Defensive guards (issue #96): unreachable under FACT's real guarantees —
+// exercised here by calling the intrinsic directly with an invariant FACT
+// itself would never violate (a too-small dst capacity / overlapping
+// regions), which is exactly what a synthetic unit-level test needs to
+// reach without going through a full FACT-generated call.
+// ---------------------------------------------------------------------------
+
+Deno.test("transcode: utf8-to-compact-utf16 traps when dst capacity is exceeded", () => {
+  const m = mem();
+  // "abc" is 3 latin1-ineligible... actually any 3-char ASCII string needs 3
+  // u16 units; advertise a dst capacity of only 2 units total (dstLen=2,
+  // latin1BytesSoFar=0) so `capacity (2) < s.length (3)`.
+  const rest = new TextEncoder().encode("abc");
+  write(m, 0, [...rest]);
+  assertTraps(
+    () => call("utf8-to-compact-utf16", m, m, 0, rest.length, 64, 2, 0),
+    "destination capacity exceeded",
+  );
+});
+
+Deno.test("transcode: utf8-to-compact-utf16 does not trap when dst capacity exactly fits", () => {
+  const m = mem();
+  const rest = new TextEncoder().encode("abc");
+  write(m, 0, [...rest]);
+  // latin1BytesSoFar=1 (1 unit already written) + 3 more units == dstLen 4.
+  write(m, 64, [0x7a]);
+  const units = call(
+    "utf8-to-compact-utf16",
+    m,
+    m,
+    0,
+    rest.length,
+    64,
+    4,
+    1,
+  ) as number;
+  assertEq(units, 4);
+});
+
+Deno.test("transcode: utf16-to-latin1 traps on overlapping src/dst in the same memory", () => {
+  const m = mem();
+  write(m, 0, u16le("ab\u0100c"));
+  // dst at byte 2 overlaps the src u16 range [0, 8) in the same memory.
+  assertTraps(
+    () => call("utf16-to-latin1", m, m, 0, 4, 2),
+    "overlap",
+  );
+});
+
+Deno.test("transcode: utf16-to-latin1 does not trap on non-overlapping regions", () => {
+  const m = mem();
+  write(m, 0, u16le("ab\u0100c"));
+  assertEq(call("utf16-to-latin1", m, m, 0, 4, 64), [2, 2]);
+  assertEq(read(m, 64, 2), [0x61, 0x62]);
+});
+
+Deno.test("transcode: utf16-to-latin1 does not trap across independent memories", () => {
+  const from = mem();
+  const to = mem();
+  write(from, 0, u16le("ab\u0100c"));
+  // Same offsets in independent ArrayBuffers must not be flagged as overlap.
+  assertEq(call("utf16-to-latin1", from, to, 0, 4, 0), [2, 2]);
+  assertEq(read(to, 0, 2), [0x61, 0x62]);
+});
