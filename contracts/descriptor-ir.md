@@ -77,7 +77,7 @@ the implementation truth; the destination is now embedder-api.md's.
 |---|---|
 | bool | `boolean` |
 | s8..u32, f32, f64, char (as code point) | `number` |
-| s64/u64 | `bigint` (range-checked at lower) |
+| s64/u64 | `bigint` (**v0.2 correction**: NOT range-checked at lower — the interpreter wraps mod 2⁶⁴ like every other integer lane, matching definitions.py's `% 2**64`; the original claim never matched the implementation) |
 | string | `string`; lowering applies USVString replacement (`toWellFormed`) |
 | list<u8> | `Uint8Array` (always a copy, never a view into guest memory) |
 | other lists / tuples | `Array` |
@@ -117,8 +117,11 @@ extension must land with fixtures.
   instantiate), so resource-type identity never leaks across instances.
 - Variant/option host shapes are settled for the interpreter but bindgen (§9)
   may want ergonomic variations — any change lands here first.
-- `map` (in types.ts, from the reference) is not emitted by current
-  translators; keep behind a fixture-only flag.
+- ~~`map` (in types.ts, from the reference) is not emitted by current
+  translators; keep behind a fixture-only flag.~~ **Closed (v0.2): stale.**
+  The shim enables `CM_MAP` and emits `map` types (translator-shim lib.rs
+  `features()`, plan.rs `ValTypeJson::Map`); the loader consumes them. `map`
+  despecializes to `list<record{0,1}>` per the reference.
 
 ## v0.1 amendments (post-M0 reality)
 
@@ -130,3 +133,15 @@ extension must land with fixtures.
 2. **Flattening contract validated as written**: computed `flattenFunctype`
    vs the options' `coreType` asserted at instantiate across the whole
    fixture corpus with zero mismatches. No change.
+
+## v0.2 amendments (2026-08-10 adversarial review, deltic#98)
+
+Documentation corrections only — no wire or behavior change:
+
+1. **s64/u64 "range-checked at lower" claim retracted** (host-mapping table
+   above): the interpreter has always wrapped bigint lanes mod 2⁶⁴ per
+   definitions.py `lower_flat`; the table asserted a check that never
+   existed. Host-side range *asserts* (host-precondition errors, not traps)
+   exist only on the scalar `storeInt` path as of deltic#96.
+2. **`map` open item closed as stale** (struck through above): emitted by the
+   shim, consumed by the loader, exercised by the values suite.

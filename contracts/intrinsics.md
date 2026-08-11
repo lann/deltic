@@ -120,7 +120,13 @@ core" is a feature, not a crash.
    restore `may_leave` on all component instances — FACT clears it around
    lift/lower and a trap skips its restore; without both unwinds the
    instance is unusable for post-trap re-entry, which this runtime
-   deliberately supports.
+   deliberately supports. **Scope clarification (2026-08-10, deltic#91):
+   the obligation covers every window that registers lenders, including
+   the prepare/start protocol** — `sync-start-call`'s inline lender scope
+   and `async-start-call`'s subtask-attached lenders release on every
+   non-success exit that does not poison the caller (trap rethrow AND
+   capability signals: `NeedsJspi` is expressly non-poisoning and must not
+   strand lenders).
 3. **Host-trap preservation across nested barriers**: the trap trampoline
    must (re)record the pending trap before every throw, so the specific
    message survives arbitrarily nested adapter exception barriers. Residual,
