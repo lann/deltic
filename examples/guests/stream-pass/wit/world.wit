@@ -16,6 +16,11 @@ world stream-pass {
   /// Result-position pass-through for a non-numeric element type.
   export pass-through-text: async func(input: stream<string>) -> stream<string>;
 
+  /// Reads exactly `count` elements off `input` (leaving the rest unread),
+  /// returns their sum, and drops the reader — the bounded-consumption probe
+  /// behind host-side partial-write coverage (#67 checklist / #63 review F3).
+  export take: async func(input: stream<u8>, count: u32) -> u64;
+
   /// Reads `count` elements off `input`, then traps (unreachable) — the #66
   /// shape: the stream's readable end dies inside this instance's poisoned
   /// handle table while host writes are still parked.

@@ -146,6 +146,33 @@ Deno.test({
 });
 
 Deno.test({
+  name: "guest-side partial take: a bounded reader drains part of a big typed offer",
+  ignore: !ready,
+  fn: async () => {
+    // #63 review F3 / #67 checklist: the host offers far more than the guest
+    // consumes, exercising GuestBuffer partial rendezvous + the writeAll
+    // re-offer rounds against a REAL guest (wit-bindgen buffering means the
+    // guest's stream.reads may take more than `count` — the writer's total
+    // is only bounded, not exact). `take` returns the sum of the `count`
+    // elements it consumed, so data integrity is pinned exactly even though
+    // the take count is not.
+    const c = await instantiateFixture(FIXTURE, { sink: () => 0n });
+    const { stream, writer } = Stream.create<number>();
+    const N = 256 * 1024;
+    const data = Uint8Array.from({ length: N }, (_, i) => (i * 31) & 0xff);
+    const expected = BigInt(data[0] + data[1] + data[2]);
+    const w = writer.writeAll(data);
+    assertEq(await c.exports.take(stream, 3), expected, "sum of first 3");
+    const taken = await w;
+    assertEq(
+      taken >= 3 && taken < N,
+      true,
+      `writeAll settles short of the offer (took ${taken})`,
+    );
+  },
+});
+
+Deno.test({
   name: "futures: wrapping one shared future is idempotent too",
   ignore: false,
   fn: () => {

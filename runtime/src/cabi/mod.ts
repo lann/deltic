@@ -14,6 +14,7 @@ export * from "./float.ts";
 export * from "./context.ts";
 export * from "./handles.ts";
 export * from "./strings.ts";
+export * from "./bulk_lists.ts";
 export * from "./load.ts";
 export * from "./store.ts";
 export * from "./flatten.ts";

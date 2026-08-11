@@ -27,6 +27,19 @@ impl Guest for Component {
         input
     }
 
+    async fn take(mut input: StreamReader<u8>, count: u32) -> u64 {
+        let mut sum = 0u64;
+        for _ in 0..count {
+            match input.next().await {
+                Some(b) => sum += u64::from(b),
+                None => break,
+            }
+        }
+        sum
+        // `input` drops here with the remainder unread: the host's parked
+        // write settles short ("reader went away"), cleanly.
+    }
+
     async fn consume_then_trap(mut input: StreamReader<u8>, count: u32) {
         for _ in 0..count {
             let _ = input.next().await;

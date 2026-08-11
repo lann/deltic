@@ -12,6 +12,7 @@ import {
 } from "./layout.ts";
 import { convertI32ToChar, loadString } from "./strings.ts";
 import { type LiftLowerContext, requireMemory } from "./context.ts";
+import { tryLoadNumericList } from "./bulk_lists.ts";
 import { liftBorrow, liftOwn } from "./handles.ts";
 import {
   type CaseType,
@@ -130,10 +131,17 @@ export function loadListFromValidRange(
   elemType: ValType,
 ): ComponentValue {
   const mem = requireMemory(cx.opts);
+  const kind = despecialize(elemType).kind;
   // docs/architecture.md §7: list<u8> lifts to a Uint8Array copy.
-  if (despecialize(elemType).kind === "u8") {
+  if (kind === "u8") {
     return bytesOf(mem, ptr, length).slice();
   }
+  // Other flat element types lift bulk too (issue #67) — same host shapes
+  // (number[]/bigint[]/boolean[]), same NaN canonicalization; falls through
+  // to the per-element loop for compound types, char (per-element USV
+  // validation is the point), and non-little-endian platforms.
+  const bulk = tryLoadNumericList(mem, ptr, length, kind);
+  if (bulk !== null) return bulk;
   const size = elemSize(elemType, mem.ptrType());
   const a: ComponentValue[] = [];
   for (let i = 0; i < length; i++) {
