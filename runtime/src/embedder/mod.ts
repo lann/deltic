@@ -23,6 +23,7 @@ export {
   DroppedError,
   InvalidHandleError,
   NameCollisionError,
+  PeerTrappedError,
   Trap,
   WitError,
 } from "./errors.ts";

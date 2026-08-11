@@ -45,6 +45,13 @@
 // trap. That is the honest outcome — the component is not deadlocked, the
 // embedder simply has not done its half — and it matches how any other
 // unresolved Promise behaves in JS.
+//
+// The inverse case is NOT a hang (#66, embedder-api amendment A7): when the
+// GUEST side dies — a trap poisons the instance holding the peer end — the
+// poisoned table's ends are retired (task/streams.ts
+// `retireInstanceAsyncEnds`), so a parked host operation settles DROPPED-
+// shaped here and the conventions layer rejects it with `PeerTrappedError`.
+// Only embedder negligence hangs; a component fault is always loud.
 
 import { assert_ } from "../cabi/trap.ts";
 import { despecialize } from "../cabi/types.ts";
@@ -232,7 +239,9 @@ class HostActivity {
     const p = this.#promise, r = this.#resolve;
     this.#promise = null;
     this.#resolve = null;
-    if (p !== null && this.#store !== null) this.#store.pendingHostCalls.delete(p);
+    if (p !== null && this.#store !== null) {
+      this.#store.pendingHostCalls.delete(p);
+    }
     r?.();
     this.#arm();
   }
@@ -358,7 +367,9 @@ class HostActivity {
     this.#closed = true;
     this.#promise = null;
     this.#resolve = null;
-    if (p !== null && this.#store !== null) this.#store.pendingHostCalls.delete(p);
+    if (p !== null && this.#store !== null) {
+      this.#store.pendingHostCalls.delete(p);
+    }
     r?.();
   }
 }
@@ -481,6 +492,20 @@ function mkStreamEnds<T>(
   return {
     writable: {
       write(values: T[]): Promise<number> {
+        // One in-flight operation per end — the host-side spelling of the
+        // `CopyEnd` busy trap guests get from the table. Without it a second
+        // write would find the FIRST write's buffer in the shared object's
+        // pending slot and "rendezvous" write-against-write, silently
+        // copying into the parked buffer's accumulation (observed as a
+        // write resolving `1` against a peer that no longer exists — the
+        // #66 repro). Reading while a write is parked stays legal: that is
+        // the pass-through data plane (two different ends).
+        if (parked.write) {
+          throw new TypeError(
+            "a write is already in flight on this stream's writable end; " +
+              "await it or cancelWrite() first",
+          );
+        }
         const buf = new HostBuffer(
           shared.t,
           values as unknown as ComponentValue[],
@@ -550,6 +575,15 @@ function mkStreamEnds<T>(
     },
     readable: {
       read(max: number): Promise<T[]> {
+        // One in-flight operation per end — see the write() guard: a second
+        // read would rendezvous read-against-read with our own parked
+        // buffer.
+        if (parked.read) {
+          throw new TypeError(
+            "a read is already in flight on this stream's readable end; " +
+              "await it or cancelRead() first",
+          );
+        }
         const buf = new HostBuffer(shared.t, null, max);
         return new Promise<T[]>((resolve) => {
           parked.read = true;
@@ -700,6 +734,14 @@ function mkFuture<T>(
   };
   const self: HostFuture<T> = {
     write(v: T): Promise<void> {
+      // One in-flight operation per wrapper — see mkStreamEnds' guards: a
+      // second op would rendezvous against our own parked buffer.
+      if (parked.any) {
+        throw new TypeError(
+          "an operation is already in flight on this future; " +
+            "await it or cancel() first",
+        );
+      }
       // definitions.py `SharedFutureImpl.write` asserts `remain() == 1`: a
       // future carries exactly one element.
       const buf = new HostBuffer(shared.t, [v as unknown as ComponentValue], 1);
@@ -714,6 +756,13 @@ function mkFuture<T>(
       });
     },
     readResult(): Promise<{ value: T | undefined; result: CopyResult }> {
+      // One in-flight operation per wrapper — see write().
+      if (parked.any) {
+        throw new TypeError(
+          "an operation is already in flight on this future; " +
+            "await it or cancel() first",
+        );
+      }
       // definitions.py `SharedFutureImpl.read` asserts `not self.dropped`, so
       // a read after the write end went away must be answered here rather
       // than by tripping an internal assertion.

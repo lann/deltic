@@ -14,7 +14,12 @@ translation envelope as the build-time artifact
 of one stream/future idempotent (pass-through round trips —
 host→guest→host — hand back the same handle machinery instead of
 asserting), legalizes host↔host rendezvous for every element type, and
-pins u8 stream chunks as `Uint8Array` in both directions.** This document supersedes `descriptor-ir.md`'s interim
+pins u8 stream chunks as `Uint8Array` in both directions; amendment A6
+(2026-08-11) ships the wasi-shims parking kernel always-on (§"WASI
+examination", renumbered from a colliding second "A5"); amendment A7
+(2026-08-11) makes component faults loud on host stream/future
+operations (`PeerTrappedError`, never a hang or a fake end-of-stream)
+and limits host ends to one in-flight operation per direction.** This document supersedes `descriptor-ir.md`'s interim
 "host value mapping" table as the destination for host-facing value shapes.
 The runtime's *raw* boundary (`instance.exports`, `HostImports`) keeps the
 `definitions.py` interpreter shapes as an **internal** surface; the
@@ -197,6 +202,10 @@ class WitError<E = unknown> extends Error {
   constructor(payload: E, message?: string);
 }
 class Trap extends Error { … }  // existing; component-fatal, never a value
+class PeerTrappedError extends Error {  // A7: a stream/future op whose peer instance trapped
+  readonly cause: unknown;      // chains to the Trap
+  readonly progress?: number;   // write ops: elements delivered before the fault
+}
 ```
 
 - **Guest export with `result<T, E>`**: the call resolves to `T` on ok and
@@ -380,6 +389,29 @@ class DroppedError extends Error { … }    // awaiting a dropped future rejects
   underneath; the conventions layer exposes them as
   `Stream.create<T>(): { stream: Stream<T>, writer: StreamWriter<T> }`
   with `write`/`writeAll`/`cancelWrite`/`close`.
+- **Component faults are loud on stream/future operations** (amendment
+  A7). When the component instance holding the peer end traps, its live
+  ends are retired: a parked host `read`/`write`/`writeAll`/future-await
+  **rejects with `PeerTrappedError`** (`cause` chains to the trap; a
+  write's `progress` reports elements delivered before the fault), and so
+  does any operation started afterwards. A fault is never presented as a
+  clean end-of-stream or a bare `DroppedError` — the same
+  no-wrong-data-as-success rule the producer direction has
+  (`StreamProducerError`) — with one precision: an operation that
+  genuinely COMPLETED before the trap keeps its result (a full write, a
+  read that copied data), and the fault surfaces on the export call and
+  on the handle's next operation. A trapping host **import** drops the
+  lifted stream/future arguments it abandoned, so their peers settle with
+  the truthful short count / end-of-stream. Only embedder negligence —
+  lowering a host end and never acting on it — still hangs, as documented
+  since v0.2.
+- **One in-flight operation per host end, per direction** (amendment A7):
+  a second `write` while one is parked (or a second `read`, or a second
+  future operation) throws a `TypeError` synchronously — the host-side
+  spelling of the `CopyEnd` busy trap. Reading while a write is parked on
+  the same stream stays legal (they are different ends). Previously the
+  second operation could "rendezvous" against the first one's parked
+  buffer and report data as taken by a peer that never existed.
 
 ## Module wiring and instantiation
 
@@ -463,7 +495,7 @@ signatures for the representative slice:
 **wasi:io@0.2.x pollable + streams** (p2): `pollable.block()`, `poll()`
 and `blocking-read`/`blocking-write-and-flush` are **sync** WIT functions
 that must park — the one p2 idiom that fights a JS host. The shim package
-ships the PARKING KERNEL, always on (amendment A5, 2026-08-11;
+ships the PARKING KERNEL, always on (amendment A6, 2026-08-11;
 supersedes the original three-tier ruling and its "never (c) in this
 package" mission line — the polymorph-iroh upstream-iroh consumer class
 genuinely parks, which the always-ready stubs turned into a livelock):

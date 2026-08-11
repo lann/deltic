@@ -10,7 +10,7 @@ wit_bindgen::generate!({
     async: true,
 });
 
-use wit_bindgen::rt::async_support::StreamReader;
+use wit_bindgen::rt::async_support::{FutureReader, StreamReader};
 
 struct Component;
 
@@ -25,6 +25,34 @@ impl Guest for Component {
 
     async fn pass_through_text(input: StreamReader<String>) -> StreamReader<String> {
         input
+    }
+
+    async fn consume_then_trap(mut input: StreamReader<u8>, count: u32) {
+        for _ in 0..count {
+            let _ = input.next().await;
+        }
+        core::arch::wasm32::unreachable()
+    }
+
+    async fn open_then_trap(n: u32) -> StreamReader<u8> {
+        let (mut writer, reader) = wit_stream::new();
+        wit_bindgen::rt::async_support::spawn_local(async move {
+            let _ = writer.write(vec![7u8; n as usize]).await;
+            core::arch::wasm32::unreachable()
+        });
+        reader
+    }
+
+    async fn future_then_trap(mut gate: StreamReader<u8>) -> FutureReader<u32> {
+        let (writer, reader) = wit_future::new(|| 0u32);
+        wit_bindgen::rt::async_support::spawn_local(async move {
+            // Park until the host releases the gate — giving it time to park
+            // a read on the future — then trap without ever writing.
+            let _ = gate.next().await;
+            let _hold = writer;
+            core::arch::wasm32::unreachable()
+        });
+        reader
     }
 }
 

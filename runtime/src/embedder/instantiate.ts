@@ -10,7 +10,7 @@
 // Governing contract: contracts/embedder-api.md (all sections). Secondary:
 // contracts/plan-format.md for the wire shapes read here.
 
-import type { WirePlan, WireExport } from "../plan/format.ts";
+import type { WireExport, WirePlan } from "../plan/format.ts";
 import type { LoadedPlan } from "../plan/loader.ts";
 import { loadEnvelope, loadPlan, PlanError } from "../plan/loader.ts";
 import type { FuncType, ResourceTypeInfo, ValType } from "../cabi/types.ts";
@@ -19,8 +19,8 @@ import { Trap } from "../cabi/trap.ts";
 import {
   type ComponentHandle,
   CONSTRUCTOR_SYNC_ENTRY,
-  hostResourceType,
   type HostImports,
+  hostResourceType,
   instantiateComponent,
 } from "../exec/mod.ts";
 import { camelCase, parseLeafName, pascalCase } from "./casing.ts";
@@ -45,7 +45,7 @@ import {
   type ValueBridge,
 } from "./values.ts";
 import { ImportResolver } from "./version.ts";
-import { type ElemCodec, Future } from "./streams.ts";
+import { type ElemCodec, Future, Stream } from "./streams.ts";
 
 /** Per-element codec for a `future<T>` returned in function-result position. */
 function elementCodec(
@@ -146,7 +146,12 @@ type RawFn = (...a: unknown[]) => unknown;
 /** How a resource type is implemented, keyed by `ResourceIndex`. */
 type Binding =
   | { kind: "guest"; name: string; cls?: unknown }
-  | { kind: "host"; name: string; registry: HostResourceRegistry; cls: unknown };
+  | {
+    kind: "host";
+    name: string;
+    registry: HostResourceRegistry;
+    cls: unknown;
+  };
 
 /**
  * Instantiate a component behind the embedder conventions.
@@ -361,7 +366,9 @@ class Facade {
   #bindHostResources(): void {
     const importedResources = this.artifacts.plan.importedResources ?? [];
     for (const p of this.#pendingHostResources) {
-      const at = importedResources.findIndex((ir) => ir.import === p.importIndex);
+      const at = importedResources.findIndex((ir) =>
+        ir.import === p.importIndex
+      );
       if (at < 0) continue;
       this.#bindings.set(at, {
         kind: "host",
@@ -549,7 +556,10 @@ class Facade {
   }[] = [];
 
   /** The JS call a lifted import leaf dispatches to. */
-  #dispatcher(leaf: ImportLeaf, provider: unknown): (args: unknown[]) => unknown {
+  #dispatcher(
+    leaf: ImportLeaf,
+    provider: unknown,
+  ): (args: unknown[]) => unknown {
     const m = leaf.member;
     if (m.form === "plain") {
       const fn = leaf.path.length === 0
@@ -663,14 +673,24 @@ class Facade {
       }
       return fromHost(v, resultType, o);
     };
-    const fail = (e: unknown): ComponentValue => {
-      if (e instanceof Trap) throw e;
+    const fail = (e: unknown, args: unknown[]): ComponentValue => {
       if (e instanceof WitError && isResult) {
         const rt = resultType as ValType & { kind: "result" };
         return {
           error: rt.error === null ? null : fromHost(e.payload, rt.error, o),
         };
       }
+      // Every remaining branch traps the component. The import's lifted
+      // stream/future arguments were transferred to the host when the params
+      // were converted (the guest's ends are gone), and a trapping import is
+      // a declared host bug — nothing owns them anymore, so drop them here:
+      // a peer parked on one (a host writer feeding the stream this import
+      // just received, the #66 E2 shape) settles with the truthful "reader
+      // went away" instead of hanging forever. The err-VALUE branch above
+      // deliberately does NOT do this: a fallible import returning err is a
+      // normal outcome whose implementation may retain the handles.
+      releaseAsyncArgs(args);
+      if (e instanceof Trap) throw e;
       if (e instanceof WitError) {
         throw new Trap(
           `${where} threw a WitError, but its WIT type has no err side; ` +
@@ -694,7 +714,7 @@ class Facade {
         out = dispatch(args);
       } catch (e) {
         scope.end();
-        return fail(e);
+        return fail(e, args);
       }
       if (isThenable(out)) {
         return (out as PromiseLike<unknown>).then(
@@ -704,7 +724,7 @@ class Facade {
           },
           (e) => {
             scope.end();
-            return fail(e);
+            return fail(e, args);
           },
         );
       }
@@ -872,7 +892,9 @@ class Facade {
         s,
         rt,
         (fn, params, results, where, args) =>
-          this.#wrapExportFn(fn, { params, results }, where)(...args) as Promise<
+          this.#wrapExportFn(fn, { params, results }, where)(
+            ...args,
+          ) as Promise<
             unknown
           >,
         (args, params, where) =>
@@ -1057,8 +1079,29 @@ function isThenable(v: unknown): boolean {
     typeof (v as { then: unknown }).then === "function";
 }
 
+/**
+ * Drop the lifted stream/future arguments a trapping import abandoned (#66).
+ * Top-level parameters only: those are the shapes whose peers park host
+ * operations; a stream nested inside a record is exotic enough to leave to
+ * the negligence rules. Uses the teardown drop, not the plain one — the
+ * calling instance is about to be poisoned by this very trap, and a DROPPED
+ * notification must not queue a phantom event into its waitables (review
+ * B2; see task/streams.ts `dropSharedForTeardown`).
+ */
+function releaseAsyncArgs(args: unknown[]): void {
+  for (const a of args) {
+    if (a instanceof Stream || a instanceof Future) {
+      try {
+        a.dropForTeardown();
+      } catch {
+        // Best-effort teardown: the component is already trapping, and that
+        // trap — not a secondary drop failure — is the error to surface.
+      }
+    }
+  }
+}
+
 function describeThrow(e: unknown): string {
   if (e instanceof Error) return `${e.name}: ${e.message}`;
   return describe(e);
 }
-

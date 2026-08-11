@@ -40,6 +40,7 @@ import {
   setResumingThread,
   packSubtaskResult,
   PendingCapability,
+  retireInstanceAsyncEnds,
   Store,
   Subtask,
   WaitableSet,
@@ -1114,9 +1115,15 @@ export function createLiftedFunction(input: {
      * Only the entered set is affected; sibling instances stay usable, which
      * is why the lock is released per-instance rather than by poisoning a
      * whole store the way wasmtime does.
+     *
+     * Poisoned instances can never rendezvous again, so their handle tables'
+     * live stream/future ends are retired here (#66): parked host operations
+     * settle (DROPPED) instead of hanging forever, and the recorded failure
+     * lets the embedder layer reject them loudly.
      */
-    const poison = (): void => {
+    const poison = (e: unknown): void => {
       entered = false; // consumed: the lock is now permanent
+      for (const i of enteredSet) retireInstanceAsyncEnds(i, e);
     };
 
     /**
@@ -1181,7 +1188,7 @@ export function createLiftedFunction(input: {
     } catch (e) {
       unwind();
       if (isCapabilitySignal(e)) leave();
-      else poison();
+      else poison(e);
       throw e;
     }
     // The reentrance gate is released here, before the store is pumped:

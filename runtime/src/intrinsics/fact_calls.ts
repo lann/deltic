@@ -77,6 +77,7 @@ import {
   currentTask,
   maybeCurrentTask,
   needsJspi,
+  notifyInstancePoisoned,
   packSubtaskResult,
   PendingCapability,
   Subtask,
@@ -641,6 +642,12 @@ export function createSyncStartCall(
       // not — see the `isCapabilitySignal` note in exec/boundary.ts.
       if (e instanceof NeedsJspi || e instanceof PendingCapability) {
         prepared.calleeInst.leaveTo(prepared.callerInst);
+      } else {
+        // Retire the poisoned CALLEE's stream/future ends (#66): this is a
+        // bracket-break site like `Store.tick`'s, and the trap unwinds to a
+        // hooked site that walks only the CALLER's chain — a composed
+        // component's callee would otherwise strand its host peers.
+        notifyInstancePoisoned(prepared.calleeInst, e);
       }
       throw e;
     }
@@ -813,6 +820,10 @@ export function createAsyncStartCall(
       // See the sync form above and `isCapabilitySignal` in exec/boundary.ts.
       if (e instanceof NeedsJspi || e instanceof PendingCapability) {
         prepared.calleeInst.leaveTo(prepared.callerInst);
+      } else {
+        // Bracket-break site — retire the poisoned callee's ends (#66),
+        // as in the sync form above.
+        notifyInstancePoisoned(prepared.calleeInst, e);
       }
       throw e;
     }
