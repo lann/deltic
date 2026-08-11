@@ -40,7 +40,7 @@ import {
   setResumingThread,
   packSubtaskResult,
   PendingCapability,
-  retireInstanceAsyncEnds,
+  notifyInstancePoisoned,
   Store,
   Subtask,
   WaitableSet,
@@ -984,12 +984,7 @@ export function createLiftedFunction(input: {
     );
   }
 
-  return (...hostArgs: ComponentValue[]): unknown => {
-    if (hostArgs.length !== ft.params.length) {
-      throw new TypeError(
-        `${name}: expected ${ft.params.length} argument(s), got ${hostArgs.length}`,
-      );
-    }
+  const invokeNow = (hostArgs: ComponentValue[]): unknown => {
     stats.liftedCalls++;
     // A trap remembered during an earlier call must never be attributed to
     // this one (see intrinsics `HostTrapState`).
@@ -1138,7 +1133,15 @@ export function createLiftedFunction(input: {
      */
     const poison = (e: unknown): void => {
       entered = false; // consumed: the lock is now permanent
-      for (const i of enteredSet) retireInstanceAsyncEnds(i, e);
+      // Through the seam (not retireInstanceAsyncEnds directly) so the
+      // poison marker is recorded too — `Thread.resumeWith` retires this
+      // instance's late settles against it instead of assert-cascading.
+      for (const i of enteredSet) {
+        notifyInstancePoisoned(
+          i as unknown as { handles: Iterable<unknown> },
+          e,
+        );
+      }
     };
 
     /**
@@ -1267,6 +1270,90 @@ export function createLiftedFunction(input: {
       throw e;
     });
   };
+
+  return (...hostArgs: ComponentValue[]): unknown => {
+    if (hostArgs.length !== ft.params.length) {
+      throw new TypeError(
+        `${name}: expected ${ft.params.length} argument(s), got ${hostArgs.length}`,
+      );
+    }
+    // THE HOP-QUIESCENCE GATE (jspi mode only; hop_atomicity_test.ts).
+    //
+    // A promising-wrapped entry settles a microtask AFTER the guest's core
+    // call returns, even when nothing suspended (jspi pin (j)) — so there
+    // is a hop between core return and the host-side result LIFT, and the
+    // reentrance bracket has already been released by then (`leave()` runs
+    // when the first segment parks). In the reference no such window
+    // exists: `canon_lift` for sync options runs core + lift atomically
+    // inside one entered bracket. Admitting another host call into the
+    // window lets a full guest turn mutate the memory the pending lift
+    // will read — observed as `Trap: list too long` lifting the wosh
+    // engine's `tick` (`list<list<u8>>`) after a concurrent `feed-keys`
+    // turn reused the return area.
+    //
+    // The gate: defer this call until the instance has no HOP-parked
+    // activation. A hop-park is an `awaiting` thread with no owning
+    // `SuspensionPoint` — the same discriminator `hasRunnableWork` uses;
+    // genuinely JSPI-suspended activations (SuspensionPoint-owned) keep
+    // today's documented interleaving (the wasmtime-tracking divergence in
+    // jspi/bridge.ts), which host-import re-entry patterns rely on.
+    // Plain mode has no hops and keeps its synchronous fast path exactly.
+    if (mode === "jspi" && entryHopThreads(store, inst).length > 0) {
+      return awaitHopQuiescence(store, inst).then(() => invokeNow(hostArgs));
+    }
+    return invokeNow(hostArgs);
+  };
+}
+
+/**
+ * Threads of `inst` parked on a promising-entry hop: in `store.awaiting`
+ * with no `SuspensionPoint` owner in `store.waiting` (that would be a
+ * genuine JSPI suspension). Mirrors `Store.hasRunnableWork`'s (b)/(c)
+ * split.
+ */
+function entryHopThreads(
+  store: Store,
+  inst: unknown,
+): { awaiting: Promise<unknown> | null }[] {
+  if (store.awaiting.size === 0) return [];
+  const suspended = new Set<unknown>();
+  for (const w of store.waiting) {
+    const owner = (w as { owner?: unknown }).owner;
+    if (owner !== undefined && owner !== null) suspended.add(owner);
+  }
+  const out: { awaiting: Promise<unknown> | null }[] = [];
+  for (const t of store.awaiting) {
+    const tt = t as unknown as {
+      task: { inst: unknown };
+      awaiting: Promise<unknown> | null;
+    };
+    if (tt.task.inst === inst && !suspended.has(t)) out.push(tt);
+  }
+  return out;
+}
+
+/**
+ * Wait until `inst` has no hop-parked activation. Each settled hop is
+ * serviced synchronously (`serviceSettled` runs the lift segment), after
+ * which the activation either completed or re-parked; re-derive and
+ * repeat. Progress is guaranteed: a hop promise settles on the engine's
+ * own schedule, independent of any other activation of the instance, and
+ * a settled-but-unserviced hop resolves the race instantly. Multiple
+ * gated callers re-derive independently (no strict FIFO; starvation-free
+ * in practice because hops are sub-microtask).
+ */
+async function awaitHopQuiescence(store: Store, inst: unknown): Promise<void> {
+  for (;;) {
+    const hops = entryHopThreads(store, inst);
+    if (hops.length === 0) return;
+    await Promise.race(
+      hops.map((t) => (t.awaiting ?? Promise.resolve()).then(
+        () => undefined,
+        () => undefined,
+      )),
+    );
+    store.serviceSettled();
+  }
 }
 
 /**
