@@ -128,6 +128,40 @@ operator's call.
 
 ---
 
+## IROH-2 — post-#71 redundant tier-(c) overrides: delete in favor of the wasi-shims parking kernel (DRAFT)
+
+**Repo:** polymorph-iroh. **Where:**
+`experiments/iroh-relay-ws/host/sockets.ts` (main, post their #40/#41 —
+the deltic-leg rewrite): its `Pollable`, `poll` and `monotonic-clock`
+sections (~200 lines) re-implement the tier-(c) parking that
+[deltic#71](https://github.com/lann/deltic/pull/71) shipped in
+`@deltic/wasi-shims` itself — written before the kernel existed, against
+the same jco-shim ancestor, so the designs converged.
+
+**Why deleting wins (beyond dedup):** their `block()`/`poll()` are
+`async` functions — EVERY call returns a Promise, so every call suspends
+and pays the engine's continuation hop (deltic jspi pin (j)) even when
+the pollable is already ready; the kernel's implementations take sync
+fast paths. Their duck-typed `PollableLike` seam (foreign pollables
+without `waitPromise`) exists only because two `Pollable` classes
+coexist; the kernel's publicly-constructible
+`new Pollable(ready, wait)` is the interop seam that dissolves it — the
+sockets provider mints kernel pollables and the whole foreign-pollable
+distinction disappears.
+
+**Proposed fix:** on the next deltic pin bump (past #71), drop the
+`wasi:io/poll@0.2` and `wasi:clocks/monotonic-clock@0.2` entries from
+`syntheticNetImports()` (wasiShims() now provides parking versions) and
+replace the local `Pollable` with the kernel's. Their sockets surface is
+unaffected (it constructs pollables; the constructor shape is
+identical). Filing upstream is the operator's call.
+
+**Related:** [deltic#74](https://github.com/lann/deltic/issues/74)
+tracks adopting their sockets surface + routing hooks into wasi-shims,
+sequenced after this convergence so they swap once.
+
+---
+
 ## Out of scope here, tracked where they belong
 
 - Spec/reference findings: `upstream-component-model-repo-findings.md`.
