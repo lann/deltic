@@ -408,6 +408,7 @@ export class SuspensionPoint<T = unknown> implements SchedulableThread {
   #settle!: (v: T) => void;
   #fail!: (e: unknown) => void;
   #done = false;
+  #finished = false;
   #store: Store;
 
   /**
@@ -436,6 +437,27 @@ export class SuspensionPoint<T = unknown> implements SchedulableThread {
     private readonly produce: (cancelled: Cancelled) => T,
     // deno-lint-ignore no-explicit-any
     owner?: any,
+    /**
+     * `finally`-style hook: runs EXACTLY ONCE, on whichever terminal
+     * transition this point takes — produce-success, produce-throw, or
+     * `abandon` (issue #102). It is the seam a blocking built-in uses to
+     * discharge state it owns for the duration of the park (the FACT
+     * start-calls' borrow-lender scopes, contracts/intrinsics.md v0.2
+     * amendment 2) without having to trust that `produce` runs.
+     *
+     * INVARIANTS this hook must respect, so bridge.ts's own contracts are
+     * not disturbed:
+     *   * it must not throw (a throw here would escape `resume` *after* the
+     *     import's Promise was settled, i.e. into whatever drained the
+     *     scheduler); it is called inside a `try`/`catch` that reports such
+     *     a throw rather than propagating it;
+     *   * it must be idempotent-safe by construction anyway, because it runs
+     *     AFTER `produce` on the success path — a built-in that already did
+     *     its cleanup inside `produce` (to pin cleanup ordering relative to
+     *     the produced value) sees this as a no-op backstop;
+     *   * it must not resume/abandon this or any other suspension point.
+     */
+    private readonly onSettled?: () => void,
   ) {
     this.#store = store;
     this.owner = owner ?? maybeCurrentThread() ?? task?.implicitThread ?? null;
@@ -471,6 +493,18 @@ export class SuspensionPoint<T = unknown> implements SchedulableThread {
     }
     this.#done = true;
     this.#store.stopWaiting(this);
+    try {
+      this.#resumeInner(cancelled);
+    } finally {
+      // Terminal state reached, by whichever of the two paths below. See
+      // `onSettled`: this is the backstop, not the primary cleanup site, so
+      // it runs after `produce` and after the settle — on the success path it
+      // observes cleanup `produce` already did, and changes nothing.
+      this.#finish();
+    }
+  }
+
+  #resumeInner(cancelled: Cancelled): void {
     let value: T;
     try {
       value = this.produce(cancelled);
@@ -522,7 +556,29 @@ export class SuspensionPoint<T = unknown> implements SchedulableThread {
     if (this.#done) return;
     this.#done = true;
     this.#store.stopWaiting(this);
-    this.#fail(reason);
+    try {
+      this.#fail(reason);
+    } finally {
+      // The settle path that never runs `produce` at all — the one issue #102
+      // is about.
+      this.#finish();
+    }
+  }
+
+  /** Run `onSettled` at most once. Never throws (see the field's doc). */
+  #finish(): void {
+    if (this.#finished) return;
+    this.#finished = true;
+    if (this.onSettled === undefined) return;
+    try {
+      this.onSettled();
+    } catch (e) {
+      // Swallowing is the conservative reading: we are past the point where
+      // the guest's Promise was settled, so there is no frame left that could
+      // meaningfully receive this. Report loudly instead of corrupting an
+      // unrelated drain.
+      console.error(`[sp] onSettled threw for ${dbgId(this)}:`, e);
+    }
   }
 }
 
@@ -542,6 +598,12 @@ export function blockCurrentActivation<T>(input: {
   readyFunc: (() => boolean) | null;
   cancellable: boolean;
   produce: (cancelled: Cancelled) => T;
+  /**
+   * Optional `finally`-style hook — see `SuspensionPoint.onSettled`. Use it
+   * for state that must be discharged however the park ends, including the
+   * settle paths that never call `produce` (issue #102).
+   */
+  onSettled?: () => void;
 }): Promise<T> {
   // GATE LIFETIME: pristine reference semantics (definitions.py
   // `block_internal` line 378 does NOT touch `inst.exclusive_thread`). A
@@ -576,6 +638,7 @@ export function blockCurrentActivation<T>(input: {
     input.cancellable,
     input.produce,
     owner,
+    input.onSettled,
   );
   return point.promise;
 }
