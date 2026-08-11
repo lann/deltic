@@ -2,7 +2,8 @@
 //
 //   deno run --allow-read leg1_tdz.ts
 //
-// Artifact: experiment-mosh/spikes/compose-async-tdz/composed.wasm — a wac
+// Artifact: wosh/spikes/compose-async-tdz/composed.wasm (the consumer
+// formerly named experiment-mosh) — a wac
 // composition of `tdz:plug` (async factory returning own<widget>) into
 // `tdz:socket` (async export awaiting it, plus an exported `handoff`
 // interface that names the same resource in a signature). That combination
