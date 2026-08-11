@@ -81,9 +81,42 @@ export interface RunSuiteOptions {
   freshCases?: boolean;
   /** Opt in to JSPI-backed suspension; passed through to `instantiate`. */
   jspi?: boolean;
+  /**
+   * Stripe this run to one shard of the suite (issue #110): case `i`
+   * (i = the census index — `census.entries()`'s index over the FULL
+   * enumerated case list, before `only`/tag filtering) belongs to shard
+   * `i % count`; this shard executes and emits only its own cases, mirroring
+   * `runCases`' established `i % count === index` striping semantics
+   * (striping, not contiguous ranges, balances load since expensive cases
+   * cluster by group). `only`/tag-gating are applied AFTER stripe
+   * membership is decided (a case not in this stripe is neither executed
+   * nor emitted, exactly as if it never existed for this shard) — this is
+   * the interpretation that keeps the invariant "the union of every shard's
+   * rows, in suite order, equals the unsharded run's rows" (pinned by
+   * shard_test.ts's partition-identity test).
+   *
+   * Sharded envelope/terminator contract: a sharded call still emits its
+   * own envelope line and its own `{"segment-end":true}` terminator —
+   * `runSuite` does not know about sibling shards and cannot merge. The
+   * documented consumer topology (issue #110's stated shape) is: a
+   * caller-side worker pool runs one `runSuite` call per shard, and the
+   * PARENT — not this function — discards all but one envelope, merges the
+   * per-case rows back into suite order using the `index` argument now
+   * passed to `emit`, and writes the single terminator. The returned
+   * `RunCounts` are likewise per-shard (they count only this stripe's
+   * cases); the parent sums them. `shard` absent
+   * (the default) is byte-identical to today: no `index` shard-partitioning
+   * occurs and single-argument `emit` callers are unaffected.
+   */
+  shard?: { index: number; count: number };
   /** Receives each output line (envelope, one per case, terminator),
-   * WITHOUT a trailing newline — callers decide the line separator. */
-  emit: (line: string) => void;
+   * WITHOUT a trailing newline — callers decide the line separator.
+   * `caseIndex` (issue #110) is the case's suite-order index (the same `i`
+   * used for stripe membership) for per-case rows; `undefined` for the
+   * envelope and terminator lines. A sharded consumer uses it to restore
+   * suite order when merging stripes back together. Optional second
+   * argument: existing single-argument `emit` callers are unaffected. */
+  emit: (line: string, caseIndex?: number) => void;
   /** Optional progress log, one call per case (mirrors harness.mjs's
    * `log?.(...)` callback). */
   log?: (msg: string) => void;
@@ -152,6 +185,23 @@ export async function runSuite(
 
   const freshCases = opts.freshCases ?? true;
 
+  // Validate `shard` loudly (issue #110): integers, count >= 1, index in
+  // [0, count). Fail fast, before any instantiate, same posture as the
+  // imports/tags validation above.
+  if (opts.shard !== undefined) {
+    const { index, count } = opts.shard;
+    if (!Number.isInteger(count) || count < 1) {
+      throw new Error(
+        `shard.count must be an integer >= 1, got ${count}`,
+      );
+    }
+    if (!Number.isInteger(index) || index < 0 || index >= count) {
+      throw new Error(
+        `shard.index must be an integer in [0, ${count}), got ${index}`,
+      );
+    }
+  }
+
   const newTests = async () => {
     const inst = await instantiate(artifacts, mergedImports, {
       jspi: opts.jspi,
@@ -204,6 +254,12 @@ export async function runSuite(
   const counts: RunCounts = { passed: 0, failed: 0, skipped: 0, na: 0, total: 0 };
 
   for (const [i, testCase] of census.entries()) {
+    // Stripe membership (issue #110) is decided on the census index `i`,
+    // BEFORE `only`/tag filtering — a case outside this shard's stripe is
+    // skipped with no emit and no count contribution, as if this shard's
+    // census never enumerated it at all.
+    if (opts.shard && i % opts.shard.count !== opts.shard.index) continue;
+
     const name = String(await testCase.name());
     counts.total++;
     // js/viewer/harness.mjs `runCases`: "if (only && !name.includes(only))
@@ -226,7 +282,7 @@ export async function runSuite(
           status: "not-applicable",
           detail: firstExcluding(tags, missing),
           "diagnostics-complete": true,
-        }));
+        }), i);
         opts.log?.(`${name} … not-applicable`);
         continue;
       }
@@ -354,7 +410,7 @@ export async function runSuite(
       }
     }
     if (diags.length > 0) event.diagnostics = diags;
-    opts.emit(JSON.stringify(event));
+    opts.emit(JSON.stringify(event), i);
     opts.log?.(`${name} … ${event.status}`);
   }
 
