@@ -43,7 +43,7 @@ import type { WireExport, WirePlan } from "../src/plan/format.ts";
  */
 function syntheticPlan(overrides: Partial<WirePlan>): WirePlan {
   return {
-    formatVersion: 1,
+    formatVersion: 3,
     producer: { shimVersion: "test", wasmtimeEnviron: "test", features: [] },
     component: { sha256: "0".repeat(64), len: 0 },
     modules: [],
@@ -54,6 +54,7 @@ function syntheticPlan(overrides: Partial<WirePlan>): WirePlan {
     resourceTables: [],
     streamTables: [],
     futureTables: [],
+    errorContextTables: [],
     imports: [],
     exports: [],
     worldDigest: "",

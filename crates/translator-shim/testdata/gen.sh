@@ -20,7 +20,7 @@
 #   cargo run -p translator-shim --example emit-testdata -- <name>
 set -e
 cd "$(dirname "$0")"
-for f in trivial linked async-lift async-linked imports imported-resource; do
+for f in trivial linked async-lift async-linked imports imported-resource error-context; do
   wasm-tools parse "$f.wat" -o "$f.wasm"
   echo "generated $f.wasm"
 done

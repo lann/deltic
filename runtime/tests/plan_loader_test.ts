@@ -39,6 +39,7 @@ function minimalPlan(overrides: Partial<WirePlan> = {}): WirePlan {
     resourceTables: [],
     streamTables: [],
     futureTables: [],
+    errorContextTables: [],
     imports: [],
     exports: [],
     worldDigest: "sha256:0",
@@ -254,12 +255,13 @@ Deno.test("loader: importedResources back-references are range-checked", () => {
   );
 });
 
-// ISSUE #94(2): streamTables/futureTables are required-array in a v2 plan
+// ISSUE #94(2): streamTables/futureTables are required-array in a v2+ plan
 // (the shim never omits them; see plan/format.ts's field doc). A plan that
 // omits them entirely (a stale v0.1-shaped document masquerading as v2, or
 // a truncated envelope) must fail loudly at load time, not be silently
-// read as "no stream/future tables".
-Deno.test("loader: streamTables/futureTables are required for formatVersion 2", () => {
+// read as "no stream/future tables". (v3's `errorContextTables` gets the
+// same treatment; pinned in plan_v3_test.ts.)
+Deno.test("loader: streamTables/futureTables are required at the supported formatVersion", () => {
   const wire = minimalPlan() as unknown as Record<string, unknown>;
   delete wire.streamTables;
   assertPlanError(

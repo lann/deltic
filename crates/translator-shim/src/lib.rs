@@ -183,6 +183,7 @@ fn map_translation(
     let num_resource_tables = types.num_resource_tables();
     let num_stream_tables = types.num_stream_tables();
     let num_future_tables = types.num_future_tables();
+    let num_error_context_tables = types.num_error_context_tables();
     let (component_types, _world_ty) = types.finish(&translation.component);
 
     // Distinguish embedded modules (slices of the input) from FACT adapters
@@ -263,6 +264,7 @@ fn map_translation(
         num_resource_tables,
         num_stream_tables,
         num_future_tables,
+        num_error_context_tables,
     )
     .build(producer, component_id, module_entries, &adapter_import_names)?;
 

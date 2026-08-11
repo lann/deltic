@@ -60,6 +60,7 @@ function mkHarness(postReturn: (() => void) | null = null): Harness {
   const ctx = {
     componentInstance: (i: number) => (i === 0 ? caller : callee),
     resultTypes: () => [] as ValType[],
+    resultTypesForTuple: () => null,
     callback: (_i: number) => postReturn,
     memoryToken: () => null,
     stats: newStats(),

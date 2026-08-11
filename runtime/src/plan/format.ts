@@ -36,6 +36,17 @@ export interface WirePlan {
   streamTables: WireAsyncTable[];
   /** Future-table metadata (plan v2); see `streamTables`. */
   futureTables: WireAsyncTable[];
+  /**
+   * Error-context-table metadata (plan v3), index space == wasmtime's
+   * `TypeComponentLocalErrorContextTableIndex` — the space the
+   * `error-context-transfer` trampoline's `srcTable`/`dstTable` *runtime*
+   * arguments live in. No element type: wasmtime's `TypeErrorContextTable`
+   * is `{ instance }` and nothing else.
+   *
+   * Required for the same reason as `streamTables`/`futureTables`: the shim
+   * always serializes it and the loader accepts only `formatVersion === 3`.
+   */
+  errorContextTables: WireErrorContextTable[];
 
   /**
    * Resource types the component imports, in `ResourceIndex` order:
@@ -137,7 +148,22 @@ export type WireTrampoline =
     kind: "task-return";
     index: number;
     instance: number;
+    /**
+     * The **raw** wasmtime `TypeTupleIndex` of the task's declared results
+     * (plan v3; in v2 this field held the interned `plan.types` index that
+     * `resultType` now carries). It is the key FACT's `prepare-call` passes
+     * as `task_return_type` at runtime, so it is what lets a FACT callee task
+     * find its own declared result type.
+     */
     results: number;
+    /**
+     * `results` interned into `plan.types` as a tuple type (plan v3,
+     * contracts/plan-format.md v3 amendment 3). `null` is accepted on the
+     * wire for a task with no declared result type; the current producer
+     * never emits it (wasmtime's `TaskReturn.results` is not an `Option` —
+     * a no-result task carries the empty tuple).
+     */
+    resultType: number | null;
     options: number;
   }
   | {
@@ -207,6 +233,11 @@ export type WireResourceTable =
   | { kind: "abstract"; id: number };
 
 /** One stream or future table (plan v2). */
+/** One error-context table: the owning component instance, nothing else. */
+export interface WireErrorContextTable {
+  instance: number;
+}
+
 export interface WireAsyncTable {
   element: WireValType | null;
   instance: number;

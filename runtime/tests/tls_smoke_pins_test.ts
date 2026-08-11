@@ -50,6 +50,7 @@ function minimalPlan(overrides: Partial<WirePlan> = {}): WirePlan {
     resourceTables: [],
     streamTables: [],
     futureTables: [],
+    errorContextTables: [],
     imports: [],
     exports: [],
     worldDigest: "sha256:0",
