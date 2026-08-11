@@ -178,7 +178,10 @@ export class Thread implements SchedulableThread {
       } else {
         // The bracket stays broken (instance poisoned, comment above) — same
         // as `Store.tick`: retire the poisoned table's stream/future ends so
-        // parked host peers settle instead of hanging (#66).
+        // parked host peers settle instead of hanging (#66), and release the
+        // synthetic root so the poisoning stays per-instance (plan v3
+        // amendment 4; `releaseSyntheticRootOnPoison`).
+        inst.releaseSyntheticRootOnPoison();
         notifyInstancePoisoned(
           inst as unknown as { handles: Iterable<unknown> },
           e,

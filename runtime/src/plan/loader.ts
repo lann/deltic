@@ -20,6 +20,7 @@ import type {
   WireEnvelope,
   WireErrorDetail,
   WirePlan,
+  WireTrampoline,
   WireTypeDecl,
   WireValType,
 } from "./format.ts";
@@ -61,6 +62,11 @@ export class TranslateError extends Error {
 /**
  * The single formatVersion this executor understands.
  *
+ * v3 (2026-08-10, deltic#89): `errorContextTables` — the index space the
+ * `error-context-transfer` trampoline actually uses (it was resolved through
+ * the *resource*-table mapping before, a different space) — and
+ * `task-return`'s `resultType` / raw `results` split, which lets a FACT
+ * callee task carry its declared result type.
  * v2 (M2 phase 2c): `streamTables` / `futureTables` — the element types the
  * stream and future built-ins need to size their copy buffers.
  * v1 (contracts/plan-format.md v0.3): `CoreDef` gained `"unsafe-intrinsic"`.
@@ -70,7 +76,7 @@ export class TranslateError extends Error {
  * rather than best-effort accepted — a stale cached artifact must be a loud
  * failure, not a subtly different execution.
  */
-export const SUPPORTED_FORMAT_VERSION = 2;
+export const SUPPORTED_FORMAT_VERSION = 3;
 
 /** A types-table entry after conversion. */
 export type LoadedType =
@@ -100,6 +106,20 @@ export interface LoadedPlan {
   /** Owning component instance per stream/future table (plan v2). */
   streamTableInstances: number[];
   futureTableInstances: number[];
+  /**
+   * Owning component instance per error-context table (plan v3), index space
+   * == `TypeComponentLocalErrorContextTableIndex`.
+   */
+  errorContextTableInstances: number[];
+  /**
+   * Raw wasmtime `TypeTupleIndex` -> `plan.types` index, collected from the
+   * `task-return` trampolines (plan v3). The key is what FACT's
+   * `prepare-call` passes as `task_return_type` at runtime; the value is the
+   * interned tuple type. A callee with no `task.return` trampoline of its own
+   * (a sync-lifted callee) contributes no entry, and the lookup then reports
+   * "unknown" rather than guessing.
+   */
+  resultTupleTypes: Map<number, number>;
 }
 
 /**
@@ -130,6 +150,11 @@ export function loadPlan(wire: WirePlan): LoadedPlan {
       // genuinely malformed/truncated envelope).
       "streamTables",
       "futureTables",
+      // Same reasoning at v3 (the shim has no `skip_serializing_if` on
+      // `error_context_tables` either): presence is what the producer
+      // guarantees, so absence is a malformed envelope, not an empty table
+      // space.
+      "errorContextTables",
       "imports",
       "exports",
     ] as const
@@ -154,6 +179,14 @@ export function loadPlan(wire: WirePlan): LoadedPlan {
   wire.canonicalOptions.forEach((o, i) =>
     validateCanonicalOptions(o, `canonicalOptions[${i}]`)
   );
+  // plan v3: `errorContextTables` entries are `{ instance }` and nothing
+  // else; the executor routes real handle-table lookups through them, so a
+  // malformed entry must fail here rather than as an undefined index later.
+  wire.errorContextTables.forEach((t, i) => {
+    const where = `errorContextTables[${i}]`;
+    expect(isRecord(t), where, `must be an object, got ${describeValue(t)}`);
+    expectNumber(t as unknown as Record<string, unknown>, "instance", where);
+  });
 
   const importedResources = wire.importedResources ?? [];
   for (const [i, ir] of importedResources.entries()) {
@@ -197,6 +230,30 @@ export function loadPlan(wire: WirePlan): LoadedPlan {
   const types = wire.types.map((t, i) =>
     loadTypeDecl(t, resourceTokens, `types[${i}]`)
   );
+  // plan v3: the `task-return` decls double as the `TypeTupleIndex` ->
+  // `plan.types` dictionary (see `LoadedPlan.resultTupleTypes`). Two decls
+  // naming the same raw tuple must agree — they are interned from one
+  // wasmtime type, so disagreement means a hand-edited/corrupt plan.
+  const resultTupleTypes = new Map<number, number>();
+  for (const [i, t] of wire.trampolines.entries()) {
+    if (t.kind !== "task-return") continue;
+    const decl = t as Extract<WireTrampoline, { kind: "task-return" }>;
+    if (decl.resultType === null) continue;
+    if (decl.resultType < 0 || decl.resultType >= wire.types.length) {
+      throw new PlanError(
+        `trampolines[${i}].resultType = ${decl.resultType} is not a valid ` +
+          `index into plan.types (length ${wire.types.length})`,
+      );
+    }
+    const seen = resultTupleTypes.get(decl.results);
+    if (seen !== undefined && seen !== decl.resultType) {
+      throw new PlanError(
+        `trampolines[${i}]: task-return tuple ${decl.results} maps to both ` +
+          `type ${seen} and type ${decl.resultType}`,
+      );
+    }
+    resultTupleTypes.set(decl.results, decl.resultType);
+  }
   const elems = (ts: { element: WireValType | null }[] | undefined, what: string) =>
     (ts ?? []).map((t, i) =>
       t.element === null
@@ -212,6 +269,8 @@ export function loadPlan(wire: WirePlan): LoadedPlan {
     futureElems: elems(wire.futureTables, "futureTables"),
     streamTableInstances: wire.streamTables.map((t) => t.instance),
     futureTableInstances: wire.futureTables.map((t) => t.instance),
+    errorContextTableInstances: wire.errorContextTables.map((t) => t.instance),
+    resultTupleTypes,
   };
 }
 
@@ -469,6 +528,8 @@ function validateTrampoline(t: unknown, where: string): void {
     case "task-return":
       expectNumber(tr, "instance", where);
       expectNumber(tr, "results", where);
+      // plan v3: required, `number | null`.
+      expectNumberOrNull(tr, "resultType", where);
       expectNumber(tr, "options", where);
       return;
     case "resource-drop":

@@ -213,6 +213,61 @@ Deno.test("reentrance: the entering set excludes the caller's own ancestry", () 
 });
 
 // ---------------------------------------------------------------------------
+// Synthetic per-instantiation root (plan v3 amendment 4 / deltic#101)
+// ---------------------------------------------------------------------------
+
+Deno.test("root: a host entry locks the whole instantiation, not just the leaf", () => {
+  const store = new Store();
+  const a = new ComponentInstanceState(0, store);
+  const b = new ComponentInstanceState(1, store);
+  assertEq(a.parent === b.parent, true, "siblings share one synthetic root");
+  assertEq(a.parent!.isSyntheticRoot, true);
+
+  // definitions.py `entering_set(None)` = `self_and_ancestors()`, which in the
+  // reference always contains the top-level root. So a host entry into A
+  // forbids a host entry into B — the reachable divergence #101 reported.
+  assertEq([...a.enteringSet(null)].length, 2, "{leaf, root}");
+  a.enterFrom(null);
+  assertEq(a.mayEnterFrom(null), false);
+  assertEq(b.mayEnterFrom(null), false, "the sibling is locked through the root");
+  a.leaveTo(null);
+  assertEq(b.mayEnterFrom(null), true);
+});
+
+Deno.test("root: instantiations are independent", () => {
+  const a = new ComponentInstanceState(0, new Store());
+  const b = new ComponentInstanceState(0, new Store());
+  a.enterFrom(null);
+  assertEq(b.mayEnterFrom(null), true, "a different Store is a different root");
+});
+
+Deno.test("root: guest-to-guest entering sets are unchanged ({leaf})", () => {
+  const store = new Store();
+  const a = new ComponentInstanceState(0, store);
+  const b = new ComponentInstanceState(1, store);
+  // The root cancels out (it is in the caller's ancestry), so a guest->guest
+  // call locks only the callee — the DAG adjudication (#99/#101).
+  const set = [...b.enteringSet(a)];
+  assertEq(set.length, 1);
+  assertEq(set[0] === b, true);
+  // ...and a call to oneself still enters nothing.
+  assertEq([...a.enteringSet(a)].length, 0);
+});
+
+Deno.test("root: trap poisoning stays per-instance (documented divergence)", () => {
+  const store = new Store();
+  const a = new ComponentInstanceState(0, store);
+  const b = new ComponentInstanceState(1, store);
+  // A host entry into A that traps never reaches `leaveTo`: A stays poisoned
+  // forever. deltic deliberately keeps sibling instances usable (exec/
+  // boundary.ts `poison`), so the shared root is released explicitly.
+  a.enterFrom(null);
+  a.releaseSyntheticRootOnPoison();
+  assertEq(a.mayEnterFrom(null), false, "the leaf stays poisoned");
+  assertEq(b.mayEnterFrom(null), true, "a sibling is still enterable");
+});
+
+// ---------------------------------------------------------------------------
 // Backpressure (run_tests.py test_async_backpressure)
 // ---------------------------------------------------------------------------
 

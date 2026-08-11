@@ -871,13 +871,16 @@ export function createFutureTransfer(ctx: AsyncTransferContext): CoreFn {
  * rather than removing it, so the source keeps its own.
  */
 /**
- * CONTRACT: the plan has no `errorContextTables` section, so the table indices
- * this intrinsic receives are resolved through the *resource*-table instance
- * mapping. That happens to agree for the current corpus and fails loudly
- * (`PlanError`) when it does not, but it is an assumption, not a guarantee —
- * an `errorContextTables` field (alongside the v2 `streamTables`/
- * `futureTables`) would make it exact. Recorded with the other plan-format
- * friction items.
+ * Plan v3 (contracts/plan-format.md v3 amendment 2): `instanceOf` resolves
+ * through the plan's `errorContextTables` section — the
+ * `TypeComponentLocalErrorContextTableIndex` space these arguments actually
+ * live in. It replaced a resource-table lookup, which shared neither the
+ * index space nor (in a multi-instance composition) the answer.
+ *
+ * The arguments are the trampoline's own core parameters, so a missing one is
+ * an arity fault, not a zero: no `?? 0` defaults — `instanceOf(undefined!)`
+ * would be a silent table-0 read. `assert_` instead, and the accessor itself
+ * raises a `PlanError` for an out-of-range table.
  */
 export function createErrorContextTransfer(
   ctx: AsyncTransferContext,
@@ -885,9 +888,14 @@ export function createErrorContextTransfer(
 ): CoreFn {
   void ctx;
   return (srcIdx?: number, srcTable?: number, dstTable?: number) => {
-    const srcInst = instanceOf(srcTable ?? 0);
-    const dstInst = instanceOf(dstTable ?? 0);
-    const e = srcInst.handles.get(srcIdx ?? 0);
+    assert_(
+      typeof srcIdx === "number" && typeof srcTable === "number" &&
+        typeof dstTable === "number",
+      "error-context transfer: expected (handle, srcTable, dstTable)",
+    );
+    const srcInst = instanceOf(srcTable as number);
+    const dstInst = instanceOf(dstTable as number);
+    const e = srcInst.handles.get(srcIdx as number);
     trapIf(
       !(e instanceof ErrorContext),
       "error-context transfer: handle is not an error-context",

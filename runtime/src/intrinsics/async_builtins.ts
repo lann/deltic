@@ -94,11 +94,18 @@ export const BLOCKED = 0xffff_ffff;
 
 /** definitions.py `canon_task_return` (line 2391). */
 export function createTaskReturn(
-  decl: { results: number; options: number },
+  decl: { results: number; resultType: number | null; options: number },
   ctx: AsyncTrampolineContext,
 ): CoreFn {
   const opts = ctx.options(decl.options);
-  const resultTypes = ctx.resultTypes(decl.results);
+  // plan v3: `resultType` is the interned `plan.types` entry; `results` is the
+  // raw wasmtime `TypeTupleIndex` (the FACT `task_return_type` key, consumed
+  // by the loader's dictionary). `null` is wire-legal for a task with no
+  // declared result type; today's producer always emits the empty tuple
+  // instead, so this degenerates to `[]` either way.
+  const resultTypes = decl.resultType === null
+    ? []
+    : ctx.resultTypes(decl.resultType);
   return (...flatArgs: CoreValue[]) => {
     const task = currentTask() as Task;
     trapIf(
@@ -106,29 +113,36 @@ export function createTaskReturn(
       "task.return: cannot leave component instance (may_leave violation)",
     );
     trapIf(!task.opts.async_, "task.return from a non-async task");
-    // `trap_if(result_type != task.ft.result)`: the trampoline's interned
-    // result tuple must be the lifted function's result type. Compared
-    // structurally — the plan's type table interns by structure, so identity
-    // comparison would reject valid components.
-    // Skipped for FACT cross-component tasks: their declared result type is a
-    // wasmtime `TypeTupleIndex` we cannot resolve into `plan.types`. See the
-    // CONTRACT note in intrinsics/fact_calls.ts.
+    // `trap_if(result_type != task.ft.result)` (definitions.py:2395): the
+    // trampoline's interned result tuple must be the lifted function's result
+    // type. Compared structurally — the plan's type table interns by
+    // structure, so identity comparison would reject valid components.
+    //
+    // Plan v3 enables this for FACT cross-component tasks too: the callee
+    // task's declared result type is now resolvable from the raw
+    // `TypeTupleIndex` `prepare-call` carried (contracts/plan-format.md v3
+    // amendment 3, wired in fact_calls.ts). It remains skipped for the one
+    // case v3 does not answer — a callee the plan maps no `task.return`
+    // tuple for, where `ft.results` is a placeholder rather than a
+    // declaration (`factResultTypesKnown === false`); comparing against a
+    // placeholder would be a false rejection, not a check.
     trapIf(
-      !task.factPassthrough && !valTypesEqual(resultTypes, task.ft.results),
+      (!task.factPassthrough || task.factResultTypesKnown) &&
+        !valTypesEqual(resultTypes, task.ft.results),
       "task.return with a result type that is not the task's result type",
     );
-    // Also skipped for FACT tasks, for the same reason as the result-type
-    // check above: the task's options are reconstructed from `prepare-call`'s
-    // scalar arguments (a `StringEncoding` discriminant and a
-    // `RuntimeMemoryIndex`), and that reconstruction does not reliably
-    // reproduce the identity comparison definitions.py performs
-    // (`LiftOptions.equal`, line 643, compares `memory` by identity). Applying
-    // it anyway produced a *spurious* trap on the spilled-parameter cases of
-    // `test/async/cross-abi-calls.wast`, which wasmtime accepts — a false
-    // rejection is strictly worse than a missing defence-in-depth check.
-    // Restoring it needs the plan to relate `prepare-call`'s indices to the
-    // callee's canonical options; recorded with the result-type gap as v2
-    // contract friction (see intrinsics/fact_calls.ts).
+    // `trap_if(not LiftOptions.equal(opts, task.opts))` (definitions.py:2396).
+    // The MEMORY half stays skipped for FACT tasks, and plan v3 does NOT
+    // change that: the relaxation was never about the type mapping. The
+    // task's memory is reconstructed from `prepare-call`'s `memory` field,
+    // which is the *adapter's* view of the lift options
+    // (`adapter.lift.options...memory`) and is `None` for callees whose own
+    // `task.return` options do name a memory — the 17-param async-lifted
+    // callees of `test/async/cross-abi-calls.wast` are exactly that shape.
+    // The information simply is not in the plan, at v3 as at v2; restoring
+    // the check needs `prepare-call`'s indices related to the callee's
+    // canonical options, which remains open contract friction.
+    //
     // definitions.py `LiftOptions.equal` (line 643) compares string encoding
     // *and* memory identity. Both halves are checked for a host-boundary task.
     //

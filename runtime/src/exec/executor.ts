@@ -1092,6 +1092,24 @@ class Executor {
         }
         return this.componentInstance(instance);
       },
+      errorContextTableInstance: (i) => {
+        // plan v3: the error-context tables' own index space
+        // (`TypeComponentLocalErrorContextTableIndex`). Loud on absence — the
+        // predecessor of this accessor borrowed the *resource*-table mapping
+        // and could answer with a different instance's table (deltic#89).
+        const instance = this.loaded.errorContextTableInstances[i];
+        if (instance === undefined) {
+          throw new PlanError(
+            `error-context table ${i} is not in the plan's ` +
+              `errorContextTables (plan v3)`,
+          );
+        }
+        return this.componentInstance(instance);
+      },
+      resultTypesForTuple: (i) => {
+        const t = this.loaded.resultTupleTypes.get(i);
+        return t === undefined ? null : this.resultTypes(t);
+      },
       futureElem: (i) => {
         if (i >= this.loaded.futureElems.length) {
           throw new PlanError(

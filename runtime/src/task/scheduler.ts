@@ -922,6 +922,12 @@ export class Store {
         // The bracket stays broken (instance poisoned, comment above), so
         // its live stream/future ends can never rendezvous again — retire
         // them so parked host peers settle instead of hanging (#66).
+        //
+        // The synthetic root (plan v3 amendment 4) is released, though: it is
+        // in this entry's entering set but must not turn per-instance
+        // poisoning into store-wide poisoning. See
+        // `ComponentInstanceState.releaseSyntheticRootOnPoison`.
+        inst.releaseSyntheticRootOnPoison?.();
         onInstancePoisoned?.(inst, e);
       }
       throw e;

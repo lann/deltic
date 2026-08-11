@@ -33,6 +33,17 @@ export * from "./waitable.ts";
 export * from "./subtask.ts";
 export * from "./streams.ts";
 
+/**
+ * Synthetic-root registry: one root per `Store` (see
+ * `ComponentInstanceState.rootOf`). A `WeakMap` so a dead store's root dies
+ * with it.
+ */
+const syntheticRoots = new WeakMap<Store, ComponentInstanceState>();
+/** `index` of the synthetic root — outside the real instance index space. */
+const ROOT_INDEX = -1;
+/** Constructor marker: "this one IS the root, do not give it a parent". */
+const ROOT_TOKEN = Symbol("synthetic-root");
+
 /** Anything a component instance's handle table can hold. */
 export type HandleTableEntry = unknown;
 
@@ -60,17 +71,75 @@ export class ComponentInstanceState implements ComponentInstanceLike {
   /** definitions.py `exclusive_thread`. */
   exclusiveThread: Thread | null = null;
   /**
-   * definitions.py `ComponentInstance.parent`. The plan gives us a flat
-   * instance space with no nesting information, so this stays null and
-   * `selfAndAncestors` degenerates to `{this}` — see `enteringSet`.
+   * definitions.py `ComponentInstance.parent`.
+   *
+   * The plan still gives us a flat instance space, but the tree is no longer
+   * needed: every instance of one instantiation gets the same **synthetic
+   * root** as its parent (contracts/plan-format.md v3 amendment 4 /
+   * deltic#101). See `enteringSet` for why that is observably equivalent to
+   * the real chain. The root itself has no parent.
    */
-  parent: ComponentInstanceState | null = null;
+  parent: ComponentInstanceState | null;
   readonly store: Store;
 
-  constructor(index: number, store?: Store) {
+  /**
+   * The synthetic per-instantiation root (v3 amendment 4). One per `Store`:
+   * a `Store` is exactly one component instantiation's scheduling scope, so
+   * "all `ComponentInstanceState`s sharing a `Store`" is the set that shares
+   * a top-level component — which is the granularity wasmtime's own
+   * top-level-instance-id comparison uses (concurrent.rs:1876-1886).
+   *
+   * It is a real `ComponentInstanceState` (index -1) rather than a bare flag
+   * so it flows through `selfAndAncestors`/`enteringSet` unchanged; its
+   * handle table stays empty and no task ever runs on it.
+   */
+  static rootOf(store: Store): ComponentInstanceState {
+    let root = syntheticRoots.get(store);
+    if (root === undefined) {
+      root = new ComponentInstanceState(ROOT_INDEX, store, ROOT_TOKEN);
+      syntheticRoots.set(store, root);
+    }
+    return root;
+  }
+
+  /** Is this the synthetic root (never a real component instance)? */
+  get isSyntheticRoot(): boolean {
+    return this.index === ROOT_INDEX && this.parent === null;
+  }
+
+  constructor(index: number, store?: Store, root?: typeof ROOT_TOKEN) {
     this.index = index;
     this.store = store ?? new Store();
     this.flags = new WebAssembly.Global({ value: "i32", mutable: true }, 1);
+    // The root is its own tree's top; everything else hangs off it. Built
+    // lazily here so no call site has to remember to wire it up.
+    this.parent = root === ROOT_TOKEN
+      ? null
+      : ComponentInstanceState.rootOf(this.store);
+  }
+
+  /**
+   * Release the synthetic root after a trap broke the enter/leave bracket
+   * (v3 amendment 4, and a **named divergence** from the reference).
+   *
+   * definitions.py poisons the whole entering set: `Store.lift` never reaches
+   * `leave_to`, so the root — which is in every host entry's entering set —
+   * stays `may_enter == False` forever and NO instance of the component can
+   * be entered again. wasmtime is the same by other means (it poisons the
+   * store). deltic deliberately supports post-trap re-entry of instances the
+   * trap did not touch (exec/boundary.ts `poison`: "sibling instances stay
+   * usable, which is why the lock is released per-instance rather than by
+   * poisoning a whole store the way wasmtime does"), and the synthetic root
+   * must not silently convert that documented divergence into store-wide
+   * poisoning. So a trap poisons the LEAF set only, and the root is released
+   * here — the reentrance gate the root exists for (a *second, concurrent*
+   * host entry) is about a live entry, and after a trap unwinds to the host
+   * there is none.
+   */
+  releaseSyntheticRootOnPoison(): void {
+    for (const inst of this.selfAndAncestors()) {
+      if (inst.isSyntheticRoot) inst.mayEnter = true;
+    }
   }
 
   get mayLeave(): boolean {
@@ -96,27 +165,32 @@ export class ComponentInstanceState implements ComponentInstanceLike {
    * definitions.py `ComponentInstance.entering_set` (line 230):
    * `self_and_ancestors() - caller.self_and_ancestors()`.
    *
-   * CONTRACT / KNOWN UNSOUNDNESS: contracts/plan-format.md gives no wire form
-   * for the component *instance tree* (`ComponentInstance.parent`), so every
-   * instance here is its own root. With no ancestors, the entering set is
-   * `{this}` when the caller is a different instance (or the host) and `{}`
-   * when the caller is this instance itself.
+   * CONTRACT (contracts/plan-format.md v3 amendment 4, deltic#101): the plan
+   * still carries no wire form for the component-instance tree, and it no
+   * longer needs one. Every instance's parent is the synthetic
+   * per-instantiation root, so:
    *
-   * For a **flat** component this is exact. For a **nested** one it is not
-   * merely weaker — it admits reentrance the reference forbids. In the
-   * reference, entering a child locks the child *and every ancestor it was
-   * reached through*, so a callee cannot call back into an enclosing
-   * component that is mid-execution. Here the ancestor is never locked, so
-   * that call is permitted and a component can observe itself re-entered —
-   * precisely the state `may_enter` exists to make unreachable. It is not a
-   * missing optimization; it is a hole in the reentrance gate whose size is
-   * "however deep the instance tree is".
+   *   * host entry (`caller === null`): `{this, root}` — the reference's
+   *     entering set for a host entry is `self_and_ancestors()`, which always
+   *     contains the top-level root, so a second host entry anywhere in the
+   *     tree trips on the root either way. This is the divergence #101
+   *     reported (host -> A.f -> host import -> host enters a *different*
+   *     instance): now caught.
+   *   * guest-to-guest (`caller !== null`): `{this}` — the root is in the
+   *     caller's ancestor set and cancels out. Intermediate ancestors would
+   *     be the only difference from the real chain, and they are never
+   *     reachably consulted: FACT compiles same-instance and ancestor calls
+   *     to unconditional compile-time traps, and sibling cycles are
+   *     unreachable because instance imports form a DAG (deltic#99
+   *     adjudication).
    *
-   * Nothing in the current corpus exercises it (the sync suite is flat and
-   * the async suite is blocked earlier), which is why it is recorded rather
-   * than worked around: a faithful fix needs the nesting information in the
-   * plan, not a guess in the runtime. Recorded as v0.3 contract friction and
-   * as the blocker for `test_cross_component_realloc`.
+   * So the synthetic root is observably equivalent to the full chain, and it
+   * matches wasmtime's own shortcut — a top-level instance-id comparison
+   * (concurrent.rs:1876-1886) — by construction. This reopens only if some
+   * future upstream shape makes nesting depth observable.
+   *
+   * One deliberate departure remains, at the trap path rather than here: see
+   * `releaseSyntheticRootOnPoison`.
    */
   enteringSet(caller: ComponentInstanceState | null): Set<ComponentInstanceState> {
     const mine = this.selfAndAncestors();
@@ -230,6 +304,20 @@ export class Task {
    * arguments (host-boundary task) or pass them straight through (FACT task).
    */
   factPassthrough = false;
+  /**
+   * Plan v3: does `ft.results` hold this FACT task's *declared* result type?
+   *
+   * A FACT callee task's result type arrives as the raw wasmtime
+   * `TypeTupleIndex` `prepare-call` passes as `task_return_type`; v3's
+   * `task-return.results` / `resultType` pair is the dictionary for it
+   * (contracts/plan-format.md v3 amendment 3). It resolves for every callee
+   * that has a `task.return` trampoline of its own — which is every callee
+   * that can call `task.return` — but a callee with none (sync-lifted,
+   * reached through an async-to-sync adapter) contributes no entry, and then
+   * `ft.results` is the empty placeholder it was before v3. Only when this is
+   * true may `canon_task_return` compare against it.
+   */
+  factResultTypesKnown = false;
   /**
    * In-flight FACT sync-call brackets for THIS task
    * (`enter-sync-call`/`exit-sync-call`).

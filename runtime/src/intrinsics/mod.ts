@@ -288,6 +288,18 @@ export interface TrampolineContext {
   futureElem(index: number): import("../cabi/types.ts").ValType | null;
   streamTableInstance(index: number): ComponentInstanceState;
   futureTableInstance(index: number): ComponentInstanceState;
+  /**
+   * The component instance owning error-context table `index`
+   * (`TypeComponentLocalErrorContextTableIndex`, plan v3 `errorContextTables`).
+   * Its own index space — NOT the resource-table one it used to borrow.
+   */
+  errorContextTableInstance(index: number): ComponentInstanceState;
+  /**
+   * Element types of the *raw* wasmtime `TypeTupleIndex` FACT's
+   * `prepare-call` passes as `task_return_type`, or `null` when the plan
+   * carries no mapping for it (see `LoadedPlan.resultTupleTypes`).
+   */
+  resultTypesForTuple(tupleIndex: number): import("../cabi/types.ts").ValType[] | null;
   /** Build the lowered-import body for `lowered` (LoweredIndex). */
   loweredImport(decl: {
     lowered: number;
@@ -633,7 +645,11 @@ function createTrampolineBody(
     // wasm frame fail there, at the call site, with a JSPI-shaped message.
     case "task-return":
       return createTaskReturn(
-        decl as unknown as { results: number; options: number },
+        decl as unknown as {
+          results: number;
+          resultType: number | null;
+          options: number;
+        },
         ctx as AsyncTrampolineContext,
       );
     case "task-cancel":
@@ -750,10 +766,14 @@ function createTrampolineBody(
     case "error-context-transfer":
       return createErrorContextTransfer(
         ctx as unknown as AsyncTransferContext,
-        // error-context tables are per component instance but the plan has no
-        // separate table section for them; the resource-table instance mapping
-        // is the same index space wasmtime uses for the transfer's arguments.
-        (t) => ctx.resourceTableInstance(t),
+        // plan v3: the transfer's table arguments are
+        // `TypeComponentLocalErrorContextTableIndex`es (fact/trampoline.rs:
+        // 3526-3539), resolved through the plan's own `errorContextTables`
+        // section. Before v3 this went through `resourceTableInstance` — a
+        // different index space, which mis-routed silently whenever a
+        // concrete resource table happened to exist at the colliding slot
+        // (deltic#89).
+        (t) => ctx.errorContextTableInstance(t),
       );
 
     case "resource-transfer-own":

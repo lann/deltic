@@ -1133,10 +1133,17 @@ export function createLiftedFunction(input: {
      */
     const poison = (e: unknown): void => {
       entered = false; // consumed: the lock is now permanent
+      // ...for the leaf. The synthetic per-instantiation root (plan v3
+      // amendment 4) is in `enteredSet` too, and leaving IT locked would
+      // poison every instance of the component — exactly the store-wide
+      // behaviour the paragraph above says this runtime deliberately does not
+      // have. Released; see `releaseSyntheticRootOnPoison` in task/mod.ts.
+      inst.releaseSyntheticRootOnPoison();
       // Through the seam (not retireInstanceAsyncEnds directly) so the
       // poison marker is recorded too — `Thread.resumeWith` retires this
       // instance's late settles against it instead of assert-cascading.
       for (const i of enteredSet) {
+        if (i.isSyntheticRoot) continue;
         notifyInstancePoisoned(
           i as unknown as { handles: Iterable<unknown> },
           e,

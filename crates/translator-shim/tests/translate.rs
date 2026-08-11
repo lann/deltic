@@ -140,13 +140,20 @@ fn async_lift_translates() {
         .trampolines
         .iter()
         .find_map(|tr| match tr {
-            TrampolineDecl::TaskReturn { results, options, .. } => Some((*results, *options)),
+            TrampolineDecl::TaskReturn {
+                result_type,
+                options,
+                ..
+            } => Some((*result_type, *options)),
             _ => None,
         })
         .expect("task-return trampoline required");
-    // The results reference points at a tuple entry in the types table.
+    // Plan v3: `resultType` is the interned entry (`results` next to it is the
+    // raw wasmtime `TypeTupleIndex`, a different space). It points at a tuple
+    // entry in the types table.
+    let result_type = task_return.0.expect("v3 emits an interned result tuple");
     assert!(matches!(
-        t.plan.types[task_return.0 as usize],
+        t.plan.types[result_type as usize],
         TypeDecl::Value(ValTypeJson::Tuple { .. })
     ));
     assert!((task_return.1 as usize) < t.plan.canonical_options.len());
@@ -652,4 +659,89 @@ fn imported_resources_are_emitted() {
             .iter()
             .any(|t| matches!(t, TrampolineDecl::ResourceDrop { .. }))
     );
+}
+
+/// Plan v3 (contracts/plan-format.md v3 amendments 2 and 3).
+///
+/// (2) `errorContextTables` describes the index space the
+/// `error-context-*` trampolines' table arguments live in
+/// (`TypeComponentLocalErrorContextTableIndex`), emitted from environ's
+/// `ComponentTypes::error_context_tables` in `PrimaryMap` order.
+#[test]
+fn error_context_tables_are_emitted() {
+    let bytes = build("error-context");
+    let t = translate(&bytes).unwrap();
+
+    assert_eq!(t.plan.format_version, 3);
+    // One table, owned by the single runtime component instance.
+    assert_eq!(t.plan.error_context_tables.len(), 1);
+    assert_eq!(t.plan.error_context_tables[0].instance, 0);
+    // ...and the trampolines index into it.
+    let table = t
+        .plan
+        .trampolines
+        .iter()
+        .find_map(|tr| match tr {
+            TrampolineDecl::ErrorContextNew {
+                error_context_table,
+                ..
+            } => Some(*error_context_table),
+            _ => None,
+        })
+        .expect("error-context-new trampoline required");
+    assert!(
+        (table as usize) < t.plan.error_context_tables.len(),
+        "table {table} out of range of errorContextTables"
+    );
+}
+
+/// (3) A `task-return` decl carries BOTH the raw wasmtime `TypeTupleIndex`
+/// (`results` — the value FACT's `prepare-call` passes as `task_return_type`
+/// at runtime) and its interning into `plan.types` (`resultType`). The two are
+/// different index spaces; conflating them is what left `canon_task_return`'s
+/// result-type check disabled for FACT tasks through v2.
+#[test]
+fn task_return_carries_raw_and_interned_result_types() {
+    let bytes = build("async-linked");
+    let t = translate(&bytes).unwrap();
+
+    let decls: Vec<(u32, Option<u32>)> = t
+        .plan
+        .trampolines
+        .iter()
+        .filter_map(|tr| match tr {
+            TrampolineDecl::TaskReturn {
+                results,
+                result_type,
+                ..
+            } => Some((*results, *result_type)),
+            _ => None,
+        })
+        .collect();
+    assert!(!decls.is_empty(), "async-linked must have task-return trampolines");
+    for (raw, interned) in &decls {
+        let interned = interned.expect("v3 always interns the result tuple");
+        assert!(
+            matches!(
+                t.plan.types[interned as usize],
+                TypeDecl::Value(ValTypeJson::Tuple { .. })
+            ),
+            "resultType {interned} must name a tuple type"
+        );
+        // The raw index is wasmtime's own and is not a plan.types index; it is
+        // only required to be stable and to round-trip through the loader's
+        // dictionary, which the runtime suite pins (tests/plan_v3_test.ts).
+        let _ = raw;
+    }
+    // One raw tuple index maps to exactly one interned entry.
+    let mut sorted = decls.clone();
+    sorted.sort();
+    sorted.dedup();
+    for (raw, _) in &sorted {
+        assert_eq!(
+            sorted.iter().filter(|(r, _)| r == raw).count(),
+            1,
+            "raw tuple {raw} maps to more than one plan.types entry"
+        );
+    }
 }

@@ -271,7 +271,57 @@ Additions/corrections from the M0 integration, normative as of v0.1:
    reuses resource-table instance mapping, which fails loudly (never
    silently mis-routes) but is structurally the wrong index space. A v3
    should add `errorContextTables` and the `TypeTupleIndex` mapping
-   together.
+   together. **[v3 correction, deltic#89: the "fails loudly" claim was
+   false — the resource-table accessor succeeds whenever a concrete
+   resource table exists at the colliding index, and a composed component
+   with an ErrorContext at the colliding slot mis-routes silently. Both
+   gaps closed in v3 below.]**
+
+## v3 amendments (2026-08-10, deltic#89 / #99 / #101)
+
+1. **`formatVersion` is now `3`** (strict equality both sides, same-commit
+   bump rule as v1/v2).
+2. **`errorContextTables` section added**: entries
+   `{"instance": RuntimeComponentInstanceIndex}`, index space = wasmtime
+   `TypeComponentLocalErrorContextTableIndex`, emitted from environ's
+   `ComponentTypes.error_context_tables` (`TypeErrorContextTable.instance`,
+   types.rs:1147). The `error-context-transfer` trampoline's `srcTable`/
+   `dstTable` resolve through this section via a dedicated
+   `errorContextTableInstance(i)` accessor — never through
+   `resourceTables` (closes v2 amendment 3(b); loud `PlanError` on
+   out-of-range, no `?? 0` defaults). Digest-neutral, same rationale as the
+   v2 table sections.
+3. **`task-return` trampolines carry `resultType`**: the wasmtime
+   `TypeTupleIndex` is interned into `plan.types` like every other type and
+   the trampoline decl gains `"resultType": <type index> | null` (null
+   accepted on the wire; the current producer always emits a tuple — a
+   no-result task carries the empty tuple). **Field-shape note (implementation
+   reality, deltic#89):** the v2 decl's `results` field already held the
+   *interned* index, which made it useless as the FACT lookup key; at v3
+   `results` carries the **raw** wasmtime `TypeTupleIndex` (the key
+   `prepare-call` passes at runtime) and `resultType` the interned
+   `plan.types` index. The loader builds the raw→interned dictionary and
+   rejects contradictory mappings. Executor obligation: enable the
+   previously-skipped `canon_task_return` **result-type check** for FACT
+   tasks (structural comparison against the task's declared result type,
+   definitions.py:2395-2396). The **memory-identity half of options
+   equality remains a named open gap** — it is not unblocked by the type
+   mapping (the relaxation is about `prepare-call.memory` being the
+   adapter's second-hand view against wasmtime's one-sided check),
+   re-justified at the site (intrinsics/fact_calls.ts / async_builtins.ts
+   CONTRACT notes).
+4. **v1 amendment 4 (instance-tree gap) closed runtime-side — no wire
+   form** (deltic#101 adjudication). The reference's reachable
+   `entering_set` checks collapse under two facts: a host entry's entering
+   set always includes the top-level root, and guest-to-guest pairs never
+   consult intermediate ancestors reachably (FACT statically traps
+   same/ancestor pairs; sibling cycles are DAG-unreachable, deltic#99). A
+   **synthetic per-component-instantiation root** participating in
+   `mayEnterFrom`/`enterFrom`/`leaveTo` as every instance's shared parent
+   is therefore observably equivalent to the full chain, and matches
+   wasmtime's top-level-id shortcut (concurrent.rs:1876-1886) by
+   construction. Reopens only if a future upstream shape makes nesting
+   depth observable.
 
 ## Documentation amendments (C2)
 

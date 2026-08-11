@@ -68,6 +68,8 @@ function runPrepared(input: {
   const ctx = {
     componentInstance: () => inst,
     resultTypes: () => [] as ValType[],
+    // plan v3: no task-return tuple mapping in this synthetic plan.
+    resultTypesForTuple: () => null,
     callback: () => {
       throw new Error("no callback expected");
     },
@@ -206,7 +208,9 @@ Deno.test("FACT: task.return preserves float lanes on the passthrough", () => {
   task.state = "started";
 
   const taskReturn = createTaskReturn(
-    { results: 0, options: 0 },
+    // plan v3: `results` = raw wasmtime TypeTupleIndex, `resultType` = the
+    // interned plan.types entry (here: the empty tuple, type 0).
+    { results: 0, resultType: 0, options: 0 },
     // deno-lint-ignore no-explicit-any
     {
       componentInstance: () => inst,
