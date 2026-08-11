@@ -86,3 +86,50 @@ Deno.test("kernel: poll on an empty list traps (unbranded throw)", () => {
   assertTrue(raised instanceof Error, `expected a throw, got ${raised}`);
   assertTrue(!(raised instanceof Promise), "trap is synchronous");
 });
+
+Deno.test({
+  name: "kernel: a timer's wait re-arms after an early fire (no resolved-promise spin)",
+  // The re-armed 5ms sleep (and nothing to cancel it through the WIT
+  // surface) outlives the test on purpose; timers are fire-and-forget.
+  sanitizeOps: false,
+  fn: async () => {
+    // Force an early fire deterministically with an injected clock: the
+    // sleep is computed from `nowNs` (5ms) but the clock never advances,
+    // so the chunk ends with `ready()` still false — the shape of timer
+    // slop and of the setTimeout ceiling clamp. Pre-fix, the armed promise
+    // was cached forever: the second wait() returned it already-settled
+    // and block()'s re-check loop degenerated to a hot microtask spin.
+    const frozen = 1_000_000n;
+    const p = Pollable.timer(frozen + 5_000_000n, () => frozen); // +5ms, clock frozen
+    await p.waitPromise(); // first arm fires with ready() still false
+    assertEq(p.ready(), false, "clock is frozen: still unready");
+    const second = p.waitPromise();
+    let settled = false;
+    second.then(() => (settled = true));
+    await sleep(0); // drain microtasks: a cached resolved promise settles here
+    assertEq(settled, false, "second wait() is a fresh, pending sleep");
+  },
+});
+
+Deno.test({
+  name: "kernel: a far deadline sleeps in chunks instead of spinning on the clamp",
+  // The in-flight ceiling-sized chunk sleep outlives the test on purpose.
+  sanitizeOps: false,
+  fn: async () => {
+    // Past the ~2^31-1 ms setTimeout ceiling engines clamp the delay to
+    // ~0. Pre-fix (clamp + cached arm) the wait was permanently settled a
+    // tick after the first arm — block()/poll() then spun the microtask
+    // queue for the full 60 days. Post-fix each chunk is a real sleep, so
+    // the wait promise is still pending well after the clamp would have
+    // fired. (60 days keeps Number(bigint) exact; u64-sentinel deadlines
+    // take the same path via Math.min.)
+    const farNs = nowNs() + 60n * 24n * 3600n * 1_000_000_000n; // +60 days
+    const p = Pollable.timer(farNs, nowNs);
+    assertEq(p.ready(), false);
+    const wait = p.waitPromise();
+    let settled = false;
+    wait.then(() => (settled = true));
+    await sleep(30); // >> the ~1ms clamp fire
+    assertEq(settled, false, "far-deadline wait is still parked after 30ms");
+  },
+});
