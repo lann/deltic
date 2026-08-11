@@ -121,6 +121,15 @@ export function loadPlan(wire: WirePlan): LoadedPlan {
       "canonicalOptions",
       "types",
       "resourceTables",
+      // ISSUE #94(2): the shim (crates/translator-shim/src/plan.rs) has no
+      // `skip_serializing_if` on `stream_tables`/`future_tables` — a real
+      // emitted v2 plan always serializes these as arrays (`[]` when empty,
+      // never absent). Requiring presence here keeps the loader consistent
+      // with what the producer actually emits, rather than silently
+      // tolerating an absent field via `?? []` (which would also mask a
+      // genuinely malformed/truncated envelope).
+      "streamTables",
+      "futureTables",
       "imports",
       "exports",
     ] as const
@@ -129,6 +138,22 @@ export function loadPlan(wire: WirePlan): LoadedPlan {
       throw new PlanError(`plan.${required} missing or not an array`);
     }
   }
+
+  // ISSUE #94(3): deep-schema strictness. `initializers` / `trampolines` /
+  // `canonicalOptions` / `CoreDef`s reach `runInitializers` unchecked today;
+  // a malformed op object (e.g. `{"op":"instantiate-module"}` missing
+  // `args`) dies as a raw `TypeError` deep in the executor rather than a
+  // typed `PlanError` here at load time. Proportionate check: a
+  // discriminated-union switch per op/trampoline kind verifying required
+  // fields are present and primitively typed — not a full JSON-schema
+  // engine.
+  wire.initializers.forEach((init, i) =>
+    validateInitializer(init, `initializers[${i}]`)
+  );
+  wire.trampolines.forEach((t, i) => validateTrampoline(t, `trampolines[${i}]`));
+  wire.canonicalOptions.forEach((o, i) =>
+    validateCanonicalOptions(o, `canonicalOptions[${i}]`)
+  );
 
   const importedResources = wire.importedResources ?? [];
   for (const [i, ir] of importedResources.entries()) {
@@ -185,8 +210,8 @@ export function loadPlan(wire: WirePlan): LoadedPlan {
     numImportedResources: importedResources.length,
     streamElems: elems(wire.streamTables, "streamTables"),
     futureElems: elems(wire.futureTables, "futureTables"),
-    streamTableInstances: (wire.streamTables ?? []).map((t) => t.instance),
-    futureTableInstances: (wire.futureTables ?? []).map((t) => t.instance),
+    streamTableInstances: wire.streamTables.map((t) => t.instance),
+    futureTableInstances: wire.futureTables.map((t) => t.instance),
   };
 }
 
@@ -243,6 +268,254 @@ function base64Decode(s: string): Uint8Array {
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
   return out;
 }
+
+// --- ISSUE #94(3): deep-schema validation --------------------------------
+//
+// Proportionate shape-checking for the wire-format ops the executor runs
+// strictly: required-field presence + primitive-type checks per
+// discriminated-union arm, mirroring `format.ts`'s tagged unions. Not a
+// full JSON-schema validator (no cross-field or index-bounds checks beyond
+// what's already done for type/resource tables above) — just enough that
+// a malformed op surfaces as a typed `PlanError` here instead of a raw
+// `TypeError` mid-execution in the executor.
+
+function isRecord(x: unknown): x is Record<string, unknown> {
+  return typeof x === "object" && x !== null && !Array.isArray(x);
+}
+
+function expect(
+  cond: boolean,
+  where: string,
+  what: string,
+): asserts cond {
+  if (!cond) throw new PlanError(`${where}: ${what}`);
+}
+
+function expectNumber(o: Record<string, unknown>, field: string, where: string) {
+  expect(
+    typeof o[field] === "number",
+    where,
+    `.${field} must be a number, got ${describeValue(o[field])}`,
+  );
+}
+
+function expectNumberOrNull(
+  o: Record<string, unknown>,
+  field: string,
+  where: string,
+) {
+  expect(
+    o[field] === null || typeof o[field] === "number",
+    where,
+    `.${field} must be a number or null, got ${describeValue(o[field])}`,
+  );
+}
+
+function expectString(o: Record<string, unknown>, field: string, where: string) {
+  expect(
+    typeof o[field] === "string",
+    where,
+    `.${field} must be a string, got ${describeValue(o[field])}`,
+  );
+}
+
+function expectBoolean(o: Record<string, unknown>, field: string, where: string) {
+  expect(
+    typeof o[field] === "boolean",
+    where,
+    `.${field} must be a boolean, got ${describeValue(o[field])}`,
+  );
+}
+
+function expectArray(o: Record<string, unknown>, field: string, where: string) {
+  expect(
+    Array.isArray(o[field]),
+    where,
+    `.${field} must be an array, got ${describeValue(o[field])}`,
+  );
+}
+
+function describeValue(v: unknown): string {
+  if (v === undefined) return "undefined (missing)";
+  if (v === null) return "null";
+  if (Array.isArray(v)) return `array (length ${v.length})`;
+  if (typeof v === "object") return "object";
+  return JSON.stringify(v);
+}
+
+const CORE_TYPE_LANES = new Set(["i32", "i64", "f32", "f64"]);
+
+function validateCoreDef(def: unknown, where: string): void {
+  expect(isRecord(def), where, `must be an object, got ${describeValue(def)}`);
+  const d = def as Record<string, unknown>;
+  expectString(d, "kind", where);
+  switch (d.kind) {
+    case "export":
+      expectNumber(d, "instance", where);
+      expect(isRecord(d.item), where, `.item must be an object`);
+      validateExportItem(d.item, `${where}.item`);
+      return;
+    case "instance-flags":
+      expectNumber(d, "instance", where);
+      return;
+    case "trampoline":
+      expectNumber(d, "index", where);
+      return;
+    case "unsafe-intrinsic":
+      expectString(d, "intrinsic", where);
+      return;
+    case "task-may-block":
+      return;
+    default:
+      throw new PlanError(`${where}: unknown CoreDef kind ${describeValue(d.kind)}`);
+  }
+}
+
+function validateExportItem(item: unknown, where: string): void {
+  expect(isRecord(item), where, `must be an object`);
+  const it = item as Record<string, unknown>;
+  expectString(it, "name", where);
+  expect(
+    typeof it.space === "string" &&
+      ["func", "table", "memory", "global", "tag", "unknown"].includes(
+        it.space as string,
+      ),
+    where,
+    `.space must be one of func/table/memory/global/tag/unknown, got ` +
+      describeValue(it.space),
+  );
+}
+
+function validateCoreExport(exp: unknown, where: string): void {
+  expect(isRecord(exp), where, `must be an object`);
+  const e = exp as Record<string, unknown>;
+  expectNumber(e, "instance", where);
+  expect(isRecord(e.item), where, `.item must be an object`);
+  validateExportItem(e.item, `${where}.item`);
+}
+
+function validateInitializer(init: unknown, where: string): void {
+  expect(isRecord(init), where, `must be an object, got ${describeValue(init)}`);
+  const i = init as Record<string, unknown>;
+  expectString(i, "op", where);
+  switch (i.op) {
+    case "instantiate-module":
+      expectNumber(i, "module", where);
+      expectNumberOrNull(i, "instance", where);
+      expectArray(i, "args", where);
+      (i.args as unknown[]).forEach((a, idx) =>
+        validateCoreDef(a, `${where}.args[${idx}]`)
+      );
+      return;
+    case "lower-import":
+      expectNumber(i, "index", where);
+      expectNumber(i, "import", where);
+      return;
+    case "extract-memory":
+      expectNumber(i, "index", where);
+      validateCoreExport(i.export, `${where}.export`);
+      return;
+    case "extract-realloc":
+    case "extract-callback":
+    case "extract-post-return":
+      expectNumber(i, "index", where);
+      validateCoreDef(i.def, `${where}.def`);
+      return;
+    case "extract-table":
+      expectNumber(i, "index", where);
+      validateCoreExport(i.export, `${where}.export`);
+      return;
+    case "resource":
+      expectNumber(i, "index", where);
+      expect(
+        typeof i.rep === "string" && CORE_TYPE_LANES.has(i.rep as string),
+        where,
+        `.rep must be one of i32/i64/f32/f64, got ${describeValue(i.rep)}`,
+      );
+      expect(
+        i.dtor === null || isRecord(i.dtor),
+        where,
+        `.dtor must be a CoreDef object or null`,
+      );
+      if (i.dtor !== null) validateCoreDef(i.dtor, `${where}.dtor`);
+      expectNumber(i, "instance", where);
+      return;
+    default:
+      throw new PlanError(`${where}: unknown initializer op ${describeValue(i.op)}`);
+  }
+}
+
+// Trampoline kinds with precise wire shapes (format.ts's non-catch-all
+// arms). Everything else falls to the `{ kind: string; index: number;
+// [field: string]: unknown }` catch-all — milestone-aware unsupported
+// kinds the executor rejects at instantiate time (contracts/intrinsics.md
+// §B), so only `kind` (string) and `index` (number) are load-time
+// invariants for those.
+function validateTrampoline(t: unknown, where: string): void {
+  expect(isRecord(t), where, `must be an object, got ${describeValue(t)}`);
+  const tr = t as Record<string, unknown>;
+  expectString(tr, "kind", where);
+  expectNumber(tr, "index", where);
+  switch (tr.kind) {
+    case "lower-import":
+      expectNumber(tr, "lowered", where);
+      expectNumber(tr, "options", where);
+      expectNumber(tr, "type", where);
+      return;
+    case "trap":
+    case "enter-sync-call":
+    case "exit-sync-call":
+      return;
+    case "task-return":
+      expectNumber(tr, "instance", where);
+      expectNumber(tr, "results", where);
+      expectNumber(tr, "options", where);
+      return;
+    case "resource-drop":
+    case "resource-new":
+    case "resource-rep":
+      expectNumber(tr, "instance", where);
+      expectNumber(tr, "resource", where);
+      return;
+    default:
+      // Catch-all: unknown/milestone-gated kind, only the common fields
+      // above are required.
+      return;
+  }
+}
+
+function validateCanonicalOptions(o: unknown, where: string): void {
+  expect(isRecord(o), where, `must be an object, got ${describeValue(o)}`);
+  const co = o as Record<string, unknown>;
+  expectNumber(co, "instance", where);
+  expect(
+    typeof co.stringEncoding === "string" &&
+      ["utf8", "utf16", "latin1+utf16"].includes(co.stringEncoding as string),
+    where,
+    `.stringEncoding must be one of utf8/utf16/latin1+utf16, got ` +
+      describeValue(co.stringEncoding),
+  );
+  expectNumberOrNull(co, "memory", where);
+  expectNumberOrNull(co, "realloc", where);
+  expectNumberOrNull(co, "postReturn", where);
+  expectNumberOrNull(co, "callback", where);
+  expectBoolean(co, "async", where);
+  expectBoolean(co, "cancellable", where);
+  expect(isRecord(co.coreType), where, `.coreType must be an object`);
+  const ct = co.coreType as Record<string, unknown>;
+  expectArray(ct, "params", `${where}.coreType`);
+  expectArray(ct, "results", `${where}.coreType`);
+  for (const [field, lanes] of [["params", ct.params], ["results", ct.results]] as const) {
+    (lanes as unknown[]).forEach((lane, idx) => {
+      expect(
+        typeof lane === "string" && CORE_TYPE_LANES.has(lane),
+        `${where}.coreType.${field}[${idx}]`,
+        `must be one of i32/i64/f32/f64, got ${describeValue(lane)}`,
+      );
+    });
+  }
+}
+
 
 function loadTypeDecl(
   t: WireTypeDecl,

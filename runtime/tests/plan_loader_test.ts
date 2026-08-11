@@ -37,6 +37,8 @@ function minimalPlan(overrides: Partial<WirePlan> = {}): WirePlan {
     canonicalOptions: [],
     types: [],
     resourceTables: [],
+    streamTables: [],
+    futureTables: [],
     imports: [],
     exports: [],
     worldDigest: "sha256:0",
@@ -250,4 +252,151 @@ Deno.test("loader: importedResources back-references are range-checked", () => {
     () => loadPlan(minimalPlan({ importedResources: [{ import: 3 }] })),
     "not a valid index into plan.imports",
   );
+});
+
+// ISSUE #94(2): streamTables/futureTables are required-array in a v2 plan
+// (the shim never omits them; see plan/format.ts's field doc). A plan that
+// omits them entirely (a stale v0.1-shaped document masquerading as v2, or
+// a truncated envelope) must fail loudly at load time, not be silently
+// read as "no stream/future tables".
+Deno.test("loader: streamTables/futureTables are required for formatVersion 2", () => {
+  const wire = minimalPlan() as unknown as Record<string, unknown>;
+  delete wire.streamTables;
+  assertPlanError(
+    () => loadPlan(wire as unknown as WirePlan),
+    "plan.streamTables missing or not an array",
+  );
+  const wire2 = minimalPlan() as unknown as Record<string, unknown>;
+  delete wire2.futureTables;
+  assertPlanError(
+    () => loadPlan(wire2 as unknown as WirePlan),
+    "plan.futureTables missing or not an array",
+  );
+});
+
+// ISSUE #94(3): deep-schema strictness for initializers/trampolines/
+// canonicalOptions — malformed ops must surface as typed PlanErrors at
+// load time, not as raw TypeErrors deep in the executor.
+Deno.test("loader: malformed instantiate-module initializer (missing args) is a typed PlanError", () => {
+  assertPlanError(
+    () =>
+      loadPlan(minimalPlan({
+        initializers: [
+          { op: "instantiate-module", module: 0, instance: null } as never,
+        ],
+      })),
+    "args must be an array",
+  );
+});
+
+Deno.test("loader: malformed CoreDef (unknown kind) inside instantiate-module args is a typed PlanError", () => {
+  assertPlanError(
+    () =>
+      loadPlan(minimalPlan({
+        initializers: [
+          {
+            op: "instantiate-module",
+            module: 0,
+            instance: null,
+            args: [{ kind: "not-a-real-kind" } as never],
+          },
+        ],
+      })),
+    "unknown CoreDef kind",
+  );
+});
+
+Deno.test("loader: unknown initializer op is a typed PlanError", () => {
+  assertPlanError(
+    () =>
+      loadPlan(minimalPlan({
+        initializers: [{ op: "not-a-real-op" } as never],
+      })),
+    "unknown initializer op",
+  );
+});
+
+Deno.test("loader: malformed trampoline (wrong-typed field) is a typed PlanError", () => {
+  assertPlanError(
+    () =>
+      loadPlan(minimalPlan({
+        trampolines: [
+          { kind: "task-return", index: 0, instance: "not-a-number" } as never,
+        ],
+      })),
+    ".instance must be a number",
+  );
+});
+
+Deno.test("loader: unrecognized trampoline kind still requires kind/index (milestone-gated catch-all)", () => {
+  // Not every trampoline kind has a precise wire shape (format.ts's
+  // catch-all `{ kind: string; index: number; ... }` for milestone-gated
+  // kinds rejected at instantiate time). The loader only enforces the two
+  // invariants that are always true.
+  loadPlan(minimalPlan({
+    trampolines: [{ kind: "some-future-milestone-kind", index: 0 } as never],
+  }));
+  assertPlanError(
+    () =>
+      loadPlan(minimalPlan({
+        trampolines: [{ kind: "some-future-milestone-kind" } as never],
+      })),
+    ".index must be a number",
+  );
+});
+
+Deno.test("loader: malformed canonicalOptions (bad stringEncoding) is a typed PlanError", () => {
+  assertPlanError(
+    () =>
+      loadPlan(minimalPlan({
+        canonicalOptions: [
+          {
+            instance: 0,
+            stringEncoding: "utf-9000",
+            memory: null,
+            realloc: null,
+            postReturn: null,
+            callback: null,
+            async: false,
+            cancellable: false,
+            coreType: { params: [], results: [] },
+          } as never,
+        ],
+      })),
+    ".stringEncoding must be one of",
+  );
+});
+
+Deno.test("loader: valid plans with well-formed initializers/trampolines/canonicalOptions load unaffected", () => {
+  const wire = minimalPlan({
+    initializers: [
+      {
+        op: "instantiate-module",
+        module: 0,
+        instance: null,
+        args: [
+          { kind: "task-may-block" },
+          { kind: "unsafe-intrinsic", intrinsic: "context.get-0" },
+        ],
+      },
+    ],
+    trampolines: [
+      { kind: "trap", index: 0 },
+      { kind: "resource-drop", index: 1, instance: 0, resource: 0 },
+    ],
+    canonicalOptions: [
+      {
+        instance: 0,
+        stringEncoding: "utf8",
+        memory: null,
+        realloc: null,
+        postReturn: null,
+        callback: null,
+        async: false,
+        cancellable: false,
+        coreType: { params: ["i32"], results: [] },
+      },
+    ],
+  });
+  loadPlan(wire); // must not throw
 });

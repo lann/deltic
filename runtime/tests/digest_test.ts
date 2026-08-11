@@ -52,6 +52,8 @@ function syntheticPlan(overrides: Partial<WirePlan>): WirePlan {
     canonicalOptions: [],
     types: [],
     resourceTables: [],
+    streamTables: [],
+    futureTables: [],
     imports: [],
     exports: [],
     worldDigest: "",

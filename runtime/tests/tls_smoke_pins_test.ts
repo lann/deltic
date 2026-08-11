@@ -48,6 +48,8 @@ function minimalPlan(overrides: Partial<WirePlan> = {}): WirePlan {
     canonicalOptions: [],
     types: [],
     resourceTables: [],
+    streamTables: [],
+    futureTables: [],
     imports: [],
     exports: [],
     worldDigest: "sha256:0",

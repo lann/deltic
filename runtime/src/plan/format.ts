@@ -24,11 +24,19 @@ export interface WirePlan {
    * Stream-table metadata (plan v2), index space == wasmtime's
    * `TypeStreamTableIndex`; referenced by the `streamTable` field of every
    * `stream.*` trampoline. `element` is the `T` of `stream<T>`, `null` for the
-   * zero-width payload. Optional on the wire so a v1 plan still parses.
+   * zero-width payload.
+   *
+   * ISSUE #94(2): the shim never `skip_serializing_if`s this field
+   * (crates/translator-shim/src/plan.rs), so every v2 plan the producer
+   * emits carries it (`[]` when empty). Required, not optional: the loader
+   * only ever accepts `formatVersion === 2` (strict equality,
+   * `SUPPORTED_FORMAT_VERSION`), so there is no live v1-compat path that
+   * needs this to be absent.
    */
-  streamTables?: WireAsyncTable[];
+  streamTables: WireAsyncTable[];
   /** Future-table metadata (plan v2); see `streamTables`. */
-  futureTables?: WireAsyncTable[];
+  futureTables: WireAsyncTable[];
+
   /**
    * Resource types the component imports, in `ResourceIndex` order:
    * `ResourceIndex = importedResources.length + DefinedResourceIndex`
