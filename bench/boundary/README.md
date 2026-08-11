@@ -38,40 +38,94 @@ promise — the wakeup-shaped path a real receive takes). Payload sizes 0
 export calls after a warmup call; each export call runs `iters`
 boundary crossings.
 
-## Baseline (2026-08-10, linux-arm64 dev box, Node 24.18 / Deno 2.9.5, guest wit-bindgen 0.60)
+## Stream shapes ([#68](https://github.com/lann/deltic/issues/68))
+
+| export | what it measures |
+| --- | --- |
+| `stream-sink: async func(s: stream<u8>) -> u64` (guest drains, returns count) | host→guest payload via rendezvous |
+| `stream-source: async func(n: u32) -> stream<u8>` (guest pumps n bytes) | guest→host payload |
+| `stream-pass: async func(s: stream<u8>) -> stream<u8>` (guest returns its input unchanged, never reads) | host↔host rendezvous after identity transfer (amendment A5) |
+
+Unlike the calls-per-second shapes above, none of these involve a host
+import: the host drives the stream endpoint directly via the embedder's
+`Stream` API (`contracts/embedder-api.md` §"Streams and futures"), so
+what's measured is the rendezvous/copy cost in isolation. Reported as
+MB/s (bytes moved ÷ elapsed), medians of 5 timed runs after a warmup,
+same convention as the calls-per-second table. Chunk sizes 1200 B,
+16 KiB, 256 KiB; the chunk COUNT per size is chosen (`sweep.mjs`,
+`STREAM_CONFIGS`) so one timed run lands in the tens-of-ms range —
+smaller chunks need more of them to reach a measurable duration, larger
+chunks need fewer. **deltic drivers only**: jco's p3 stream support is
+not under test here, so the jco lane is skipped for these rows.
+
+## Baseline (2026-08-11, linux-arm64 dev box, Node 24.18 / Deno 2.9.5, guest wit-bindgen 0.60; post-#63/#67 bulk list copies)
 
 ```
 shape     mode       size    deltic-node-callback      deltic-node-jspi  deltic-deno-callback         jco-node-jspi
-send      immediate  0                1,079,807/s           1,016,348/s           1,168,392/s                 336/s
-send      immediate  1200               680,210/s             637,144/s             722,588/s                 336/s
-send      microtask  0                  541,613/s             250,349/s             526,868/s                 338/s
-send      microtask  1200               396,974/s             223,360/s             399,989/s                 339/s
-recv      immediate  0                1,182,824/s           1,111,585/s           1,381,300/s                 345/s
-recv      immediate  1200                18,546/s              18,213/s              21,706/s                 375/s
-recv      microtask  0                  550,893/s             300,230/s             604,611/s                 338/s
-recv      microtask  1200                18,160/s              17,364/s              20,366/s                 490/s
-send-sync immediate  0                1,604,379/s           1,057,590/s           1,440,209/s             338,332/s
-send-sync immediate  1200               759,075/s             591,627/s             922,990/s             300,576/s
-send-sync microtask  0                1,545,879/s           1,234,868/s           1,359,083/s             337,477/s
-send-sync microtask  1200               629,432/s             623,742/s             826,725/s             310,692/s
+send      immediate  0                  932,496/s             780,785/s             912,448/s                 544/s
+send      immediate  1200               554,477/s             508,132/s             715,925/s                 421/s
+send      microtask  0                  407,627/s             119,069/s             328,809/s                 343/s
+send      microtask  1200               288,646/s             102,759/s             343,579/s                 344/s
+recv      immediate  0                1,063,271/s             905,595/s           1,297,820/s                 347/s
+recv      immediate  1200             1,052,361/s             975,889/s           1,272,385/s                 450/s
+recv      microtask  0                  401,310/s             123,669/s             445,292/s                 339/s
+recv      microtask  1200               411,979/s             111,910/s             452,194/s                 405/s
+send-sync immediate  0                1,536,391/s           1,406,726/s           1,766,432/s             351,160/s
+send-sync immediate  1200               795,639/s             589,574/s             894,576/s             311,567/s
+send-sync microtask  0                1,653,656/s             788,044/s           1,682,381/s             349,784/s
+send-sync microtask  1200               761,535/s             615,453/s             997,213/s             313,497/s
+
+stream lanes (bytes/s; jco lane skipped — see above):
+shape         size        deltic-node-callback      deltic-node-jspi  deltic-deno-callback
+stream-sink   1200                    437 MB/s              277 MB/s            417.8 MB/s
+stream-sink   16384               3,421.8 MB/s          2,487.2 MB/s          3,604.7 MB/s
+stream-sink   262144              7,538.4 MB/s          6,936.1 MB/s          4,711.9 MB/s
+stream-source 1200                  496.4 MB/s            334.1 MB/s            409.5 MB/s
+stream-source 16384               3,318.8 MB/s          3,152.1 MB/s          4,410.3 MB/s
+stream-source 262144             14,814.9 MB/s          7,725.9 MB/s         10,997.9 MB/s
+stream-pass   1200                  756.5 MB/s            625.9 MB/s              838 MB/s
+stream-pass   16384               6,665.9 MB/s            5,847 MB/s          7,231.2 MB/s
+stream-pass   262144             13,716.5 MB/s         14,229.4 MB/s         22,863.2 MB/s
 ```
+
+Two methodology footnotes for the stream rows:
+
+- `stream-source` allocates and fills its whole payload inside the guest
+  within the timed region (one `vec![0x5a; n]` per run), where
+  `stream-sink`'s host payload is preallocated outside it — the source
+  lane over-measures by one guest alloc+fill per run. Consistent across
+  runs, so trend-tracking is unaffected; just don't read sink-vs-source
+  deltas as pure copy-direction cost.
+- "size" means write granularity for `stream-sink` but host *read*
+  granularity for `stream-source`/`stream-pass` (their producers offer
+  everything at once; `wit_stream`'s writer does its own internal
+  chunking). One dimension, two meanings — split it if a finding ever
+  hinges on the distinction.
 
 What the baseline says:
 
-- **Async import round-trips**: deltic's callback ABI sustains 0.4–1.2 M
+- **Async import round-trips**: deltic's callback ABI sustains 0.3–1.1 M
   crossings/s; jco's async path costs ~3 ms per call flat
   (timer-quantized — its sync path is healthy at ~300 k/s, so the cost
   is the async task loop, the same machinery behind lann/jco#11 and
   polymorph-iroh's 5 ms polling workaround). For the UDP direct path
   (#4) this is the difference between "boundary is free" and "boundary
   is the bottleneck".
-- **#54**: host→guest `list<u8>` lift runs ~45 ns/byte (~22 MB/s
-  ceiling, flat across sizes — a per-element copy), while guest→host
-  lower is bulk (~6.4 GB/s at 16 KiB). The `recv @ 1200` rows are the
-  regression sentinel for the fix.
+- **#54 (fixed in #63; sentinel rows)**: `recv @ 1200` once ran ~18 k/s
+  (~22 MB/s, a per-element interpreted store); it now tracks the empty
+  call within ~1 % — the payload copy is bulk in both directions, and
+  these rows are the regression sentinel. #67 extended the bulk copies
+  to the remaining flat element types (not separately represented here;
+  the shapes are `list<u8>`).
 - **jspi vs callback** (same runtime, same engine): parity on
-  immediate-settled paths, ~2× behind on deferred (microtask) paths —
+  immediate-settled paths, ~2–4× behind on deferred (microtask) paths —
   the suspend/resume cost, recorded for #8.
+- **#68 stream shapes**: `stream-pass` (host↔host rendezvous, no guest
+  memory touched — amendment A5) consistently beats `stream-sink` and
+  `stream-source` (host↔guest, which pay a real memory copy through the
+  guest's linear memory) at every chunk size, confirming the identity
+  transfer is doing what it claims. All three scale up sharply with
+  chunk size — per-rendezvous overhead amortizes over more bytes.
 
 The jco lane pins the family's own toolchain (the lann/jco all-fixes
 transpile + preview2-shim release tarballs, the vendored
