@@ -42,6 +42,11 @@
 
 import { suspending, WitError } from "@deltic/runtime/embedder";
 
+/** The engine setTimeout ceiling: delays above 2^31-1 ms are clamped to
+ * ~0 (node/Deno warn and fire at 1 ms). `Pollable.timer` sleeps in
+ * chunks of at most this and re-checks the clock at each chunk end. */
+const TIMER_CHUNK_MAX_MS = 2 ** 31 - 1;
+
 /** A p2 `stream-error` value (variant): `closed` or `last-operation-failed`. */
 export type StreamErrorValue =
   | { tag: "closed" }
@@ -98,16 +103,28 @@ export class Pollable {
 
   /**
    * A pollable that becomes ready at `deadline` (nanoseconds on the
-   * caller's clock). The timer is armed lazily on first wait and shared
-   * across waiters; `ready()` consults the clock, so it is exact even if
-   * the setTimeout fires early/late by a tick.
+   * caller's clock). One in-flight sleep is shared by concurrent waiters
+   * and RE-ARMED after every settle with the delta recomputed:
+   * `ready()` consults the clock, so an early-firing sleep (timer slop,
+   * or the engine's setTimeout ceiling below) hands the wait loop a
+   * fresh sleep for the remainder instead of a permanently-resolved
+   * promise — the cached-forever arm was a hot microtask livelock for
+   * any deadline past the ceiling (block/poll re-check `ready()` and
+   * re-await; awaiting an already-settled promise never yields to the
+   * timer that would make it ready).
+   *
+   * Engines clamp setTimeout delays above 2^31-1 ms to ~0 (node/Deno
+   * warn and use 1 ms), so far deadlines sleep in ceiling-sized chunks;
+   * each chunk end re-checks the clock and re-arms.
    */
   static timer(deadlineNs: bigint, nowNs: () => bigint): Pollable {
     let armed: Promise<void> | undefined;
     const wait = (): Promise<void> => {
-      return armed ??= new Promise((resolve) => {
+      return armed ??= new Promise<void>((resolve) => {
         const deltaMs = Number(deadlineNs - nowNs()) / 1e6;
-        setTimeout(resolve, Math.max(0, deltaMs));
+        setTimeout(resolve, Math.min(Math.max(0, deltaMs), TIMER_CHUNK_MAX_MS));
+      }).then(() => {
+        armed = undefined;
       });
     };
     return new Pollable(() => nowNs() >= deadlineNs, wait);
