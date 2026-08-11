@@ -52,7 +52,7 @@ export interface ElemCodec<T> {
 }
 
 // `StreamProducerError`'s canonical definition moved to `@deltic/protocol`
-// with amendment A8 (it is an embedder-contract value: recognition must
+// with amendment A9 (it is an embedder-contract value: recognition must
 // survive multiple runtime copies, issue #83). Re-exported here so every
 // existing import path is unchanged.
 export { StreamProducerError } from "@deltic/protocol";
@@ -89,7 +89,7 @@ function reportProducerFailure(
   where: string,
   cause: unknown,
 ): boolean {
-  // Brand, not class (A8): a producer failure raised by another runtime copy
+  // Brand, not class (A9): a producer failure raised by another runtime copy
   // must not be re-wrapped into a second layer of the same error.
   const err = isStreamProducerError(cause)
     ? cause
@@ -267,7 +267,19 @@ export class Stream<T> {
     return vs.map((v) => codec.toHost(v as ComponentValue)) as Chunk<T>;
   }
 
-  /** Cancel an in-flight `read` (R-fix review advisory 1). */
+  /**
+   * Cancel an in-flight `read` (R-fix review advisory 1).
+   *
+   * #97, DELIBERATE AND PINNED: the cancelled `read` resolves with whatever
+   * had already arrived — typically the empty chunk, which this layer also
+   * uses as end-of-stream (`read`'s contract, and hence `readable()` and the
+   * async iterator, which close on it). **A cancelled read is therefore
+   * indistinguishable from EOS at this layer.** Kept as-is rather than given
+   * a distinct signal: the caller of `cancelRead()` is the same code that
+   * observes the read's result, so it already knows which happened, and only
+   * that caller can reach the state. See exec/host_streams.ts
+   * `HostReadableEnd.cancelRead` for the mechanism.
+   */
   cancelRead(): void {
     this.#host?.readable.cancelRead();
   }
@@ -426,6 +438,7 @@ export class Future<T> implements PromiseLike<T> {
   #hostP: Promise<HostFuture<T>>;
   #codec: ElemCodec<T>;
   #consumed = false;
+  #dropped = false;
   #settled: Promise<T> | null = null;
 
   private constructor(
@@ -534,14 +547,34 @@ export class Future<T> implements PromiseLike<T> {
     else void this.#hostP.then((h) => h.cancel());
   }
 
+  /**
+   * Release this future handle. Total and idempotent (#90): it never throws,
+   * and calling it twice — or after `Symbol.dispose` — is a no-op.
+   *
+   * Dropping a future the host never wrote to, once the guest already holds
+   * its readable end, is **abandonment**: the guest's reader can never be
+   * satisfied, so it is armed with a trap at its rendezvous point rather than
+   * being handed a value-less completion (exec/host_streams.ts
+   * `HostFuture.drop`, task/streams.ts `abandonSharedFuture`; the spec keeps
+   * that state unreachable by trapping the early writable drop,
+   * definitions.py:1183-1184). Write-then-drop is the normal path and is
+   * unaffected; a future no guest ever saw is plain cleanup.
+   */
   drop(): void {
+    if (this.#dropped) return;
+    this.#dropped = true;
     if (this.#host !== null) this.#host.drop();
-    else void this.#hostP.then((h) => h.drop());
+    // A deferred future whose host end never materialized has nothing to
+    // release; swallow that rejection rather than let `drop()` produce an
+    // unhandled one.
+    else void this.#hostP.then((h) => h.drop(), () => {});
   }
 
   /** @internal — see `Stream.dropForTeardown` (#66). */
   dropForTeardown(): void {
+    if (this.#dropped) return;
     if (this.#host !== null) {
+      this.#dropped = true;
       dropSharedForTeardown(this.#host.value as never);
     } else {
       // A deferred future (still in flight) cannot be an import argument;
@@ -571,7 +604,7 @@ export class ErrorContext {
   }
 }
 
-// A8 brands (contracts/embedder-api.md §"Module identity"): the three
+// A9 brands (contracts/embedder-api.md §"Module identity"): the three
 // STATEFUL embedder-facing handle classes. Their machinery lives in the copy
 // that minted them, so the brand never makes a foreign handle usable — it
 // makes it DIAGNOSABLE, at the lowering sites below.
@@ -601,7 +634,7 @@ export function lowerStreamSource<T>(
   src: StreamSource<T>,
   codec: ElemCodec<T>,
 ): ComponentValue {
-  // Order matters (amendment A8). Same-copy handle: the fast path, unchanged.
+  // Order matters (amendment A9). Same-copy handle: the fast path, unchanged.
   if (src instanceof Stream) {
     return src.takeValue(codec);
   }
@@ -727,10 +760,10 @@ export function lowerFutureSource<T>(
   codec: ElemCodec<T>,
 ): ComponentValue {
   if (src instanceof Future) return src.takeValue();
-  // Branded but not ours (amendment A8). This one is the sharpest edge in the
+  // Branded but not ours (amendment A9). This one is the sharpest edge in the
   // family: `Future` is a `PromiseLike`, so a foreign future would otherwise
   // be adopted as a plain thenable and appear to work — exactly the silent
-  // path A8 bans, since the awaited value would ride the OTHER copy's
+  // path A9 bans, since the awaited value would ride the OTHER copy's
   // machinery with no handle transfer at all.
   if (hasBrand(src, FUTURE)) {
     throw new TypeError(describeCrossCopy(
@@ -749,15 +782,18 @@ export function lowerFutureSource<T>(
       // store's host-failure channel instead, exactly as for streams, so the
       // in-flight call fails with a site-named error.
       //
-      // And then we do NOT drop: a host future's write end dropping while the
-      // guest's readable end is parked trips an internal invariant in the
-      // future built-ins ("a readable future end cannot observe DROPPED",
-      // intrinsics/stream_builtins.ts) — a runtime-core matter outside this
-      // layer. Leaving the guest parked is harmless because the failure is
-      // already recorded: the driving loop of the call raises it before the
-      // call can complete. Only when there is NO store to report to (the
-      // future was never lowered) do we fall back to dropping, so nothing can
-      // hang forever.
+      // And then we do NOT drop -- for ATTRIBUTION, not for safety. Dropping
+      // here is now well-defined (#90: an unwritten, lowered future's drop
+      // abandons it and the guest reader traps at its rendezvous point,
+      // exec/host_streams.ts `HostFuture.drop`); the stale version of this
+      // comment claimed it would trip an internal invariant, which was true
+      // before the abandonment mechanism existed and is not true now.
+      // Reporting instead of dropping is still the better outcome: the
+      // store-level failure names the producer and the site, so the in-flight
+      // call fails with the real cause rather than with a generic
+      // "the writable end went away" trap. Only when there is NO store to
+      // report to (the future was never lowered) do we fall back to dropping,
+      // so nothing can hang forever.
       const reported = reportProducerFailure(
         { value: host.value } as unknown as HostStream<unknown>,
         codec.where ?? "future producer",

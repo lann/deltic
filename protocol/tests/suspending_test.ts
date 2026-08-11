@@ -1,10 +1,10 @@
-// The suspendability marker, moved here by amendment A8 (contracts/embedder-api.md
+// The suspendability marker, moved here by amendment A9 (contracts/embedder-api.md
 // §"Functions and async", amendments A1/A2).
 //
 // End-to-end park semantics stay pinned where the wasm lives
 // (runtime/tests/embedder/suspending_imports_test.ts, which imports through
 // the unchanged `@deltic/runtime/embedder` re-export). What is pinned HERE is
-// the vocabulary half A8 owns: the mark is a process-global brand, so it is
+// the vocabulary half A9 owns: the mark is a process-global brand, so it is
 // readable by any copy and hand-rollable, and the decorator's loud refusals
 // survived the move.
 
@@ -21,7 +21,7 @@ Deno.test("A1: suspending() marks in place and the brand reads back", () => {
   assertFalse(isSuspending(undefined));
 });
 
-Deno.test("A8: the mark is the process-global brand, not a module-local symbol", () => {
+Deno.test("A9: the mark is the process-global brand, not a module-local symbol", () => {
   const fn = suspending(() => 1);
   assertEquals(
     (fn as unknown as Record<symbol, unknown>)[
@@ -37,7 +37,7 @@ Deno.test("A8: the mark is the process-global brand, not a module-local symbol",
   assert(isSuspending(hand));
 });
 
-Deno.test("A8: the mark is non-enumerable (invisible to imports-record walks)", () => {
+Deno.test("A9: the mark is non-enumerable (invisible to imports-record walks)", () => {
   const fn = suspending(() => 1);
   assertEquals(Object.getOwnPropertySymbols(fn).length, 1);
   assertEquals(Object.propertyIsEnumerable.call(fn, Symbol.for("deltic.suspending/1")), false);

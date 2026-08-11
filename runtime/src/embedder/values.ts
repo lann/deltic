@@ -328,7 +328,7 @@ export function fromHost(
         return v.internal as unknown as ComponentValue;
       }
       if (v instanceof InternalErrorContext) return v as unknown as ComponentValue;
-      // Branded but not ours (amendment A8): an `ErrorContext` minted by
+      // Branded but not ours (amendment A9): an `ErrorContext` minted by
       // another runtime copy. It is stateful (it lives in that copy's handle
       // table), so it can never be lowered here — but "recognized and named"
       // beats the generic "expected an ErrorContext" that sent issue #83

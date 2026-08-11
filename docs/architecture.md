@@ -343,6 +343,20 @@ pump stands down whenever an export-call driver is live (the invariant and
 its benignity argument are documented at the site in
 `runtime/src/exec/boundary.ts`).
 
+Named divergence (2026-08-10, [#92](https://github.com/lann/deltic/issues/92)):
+**the async form of `subtask.cancel` is not atomic under jspi.** The
+reference built-in returns `[BLOCKED]` with no suspension; deltic parks the
+caller on a determinacy wait so the BLOCKED/resolved answer matches the
+reference's synchronous-delivery outcomes across the engine's mandatory
+microtask hop (jspi pin (j), pinned by `cancellable.wast`). While parked,
+other ready threads of the store may run, so sibling-task effects can become
+observable across the single built-in call — a reordering *within* the
+reference's own `Store.tick` freedom, taken one built-in early; every
+interleaved sibling was already at a block point. Rationale and mechanics at
+the site (`runtime/src/intrinsics/async_builtins.ts`, the determinacy park
+in `createSubtaskCancel`); regression pinned across seeds by
+`runtime/tests/cancel_bracket_race_test.ts`.
+
 ## 7. Canonical ABI decisions
 
 Authority: [CanonicalABI.md] and its executable reference
@@ -379,13 +393,33 @@ decide deliberately and document here.
   is a core function `[rep] -> []`, invoked as a normal **non-async**
   cross-component call — *"the destructor may not block. However, the
   destructor may spawn a cooperative thread that does."* Reentrance is checked
-  (`may_enter_from`) with the same-instance exemption. Host policy:
+  (`may_enter_from`) with the same-instance exemption, and a trapping dtor
+  poisons the **implementing** instance (the reference's `Store.lift` bracket,
+  reconstructed at `runtime/src/cabi/handles.ts` `callDtorGated` —
+  implemented at [#85](https://github.com/lann/deltic/issues/85); the
+  same-instance exemption falls out of `entering_set`, not a special case).
+  Host policy:
   - CM-level blocking in a dtor → deterministic trap (falls out of general
     sync-task rules).
   - Host-import latency is invisible to CM semantics; a dtor calling a
     `Suspending` host import is legal but needs a suspension-legal stack:
     JS-initiated drops (`using`, FinalizationRegistry) enter via a `promising`
-    trampoline; guest-initiated drops stay on pure-wasm paths (§5).
+    trampoline (`ResourceTypeInfo.dtorHost`, wired by the executor in jspi
+    mode for suspension-capable dtors — a non-suspendable dtor keeps the
+    exact synchronous path, avoiding the promising microtask hop's
+    one-turn entered window; the async entry bracket is held until the
+    activation settles, tracked in `pendingHostCalls`). **Known
+    limitation** (#85 scope note): a
+    *guest*-initiated drop reaches the dtor through a JS trampoline frame,
+    not the §5 pure-wasm funcref path — a Suspending import under it is a
+    deterministic JSPI frame-rule trap, not a supported suspension. The
+    pure-wasm dispatch path is future machinery; until then §5's
+    "guest-initiated dtor calls route through generated wasm" is aspiration,
+    not description.
+  - Host-held own handles carry lend tracking mirroring `num_lends`
+    ([#86](https://github.com/lann/deltic/issues/86)): drop/GC-backstop defer
+    while lent; a backstop dtor trap poisons the implementing instance and
+    lands on the host-failure channel (never `catch {}`-swallowed).
   - Upstream spec findings related to drops and backpressure (vestigial
     `$async?` on `resource.drop`; dead `canon_backpressure_set` in
     definitions.py) are tracked in

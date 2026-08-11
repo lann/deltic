@@ -476,13 +476,22 @@ export function createSubtaskCancel(
             // SITE 5 (lit): a sync `subtask.cancel` blocks until the callee
             // actually resolves (definitions.py `canon_subtask_cancel`), then
             // reports the resolved state through the same tail as the
-            // non-blocking path.
+            // non-blocking path. Mirrors SITE 4 (stream_builtins.ts:305-323)
+            // and `Waitable.waitForPendingEvent` (definitions.py:786-790,
+            // reached from canon_subtask_cancel :2491): `hasSyncWaiter` must
+            // be set for the duration so a concurrent `waitable.join` on
+            // this subtask traps (async_builtins.ts:362-365) instead of
+            // racing the SUBTASK event away from this resume (#87).
+            st.hasSyncWaiter = true;
             return blockCurrentActivation({
               store: inst.store,
               task: currentTask(),
-              readyFunc: () => st.resolved(),
+              readyFunc: () => st.hasPendingEvent(),
               cancellable: false,
-              produce: () => finish(),
+              produce: () => {
+                st.hasSyncWaiter = false;
+                return finish();
+              },
             }) as unknown as number;
           }
           needsJspi(
@@ -505,6 +514,11 @@ export function createSubtaskCancel(
         // genuine BLOCKED answer is still immediate. Host-import subtasks
         // carry no callee task: their onCancel is a no-op and their state
         // cannot be mid-hop, so the pre-jspi immediate answer stands.
+        //
+        // NAMED DIVERGENCE (docs/architecture.md §6, #92): this park makes
+        // the async built-in non-atomic — other ready threads may run while
+        // it waits, a reordering within the reference's Store.tick freedom
+        // taken one built-in early.
         if (mode === "jspi" && st.calleeTask !== null) {
           const t = st.calleeTask as {
             threads: { done(): boolean }[];

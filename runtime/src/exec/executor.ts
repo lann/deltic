@@ -17,6 +17,7 @@ import {
   assertModeConsistent,
   type SuspendingImport,
   chooseMode,
+  enterWasm,
   isSuspending,
   planNeedsSuspension,
   suspendingImport,
@@ -548,6 +549,18 @@ class Executor {
           // suspension point; every function it exports is therefore
           // potentially-blocking, and everything else is not.
           this.sawBlockingImport = false;
+          // ISSUE #88: core wasm permits two imports with the same
+          // (module, field) pair (trusted wasmtime-environ 47.0.3 info.rs
+          // :438-445 gives one flat positional CoreDef per import slot, but
+          // WebAssembly.Module.imports(module) and the JS import object are
+          // both keyed by (module, field) name, not by slot). If two slots
+          // share a name and resolve to different values, the second object
+          // write silently wins and BOTH slots receive the last value — the
+          // JS API cannot express per-slot values for duplicate names. Detect
+          // this here and fail loudly rather than wire the wrong function in
+          // silently; identical values are safe (the API cannot distinguish
+          // the slots in that case, so nothing is actually lost).
+          const seenAt = new Map<string, { index: number; value: unknown }>();
           declared.forEach((imp, i) => {
             const before = this.sawBlockingImport;
             const value = this.importValue(init.args[i]);
@@ -560,6 +573,19 @@ class Executor {
                   `${imp.module}.${imp.name} (${JSON.stringify(init.args[i])})`,
               );
             }
+            const key = `${imp.module}\0${imp.name}`;
+            const prior = seenAt.get(key);
+            if (prior !== undefined && prior.value !== value) {
+              throw new PlanError(
+                `module ${init.module}: duplicate import ` +
+                  `${JSON.stringify(imp.module)}.${JSON.stringify(imp.name)} ` +
+                  `at arg indices ${prior.index} and ${i} resolve to ` +
+                  `different values (plan args[${prior.index}]=` +
+                  `${JSON.stringify(init.args[prior.index])}, args[${i}]=` +
+                  `${JSON.stringify(init.args[i])})`,
+              );
+            }
+            seenAt.set(key, { index: i, value });
             (importObject[imp.module] ??=
               {} as WebAssembly.ModuleImports)[imp.name] =
                 value as WebAssembly.ImportValue;
@@ -670,6 +696,36 @@ class Executor {
               token.dtor = dtor === null ? null : (rep: number) => {
                 dtor(rep);
               };
+              // #85: the JS-initiated-drop variant. In jspi mode a dtor may
+              // legally reach a `Suspending` import (docs §7), which needs a
+              // `promising` entry — only this module holds the raw export.
+              // Wrapped ONLY when the dtor is suspension-capable
+              // (`suspendableFuncs`: its core instance imports a blocking
+              // trampoline): `promising` settles on a later microtask even
+              // for a non-suspending activation (jspi pin (j)), which would
+              // leave the impl instance entered for a turn after every
+              // drop — a synchronous drop-then-call sequence would trap. A
+              // non-suspendable dtor cannot legally suspend, so the sync
+              // path is exact for it. `WebAssembly.promising` also rejects
+              // non-wasm callables (a dtor CoreDef can resolve to a JS
+              // trampoline) with a TypeError; fall back to the sync closure
+              // — pre-#85 behavior, where a suspension is a deterministic
+              // frame-rule trap. Deliberately does NOT set `wrappedEntries`:
+              // `finish()`'s invariant inventories the two primary wrapping
+              // sites; this is an auxiliary entry.
+              if (
+                dtor !== null && this.suspensionMode === "jspi" &&
+                this.suspendableFuncs.has(dtor as unknown as object)
+              ) {
+                try {
+                  token.dtorHost = enterWasm(
+                    dtor as (rep: number) => unknown,
+                    this.suspensionMode,
+                  );
+                } catch {
+                  token.dtorHost = null;
+                }
+              }
             }
           });
           break;
@@ -1018,10 +1074,24 @@ class Executor {
         }
         return this.loaded.streamElems[i];
       },
-      streamTableInstance: (i) =>
-        this.componentInstance(this.loaded.streamTableInstances[i] ?? 0),
-      futureTableInstance: (i) =>
-        this.componentInstance(this.loaded.futureTableInstances[i] ?? 0),
+      streamTableInstance: (i) => {
+        const instance = this.loaded.streamTableInstances[i];
+        if (instance === undefined) {
+          throw new PlanError(
+            `stream table ${i} is not in the plan's streamTables (plan v2)`,
+          );
+        }
+        return this.componentInstance(instance);
+      },
+      futureTableInstance: (i) => {
+        const instance = this.loaded.futureTableInstances[i];
+        if (instance === undefined) {
+          throw new PlanError(
+            `future table ${i} is not in the plan's futureTables (plan v2)`,
+          );
+        }
+        return this.componentInstance(instance);
+      },
       futureElem: (i) => {
         if (i >= this.loaded.futureElems.length) {
           throw new PlanError(

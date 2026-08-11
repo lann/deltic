@@ -34,6 +34,7 @@ import {
   type GuestResourceSpec,
   HostResourceRegistry,
   invalidateWrapper,
+  lendWrapper,
   makeWrapper,
   takeRep,
 } from "./resources.ts";
@@ -422,7 +423,22 @@ class Facade {
           }
           return rep;
         }
-        return takeRep(v, false, `borrow<${b.name}>`);
+        // Host `own` wrapper lowered as `borrow<R>` (#86): record the lend
+        // for the duration of this call, so a `drop()` or a GC finalization
+        // in the window cannot destroy a rep the guest still borrows.
+        // definitions.py `lift_borrow` -> `Subtask.add_lender` (line 890);
+        // `#lowerScope` is released where that subtask delivers its
+        // resolution, i.e. when the call ends.
+        const rep = takeRep(v, false, `borrow<${b.name}>`);
+        const release = lendWrapper(v as object);
+        if (self.#lowerScope === null) {
+          // No enclosing lowering scope (a raw/one-off lowering): the lend
+          // has no observable window, so it must not be left dangling.
+          release();
+        } else {
+          self.#lowerScope.push(release);
+        }
+        return rep;
       },
     };
   }
@@ -675,7 +691,7 @@ class Facade {
       return fromHost(v, resultType, o);
     };
     const fail = (e: unknown, args: unknown[]): ComponentValue => {
-      // Brand, not class (amendment A8): a `WitError` thrown by a host module
+      // Brand, not class (amendment A9): a `WitError` thrown by a host module
       // that resolved a DIFFERENT runtime copy — or hand-rolled with the
       // registry symbol — is the same value here (issue #83).
       if (isWitError(e) && isResult) {
@@ -702,9 +718,9 @@ class Facade {
         );
       }
       // The #83 signature: in a graph with several copies, an UNBRANDED throw
-      // is usually a pre-A8 copy's `WitError` (its brand rode class identity,
+      // is usually a pre-A9 copy's `WitError` (its brand rode class identity,
       // which does not survive the copy boundary). Say so rather than leaving
-      // the latent puzzle that motivated amendment A8.
+      // the latent puzzle that motivated amendment A9.
       const census = copyCensus();
       throw new Trap(
         `${where} threw ${describeThrow(e)}. An unbranded throw from a host ` +
@@ -713,7 +729,7 @@ class Facade {
           (census === ""
             ? ""
             : ` (${census} — an error carrying no deltic brand in a ` +
-              `multi-copy graph usually means a pre-A8 runtime copy threw ` +
+              `multi-copy graph usually means a pre-A9 runtime copy threw ` +
               `it, issue #83.)`),
       );
     };

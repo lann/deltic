@@ -7,7 +7,7 @@
 // types that cast this facade; no generated code participates.
 
 // Copy registration (contracts/embedder-api.md §"Module identity and
-// @deltic/protocol", amendment A8; issue #83). Runs at module evaluation, so
+// @deltic/protocol", amendment A9; issue #83). Runs at module evaluation, so
 // merely importing the embedder surface puts this copy on the census — which
 // is what makes every cross-copy diagnostic below able to name both sides.
 // Multiple copies are DIAGNOSED, NEVER REFUSED: two isolated bundles on one
@@ -26,7 +26,7 @@ registerRuntimeCopy({
 
 export { COPY_URL, RUNTIME_VERSION } from "./copy.ts";
 
-// The A8 vocabulary, re-exported unchanged: embedder code needs no import
+// The A9 vocabulary, re-exported unchanged: embedder code needs no import
 // change, and consumers that want the multi-copy-robust spellings get them
 // from the same module they already import.
 export {

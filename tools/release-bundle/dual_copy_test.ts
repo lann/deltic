@@ -1,5 +1,5 @@
 // THE dual-copy pin (contracts/embedder-api.md §"Module identity and
-// @deltic/protocol", amendment A8; issue #83).
+// @deltic/protocol", amendment A9; issue #83).
 //
 // Two GENUINELY distinct runtime copies in one process:
 //
@@ -70,7 +70,7 @@ const CODEC = {
 };
 
 Deno.test({
-  name: "A8 dual-copy pin: source + bundle copies honor the brands and refuse foreign handles",
+  name: "A9 dual-copy pin: source + bundle copies honor the brands and refuse foreign handles",
   ignore: !ready,
   fn: async () => {
     const out = await buildBundle();

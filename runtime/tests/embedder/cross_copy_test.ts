@@ -1,4 +1,4 @@
-// Cross-copy identity: the fast unit half of amendment A8's pin
+// Cross-copy identity: the fast unit half of amendment A9's pin
 // (contracts/embedder-api.md §"Module identity and @deltic/protocol"; issue
 // #83). The end-to-end half — two REAL runtime copies, source + bundle — is
 // tools/release-bundle/dual_copy_test.ts, which needs a bundle build; this
@@ -50,7 +50,7 @@ function caught(fn: () => unknown): unknown {
   throw new Error("expected a throw");
 }
 
-Deno.test("A8: importing the embedder registers this copy on the census", () => {
+Deno.test("A9: importing the embedder registers this copy on the census", () => {
   const urls = runtimeCopies().map((c) => c.url);
   assertTrue(urls.includes(COPY_URL), "this copy registered itself");
   const me = runtimeCopies().find((c) => c.url === COPY_URL)!;
@@ -58,15 +58,15 @@ Deno.test("A8: importing the embedder registers this copy on the census", () => 
   assertEq(me.protocolGeneration, 1);
 });
 
-Deno.test("A8: RUNTIME_VERSION matches runtime/deno.json (no fs read at runtime)", async () => {
+Deno.test("A9: RUNTIME_VERSION matches runtime/deno.json (no fs read at runtime)", async () => {
   const cfg = JSON.parse(
     await Deno.readTextFile(new URL("../../deno.json", import.meta.url)),
   );
   assertEq(RUNTIME_VERSION, cfg.version);
 });
 
-Deno.test("A8: a foreign Stream is refused at lowering, not pumped as an iterable", () => {
-  // The silent path A8 bans: without the brand check this object would fall
+Deno.test("A9: a foreign Stream is refused at lowering, not pumped as an iterable", () => {
+  // The silent path A9 bans: without the brand check this object would fall
   // through to producer adaptation.
   const src = foreign("deltic.stream/1", {
     [Symbol.asyncIterator]: () => ({ next: () => Promise.resolve({ done: true }) }),
@@ -79,7 +79,7 @@ Deno.test("A8: a foreign Stream is refused at lowering, not pumped as an iterabl
   assertTrue(m.includes("src.readable()"), "names the by-value remediation");
 });
 
-Deno.test("A8: a foreign Future is refused, not silently adopted as a thenable", () => {
+Deno.test("A9: a foreign Future is refused, not silently adopted as a thenable", () => {
   const src = foreign("deltic.future/1", {
     then: (ok: (v: number) => void) => ok(1),
   });
@@ -90,7 +90,7 @@ Deno.test("A8: a foreign Future is refused, not silently adopted as a thenable",
   assertTrue(m.includes("Promise.resolve(f)"), "names the by-value remediation");
 });
 
-Deno.test("A8: a foreign error-context is named cross-copy, not 'expected an ErrorContext'", () => {
+Deno.test("A9: a foreign error-context is named cross-copy, not 'expected an ErrorContext'", () => {
   const v = foreign("deltic.errorContext/1", { message: "boom" });
   const e = caught(() =>
     fromHost(v, { kind: "error-context" } as never, { where: "export 'f'" } as never)
@@ -100,16 +100,16 @@ Deno.test("A8: a foreign error-context is named cross-copy, not 'expected an Err
   assertTrue(!m.includes("expected an ErrorContext"), m);
 });
 
-Deno.test("A8: an unbranded value at a handle site keeps its original diagnosis", () => {
+Deno.test("A9: an unbranded value at a handle site keeps its original diagnosis", () => {
   const e = caught(() =>
     fromHost({}, { kind: "error-context" } as never, { where: "export 'f'" } as never)
   );
   assertTrue(String((e as Error).message).includes("expected an ErrorContext"));
 });
 
-Deno.test("A8: a foreign resource wrapper is named cross-copy, not 'not a resource handle'", () => {
+Deno.test("A9: a foreign resource wrapper is named cross-copy, not 'not a resource handle'", () => {
   // Same brand KEY, a foreign copy's state object (whose SHAPE we must never
-  // read — the A8 table pins only the key).
+  // read — the A9 table pins only the key).
   const w = new GuestResource();
   (w as unknown as Record<symbol, unknown>)[Symbol.for("deltic.resourceState/1")] = {
     copyUrl: "file:///some/other/copy/mod.ts",
@@ -126,12 +126,14 @@ Deno.test("A8: a foreign resource wrapper is named cross-copy, not 'not a resour
   assertTrue(!m.includes("no longer valid"), m);
 });
 
-Deno.test("A8: this copy's own wrappers are unaffected", () => {
+Deno.test("A9: this copy's own wrappers are unaffected", () => {
   const w = new GuestResource();
   initWrapper(w, {
     rep: 3,
     valid: true,
     owns: false,
+    lends: 0,
+    pendingDrop: false,
     rt: {} as never,
     className: "R",
   });
@@ -140,12 +142,12 @@ Deno.test("A8: this copy's own wrappers are unaffected", () => {
   assertEq(takeRep(w, false, "export 'f'"), 3);
 });
 
-Deno.test("A8: a non-handle object still gets the plain diagnosis", () => {
+Deno.test("A9: a non-handle object still gets the plain diagnosis", () => {
   const e = caught(() => takeRep({}, false, "export 'f'"));
   assertTrue(String((e as Error).message).includes("not a resource handle"));
 });
 
-Deno.test("A8: the census is empty for a single-copy graph and names both when not", () => {
+Deno.test("A9: the census is empty for a single-copy graph and names both when not", () => {
   assertEq(copyCensus(), "", "the healthy graph adds nothing to any message");
   registerRuntimeCopy({
     url: "file:///fake/second/copy.mjs",

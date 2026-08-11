@@ -51,7 +51,7 @@ Their jco blockers map one-for-one onto this project's proven strengths
   invariant mechanically: after `deno install`, the resolved graph
   contains **exactly one** deltic source (for a vendoring consumer like
   wosh: zero remote deltic URLs in the lockfile — a one-line CI guard).
-  Since amendment A8 (contracts/embedder-api.md §"Module identity"),
+  Since amendment A9 (contracts/embedder-api.md §"Module identity"),
   cross-boundary brands are process-global symbols via `@deltic/protocol`,
   so a violation degrades to a diagnosed inefficiency instead of a latent
   `instanceof` failure — host modules SHOULD import `@deltic/protocol` at

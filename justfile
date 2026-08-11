@@ -80,7 +80,7 @@ test-rust:
 test-runtime: shim fixtures corpus
     cd runtime && deno task check && deno task test
 
-# The brand vocabulary (contracts/embedder-api.md amendment A8): dependency-
+# The brand vocabulary (contracts/embedder-api.md amendment A9): dependency-
 # free, so this is the one Deno suite that needs no build artifacts at all.
 test-protocol:
     cd protocol && deno task test
@@ -94,7 +94,7 @@ test-ct-runner: shim fixtures
 # The embedder-bundle release-asset gate (deltic-embedder.mjs:
 # build + shape checks for tools/release-bundle/entry.ts).
 # `dual_copy_test.ts` rides here because the bundle IS the second runtime copy
-# (amendment A8 / issue #83): it is the only way to get two genuinely distinct
+# (amendment A9 / issue #83): it is the only way to get two genuinely distinct
 # copies in one process — query-string cache-busting does not, since relative
 # imports below the entry resolve to the same cached modules.
 test-bundle: shim
@@ -178,9 +178,9 @@ browsers:
 # ----- consumer smokes + exams (polymorph checkouts; docs/consumers.md) -------
 
 # Translate all eight targets, then execute the suites.
-# polymorph-tls conformance under deltic (issue #18). --allow-env: run.ts
-# imports smoke-c0's common.ts, whose POLYMORPH_ROOT/WOSH_ROOT env reads
-# (fab5c2e) predate this recipe's permission list.
+# polymorph-tls conformance under deltic (issue #18).
+# (--allow-env: tools/smoke-c0/common.ts reads POLYMORPH_ROOT at module
+# scope since the wosh rename; the leg tasks always had it via deno task.)
 smoke-tls: shim
     deno run --allow-read --allow-env=POLYMORPH_ROOT,WOSH_ROOT tools/smoke-tls/run.ts --exec
 

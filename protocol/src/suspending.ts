@@ -13,12 +13,12 @@
 // as `WebAssembly.Suspending`, everything else keeps the plain calling
 // convention and its zero-cost pin.
 //
-// Canonical since amendment A8: this module used to be
+// Canonical since amendment A9: this module used to be
 // `runtime/src/jspi/suspending.ts` (which now re-exports it). The brand moved
 // from a module-local `Symbol(...)` to the process-global registry symbol
 // `deltic.suspending/1` — the old "local symbol by repo convention (bundle
 // and source runtimes are never mixed in one process)" rule is REPEALED by
-// A8, because consumer graphs demonstrably do mix copies (issue #83) and a
+// A9, because consumer graphs demonstrably do mix copies (issue #83) and a
 // module-local symbol made a copy-B `suspending()` mark invisible to copy A's
 // `anySuspendingImport` — a silent downgrade to the non-parking calling
 // convention, surfacing far away as `NeedsJspi`.
@@ -102,7 +102,7 @@ export function suspending<F extends CallableFunction>(
       `suspending: expected a function, got ${typeof fn}`,
     );
   }
-  // Non-enumerable (A8 `defineBrand`): the mark must not show up in value
+  // Non-enumerable (A9 `defineBrand`): the mark must not show up in value
   // walks of an imports record, and re-marking the same function is a no-op.
   defineBrand(fn as unknown as object, SUSPENDING);
   return fn;

@@ -1,6 +1,6 @@
 // `@deltic/protocol` — the embedder contract's VOCABULARY, dependency-free
 // (contracts/embedder-api.md §"Module identity and @deltic/protocol",
-// amendment A8; issue #83).
+// amendment A9; issue #83).
 //
 // What lives here: the process-global brand symbols, the canonical error
 // classes, `suspending()`/`isSuspending`, the recognition predicates, the

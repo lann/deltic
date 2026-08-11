@@ -1687,7 +1687,18 @@ export function createLoweredImport(input: {
         // guest code in an unattributed chunk — the issue-#24 class the
         // attribution sentinels exist to prevent.
         let outcome: { value: unknown } | { error: unknown } | undefined;
-        const promise = Promise.resolve(raw).then(
+      // The async arm runs `onResolve` — result lowering, including possible
+      // realloc re-entry into the guest — in this bare promise continuation,
+      // where the sync arm above defers all CABI work to `produce` (the
+      // issue-#24 attribution note). The asymmetry is deliberate (#93): here
+      // no wasm frame is suspended mid-call — the guest returned BLOCKED and
+      // is between activations, which is exactly when the reference's
+      // `on_resolve` runs (the callee's turn), so there is no activation for
+      // the sentinels to attribute this chunk to. Lowering failures are host
+      // failures, not guest traps: they land on `store.hostFailure` and the
+      // driving loop raises them site-named (pinned by
+      // tests/async_lower_onresolve_failure_test.ts).
+      const promise = Promise.resolve(raw).then(
           (v) => {
             store.pendingHostCalls.delete(promise);
             outcome = { value: v };

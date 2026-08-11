@@ -13,7 +13,7 @@ export class ExitError extends Error {
     this.name = "ExitError";
   }
 }
-// A8 brand: an exit unwind propagates out through the embedder and any host
+// A9 brand: an exit unwind propagates out through the embedder and any host
 // frames in between, so it must be recognizable across runtime copies
 // (contracts/embedder-api.md §"Module identity", issue #83).
 defineBrand(ExitError.prototype, WASI_EXIT);

@@ -1,5 +1,5 @@
 // The process-global brand vocabulary (contracts/embedder-api.md
-// §"Module identity and @deltic/protocol", amendment A8; issue #83).
+// §"Module identity and @deltic/protocol", amendment A9; issue #83).
 //
 // Every brand is a `Symbol.for` REGISTRY symbol, so N copies of this package
 // (or of the runtime) agree on every brand by construction — no module
@@ -51,7 +51,7 @@ export const ERROR_CONTEXT: unique symbol = Symbol.for(
 );
 /**
  * Guest-resource wrappers: the KEY for the wrapper's internal state. Only the
- * key is contract; the state SHAPE stays runtime-internal (A8 table note), so
+ * key is contract; the state SHAPE stays runtime-internal (A9 table note), so
  * a foreign copy can *recognize* a wrapper but never read its state.
  */
 export const RESOURCE_STATE: unique symbol = Symbol.for(
@@ -79,7 +79,7 @@ export const PROTOCOL_GENERATION = 1;
  * suspending mark rides functions) carrying `brand` set to exactly `true`.
  *
  * Deliberately structural: it accepts hand-rolled brands and values minted by
- * any copy. It never consults `instanceof` — that is the failure mode A8
+ * any copy. It never consults `instanceof` — that is the failure mode A9
  * exists to remove.
  */
 export function hasBrand(value: unknown, brand: symbol): boolean {

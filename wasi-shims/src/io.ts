@@ -153,7 +153,7 @@ export class Pollable {
   }
 }
 
-// A8 brand (contracts/embedder-api.md §"Module identity"): pollables cross
+// A9 brand (contracts/embedder-api.md §"Module identity"): pollables cross
 // into host provider code, which may resolve a different @deltic copy. The
 // brand makes them recognizable there; same-copy `instanceof` is unchanged
 // and stays the documented spelling (issue #83). `poll()` itself needs no

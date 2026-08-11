@@ -1,6 +1,6 @@
 // The embedder-facing error model (contracts/embedder-api.md §"Error model").
 //
-// Canonical since amendment A8: these classes used to live in
+// Canonical since amendment A9: these classes used to live in
 // `runtime/src/embedder/errors.ts` and `runtime/src/cabi/trap.ts`, which now
 // re-export them. Every class carries a process-global brand on its
 // prototype, and the runtime recognizes values by BRAND, not by class
@@ -25,7 +25,7 @@
 // deliberately NOT installed as `Symbol.hasInstance` on the classes: a
 // consumer subclass would inherit that `hasInstance` and then match ANY
 // branded value (`x instanceof MyWitError` true for a plain `WitError`),
-// which is a worse footgun than the one A8 removes.
+// which is a worse footgun than the one A9 removes.
 
 import {
   defineBrand,
@@ -139,32 +139,32 @@ export class StreamProducerError extends Error {
 }
 defineBrand(StreamProducerError.prototype, STREAM_PRODUCER);
 
-/** Brand check: is this a WIT `result` err value? (A8; any copy, or hand-rolled.) */
+/** Brand check: is this a WIT `result` err value? (A9; any copy, or hand-rolled.) */
 export function isWitError(v: unknown): v is WitError {
   return hasBrand(v, WIT_ERROR);
 }
 
-/** Brand check: is this a component-fatal trap? (A8.) */
+/** Brand check: is this a component-fatal trap? (A9.) */
 export function isTrap(v: unknown): v is Trap {
   return hasBrand(v, TRAP);
 }
 
-/** Brand check: a dropped-future rejection? (A8.) */
+/** Brand check: a dropped-future rejection? (A9.) */
 export function isDroppedError(v: unknown): v is DroppedError {
   return hasBrand(v, DROPPED);
 }
 
-/** Brand check: a peer-fault rejection (A7)? (A8.) */
+/** Brand check: a peer-fault rejection (A7)? (A9.) */
 export function isPeerTrappedError(v: unknown): v is PeerTrappedError {
   return hasBrand(v, PEER_TRAPPED);
 }
 
-/** Brand check: resource-wrapper misuse? (A8.) */
+/** Brand check: resource-wrapper misuse? (A9.) */
 export function isInvalidHandleError(v: unknown): v is InvalidHandleError {
   return hasBrand(v, INVALID_HANDLE);
 }
 
-/** Brand check: a producer-side stream failure? (A8.) */
+/** Brand check: a producer-side stream failure? (A9.) */
 export function isStreamProducerError(v: unknown): v is StreamProducerError {
   return hasBrand(v, STREAM_PRODUCER);
 }

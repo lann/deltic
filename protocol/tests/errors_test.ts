@@ -1,5 +1,5 @@
 // Recognition is by brand, not class (contracts/embedder-api.md §"Error
-// model", amendment A8; issue #83).
+// model", amendment A9; issue #83).
 //
 // Two properties are under test, and they are the two halves of the amendment:
 // a value minted by ANY copy is recognized (simulated here by hand-rolling
@@ -22,7 +22,7 @@ import {
   WitError,
 } from "../src/mod.ts";
 
-Deno.test("A8: canonical classes are recognized by their own predicate", () => {
+Deno.test("A9: canonical classes are recognized by their own predicate", () => {
   assert(isWitError(new WitError({ tag: "nope" })));
   assert(isTrap(new Trap("x")));
   assert(isDroppedError(new DroppedError()));
@@ -31,14 +31,14 @@ Deno.test("A8: canonical classes are recognized by their own predicate", () => {
   assert(isStreamProducerError(new StreamProducerError("w", new Error("e"))));
 });
 
-Deno.test("A8: the brands do not cross-talk", () => {
+Deno.test("A9: the brands do not cross-talk", () => {
   assertFalse(isTrap(new WitError(1)));
   assertFalse(isWitError(new Trap()));
   assertFalse(isDroppedError(new PeerTrappedError("w", "c")));
   assertFalse(isPeerTrappedError(new DroppedError()));
 });
 
-Deno.test("A8: a hand-rolled brand IS the value (zero-import host module)", () => {
+Deno.test("A9: a hand-rolled brand IS the value (zero-import host module)", () => {
   // Precisely the shape contracts/embedder-api.md blesses: "an Error with
   // [Symbol.for('deltic.witError/1')]: true and a payload property IS a
   // WitError to every copy".
@@ -56,7 +56,7 @@ Deno.test("A8: a hand-rolled brand IS the value (zero-import host module)", () =
   ));
 });
 
-Deno.test("A8: unbranded look-alikes are refused", () => {
+Deno.test("A9: unbranded look-alikes are refused", () => {
   class NotAWitError extends Error {
     payload = 1;
   }
@@ -71,7 +71,7 @@ Deno.test("A8: unbranded look-alikes are refused", () => {
   assertFalse(isWitError({ [Symbol.for("deltic.witError/1")]: 1 }));
 });
 
-Deno.test("A8: predicates are NOT instanceof — a foreign prototype passes", () => {
+Deno.test("A9: predicates are NOT instanceof — a foreign prototype passes", () => {
   // A different copy's class: same brand key (registry symbol), different
   // constructor identity. This is the #83 failure mode, made to pass.
   class ForeignWitError extends Error {
@@ -91,10 +91,10 @@ Deno.test("A8: predicates are NOT instanceof — a foreign prototype passes", ()
   assert(isWitError(e), "brand identity holds");
 });
 
-Deno.test("A8: Symbol.hasInstance is deliberately NOT overridden", () => {
+Deno.test("A9: Symbol.hasInstance is deliberately NOT overridden", () => {
   // Overriding it would be inherited by consumer subclasses, so
   // `x instanceof MySubclass` would match ANY branded value — a worse footgun
-  // than the one A8 removes. instanceof keeps its plain nominal meaning.
+  // than the one A9 removes. instanceof keeps its plain nominal meaning.
   class Sub extends WitError<number> {}
   assertFalse(new WitError(1) instanceof Sub);
   assert(new Sub(1) instanceof WitError);

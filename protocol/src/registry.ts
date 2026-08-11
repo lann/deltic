@@ -1,5 +1,5 @@
 // The runtime-copy registry (contracts/embedder-api.md §"Module identity and
-// @deltic/protocol", amendment A8; issue #83).
+// @deltic/protocol", amendment A9; issue #83).
 //
 // Each embedder module instance appends itself here when it is evaluated. The
 // array lives on `globalThis` under the registry symbol `deltic.runtimeCopies/1`,
@@ -7,9 +7,9 @@
 //
 // Multiple copies are DIAGNOSED, NEVER REFUSED: two isolated bundles on one
 // page that exchange no values are legal (and cross-copy value exchange has
-// been legal for the stateless brands since A8 anyway). The registry exists so
+// been legal for the stateless brands since A9 anyway). The registry exists so
 // that the failures which remain — foreign stateful handles, unbranded throws
-// from a pre-A8 copy — name the copies instead of leaving a latent puzzle.
+// from a pre-A9 copy — name the copies instead of leaving a latent puzzle.
 
 import { RUNTIME_COPIES } from "./brands.ts";
 

@@ -507,6 +507,18 @@ function mkCalleeTask(input: {
       if (postReturn !== null) {
         assert_(inst.mayLeave, "post-return with may_leave already false");
         inst.mayLeave = false;
+        // NO local try/finally here, deliberately (#91, verified rather than
+        // assumed). definitions.py `canon_lift` (lines 2170-2174) has the
+        // same bare bracket: a trapping post-return skips `may_leave = True`
+        // and, since `Store.lift`'s `leave_to` is also skipped, leaves the
+        // instance poisoned — restoring `may_leave` locally would contradict
+        // both. What this runtime additionally needs, because it supports
+        // post-trap re-entry, is that no *live* instance is stranded with
+        // `may_leave === false`; exec/boundary.ts `unwind` covers exactly
+        // that: at the host boundary no lift or lower is in flight, so it
+        // asserts that resting state for every instance outside the poisoned
+        // entered set. This instance is either in that set (poisoned, left
+        // as the trap left it) or restored there.
         callCore(postReturn, raw as CoreValue[]);
         inst.mayLeave = true;
         ctx.stats.postReturnsRun++;
@@ -649,6 +661,15 @@ export function createSyncStartCall(
         // component's callee would otherwise strand its host peers.
         notifyInstancePoisoned(prepared.calleeInst, e);
       }
+      // The lent handles are the CALLER's, and the caller is not poisoned by
+      // either exit (contracts/intrinsics.md v0.2 amendment 2: this runtime
+      // deliberately supports post-trap re-entry on the caller side, where
+      // the reference kills the whole store, so the sync-call scopes it
+      // skipped have to be unwound explicitly). Leaving `numLends` elevated
+      // would make every later `lift_own`/`resource.drop` of those handles
+      // trap "handle still lent out" (#91). Release is idempotent, and the
+      // success path below is unchanged.
+      lenderScope.releaseLenders();
       throw e;
     }
     if (ok) prepared.calleeInst.leaveTo(prepared.callerInst);
@@ -694,6 +715,10 @@ export function createSyncStartCall(
           },
         });
       }
+      // A capability signal is expressly NON-poisoning (see above), so
+      // stranding the caller's lenders here is strictly worse than on the
+      // trap path: the caller is guaranteed to keep running (#91).
+      lenderScope.releaseLenders();
       needsJspi(
         "sync-start-call whose async-lifted callee did not resolve in its " +
           "first activation (the caller's wasm frame must block)",
@@ -702,6 +727,30 @@ export function createSyncStartCall(
     lenderScope.releaseLenders();
     return shapeResults(callerResults as CoreValue[] | null);
   };
+}
+
+/**
+ * Release a never-delivered subtask's lenders after a trap or capability bail
+ * broke the `[async-start-call]` bracket (#91).
+ *
+ * The reference has no analogue because it never resumes after a trap: the
+ * store dies with the lent handles inside it. contracts/intrinsics.md v0.2
+ * amendment 2 makes the unwind this runtime's obligation instead.
+ *
+ * The resolution state mirrors `canon_lower`'s `on_resolve(None)` branch
+ * (definitions.py line 2267): CANCELLED_BEFORE_STARTED if the callee never
+ * started, CANCELLED_BEFORE_RETURNED otherwise.
+ */
+function unwindSubtaskLenders(subtask: Subtask): void {
+  if (!subtask.resolved()) {
+    subtask.resolve(
+      subtask.state === SubtaskState.STARTING
+        ? SubtaskState.CANCELLED_BEFORE_STARTED
+        : SubtaskState.CANCELLED_BEFORE_RETURNED,
+      [],
+    );
+  }
+  if (!subtask.resolveDelivered()) subtask.deliverResolve();
 }
 
 /** The core-ABI shape of a returned results vector (0 / 1 / many). */
@@ -825,6 +874,14 @@ export function createAsyncStartCall(
         // as in the sync form above.
         notifyInstancePoisoned(prepared.calleeInst, e);
       }
+      // The subtask never reached `report()`, so it has no handle in the
+      // caller's table and nothing will ever deliver its resolution — but it
+      // holds `num_lends` on the caller's handles. Resolve it as cancelled
+      // (the state the reference's `on_resolve(None)` would give a call that
+      // never started/returned) and deliver, which is what releases the
+      // lenders (definitions.py `Subtask.deliver_resolve`, line 902). See the
+      // sync form above for why the caller must not be left holding them.
+      unwindSubtaskLenders(subtask);
       throw e;
     }
     if (ok) prepared.calleeInst.leaveTo(prepared.callerInst);

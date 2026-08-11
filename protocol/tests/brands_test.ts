@@ -1,5 +1,5 @@
 // Golden pin for the brand vocabulary (contracts/embedder-api.md §"Module
-// identity and @deltic/protocol", amendment A8; issue #83).
+// identity and @deltic/protocol", amendment A9; issue #83).
 //
 // Every key string is pinned LITERALLY here on purpose: the brands are
 // process-global registry symbols shared with copies this repo never sees, so
@@ -27,14 +27,14 @@ const EXPECTED: Record<string, symbol> = {
   "deltic.runtimeCopies/1": brands.RUNTIME_COPIES,
 };
 
-Deno.test("A8: every brand key is exactly the contract's table entry", () => {
+Deno.test("A9: every brand key is exactly the contract's table entry", () => {
   for (const [key, sym] of Object.entries(EXPECTED)) {
     assertEquals(sym, Symbol.for(key), `brand key drift for ${key}`);
     assertEquals(Symbol.keyFor(sym), key, `${key} is not a registry symbol`);
   }
 });
 
-Deno.test("A8: the table is exhaustive — no unpinned exported brand", () => {
+Deno.test("A9: the table is exhaustive — no unpinned exported brand", () => {
   const exported = (Object.values(brands) as unknown[])
     .filter((v): v is symbol => typeof v === "symbol")
     .map((s) => Symbol.keyFor(s) ?? "<not a registry symbol>")
@@ -42,14 +42,14 @@ Deno.test("A8: the table is exhaustive — no unpinned exported brand", () => {
   assertEquals(exported, Object.keys(EXPECTED).sort());
 });
 
-Deno.test("A8: the protocol generation matches the key suffix", () => {
+Deno.test("A9: the protocol generation matches the key suffix", () => {
   assertEquals(PROTOCOL_GENERATION, 1);
   for (const key of Object.keys(EXPECTED)) {
     assertEquals(key.endsWith(`/${PROTOCOL_GENERATION}`), true, key);
   }
 });
 
-Deno.test("A8: brands are non-enumerable and non-writable on prototypes", () => {
+Deno.test("A9: brands are non-enumerable and non-writable on prototypes", () => {
   const d = Object.getOwnPropertyDescriptor(
     WitError.prototype,
     brands.WIT_ERROR,
