@@ -105,6 +105,34 @@ export class Subtask extends Waitable {
     return this.lenders === null;
   }
 
+  /**
+   * Release a never-delivered subtask's lenders after its call broke off a
+   * non-poisoning exit — trap-rethrow past the CALLEE, capability bail, or
+   * an abandoned park (contracts/intrinsics.md v0.2 amendment 2, #91 scope
+   * clarification; the park legs are #102/#106).
+   *
+   * The reference has no analogue because it never resumes after a trap:
+   * the store dies with the lent handles inside it. The resolution state
+   * mirrors `canon_lower`'s `on_resolve(None)` branch (definitions.py
+   * line 2267): CANCELLED_BEFORE_STARTED if the callee never started,
+   * CANCELLED_BEFORE_RETURNED otherwise.
+   *
+   * Idempotent, and a no-op when the resolution was already delivered — a
+   * settled hook can call it unconditionally without disturbing the success
+   * path's own `deliverResolve`.
+   */
+  unwindLenders(): void {
+    if (!this.resolved()) {
+      this.resolve(
+        this.state === SubtaskState.STARTING
+          ? SubtaskState.CANCELLED_BEFORE_STARTED
+          : SubtaskState.CANCELLED_BEFORE_RETURNED,
+        [],
+      );
+    }
+    if (!this.resolveDelivered()) this.deliverResolve();
+  }
+
   /** definitions.py `Subtask.drop` (line 912). */
   override drop(): void {
     trapIf(

@@ -346,6 +346,14 @@ function finishCopy(
             traceCopy(`${what} sync copy i=${i} RESUME -> 0x${p.toString(16)}`);
             return p;
           },
+          // #106: `abandon` never runs `produce`; without the backstop the
+          // flag stayed set forever and a later `cancel-copy` on this end
+          // trapped "sync waiter" against a waiter that no longer exists.
+          // Idempotent, so the success path's clear-before-`take` ordering
+          // inside `produce` is untouched.
+          onSettled: () => {
+            end.hasSyncWaiter = false;
+          },
         }) as unknown as number;
       }
       needsJspi(
