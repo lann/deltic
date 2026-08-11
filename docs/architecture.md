@@ -362,7 +362,13 @@ decide deliberately and document here.
   cost ~45 ns/byte and capped host→guest byte traffic at ~22 MB/s). Stream
   payload copies share these paths, and u8 stream chunks stay `Uint8Array`
   through host buffers too, so a host-side stream read costs exactly the one
-  rendezvous copy.
+  rendezvous copy. Lists of the other flat element types (bool, s8,
+  u16–u64/s16–s64, f32/f64) keep their plain-array host shapes but also copy
+  bulk, through TypedArray views with the deterministic profile's NaN
+  canonicalization preserved in both directions (issue #67); the platform's
+  little-endianness is a named assumption checked once, with the DataView
+  per-element path as the big-endian fallback. `char` stays per-element (its
+  lift is per-element USV validation).
 - **Memory views** are re-acquired after any call that can grow memory
   (`ArrayBuffer` detach on `memory.grow`).
 - **Resources.** Host-facing handles are classes with `Symbol.dispose`

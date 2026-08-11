@@ -2,6 +2,7 @@
 
 import { assert_, NotImplemented, trapIf } from "./trap.ts";
 import { bytesOf, storeInt, storePtr } from "./memory.ts";
+import { tryStoreNumericList } from "./bulk_lists.ts";
 import { encodeFloatAsI32, encodeFloatAsI64 } from "./float.ts";
 import {
   alignment,
@@ -163,12 +164,13 @@ export function storeListIntoValidRange(
   elemType: ValType,
 ): void {
   const mem = requireMemory(cx.opts);
+  const kind = despecialize(elemType).kind;
   // docs/architecture.md §7: list<u8> is Uint8Array-shaped on the host, and
   // both directions are bulk copies — this is the store-side mirror of
   // load.ts `loadListFromValidRange`'s u8 fast path (issue #54: the
   // per-element interpreted store cost ~45 ns/byte, capping async imports
   // returning list<u8> at ~22 MB/s while the lift ran at memcpy speed).
-  if (despecialize(elemType).kind === "u8") {
+  if (kind === "u8") {
     const dst = bytesOf(mem, ptr, v.length);
     if (v instanceof Uint8Array) {
       dst.set(v);
@@ -184,6 +186,11 @@ export function storeListIntoValidRange(
     }
     return;
   }
+  // Other flat element types store bulk too (issue #67), preserving the
+  // per-element semantics exactly (same asserts, same wrap, canonical-NaN
+  // floats); falls through for compound types, char, and non-little-endian
+  // platforms.
+  if (tryStoreNumericList(mem, v, ptr, kind)) return;
   const size = elemSize(elemType, mem.ptrType());
   for (let i = 0; i < v.length; i++) {
     store(cx, v[i], elemType, ptr + i * size);
