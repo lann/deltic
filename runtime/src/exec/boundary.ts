@@ -744,6 +744,21 @@ async function driveAsync(
           const changed = fresh.length !== parked.length ||
             fresh.some((t, i) => t !== parked[i]);
           if (changed) continue;
+          // The probe's precondition can also expire WITHOUT the awaiting
+          // set changing: the same activation resumes off an engine
+          // continuation chunk during the probe's macrotask turn (jspi
+          // pin (j) — a sync-completing Suspending import still defers its
+          // continuation), runs, and re-parks through the A1 arm, which
+          // registers a fresh `pendingHostCalls` entry. The activation
+          // promise never settled and `awaiting` membership is unchanged,
+          // but the park is externally wakeable now — the verdict's own
+          // precondition (`pendingHostCalls.size === 0`) no longer holds.
+          // Observed on wasi-shims' A5 poll (sync fast path): probe sampled
+          // hostCalls=0 between a settled park and the next one, then
+          // trapped a live workload with hostCalls=1. Re-check ⇒ re-probe.
+          if (store.pendingHostCalls.size > 0 || hasResumingThread()) {
+            continue;
+          }
           if (store.readyCandidates().length === 0) {
             trapIf(
               true,
