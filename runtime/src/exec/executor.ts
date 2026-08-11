@@ -17,6 +17,7 @@ import {
   assertModeConsistent,
   type SuspendingImport,
   chooseMode,
+  enterWasm,
   isSuspending,
   planNeedsSuspension,
   suspendingImport,
@@ -670,6 +671,36 @@ class Executor {
               token.dtor = dtor === null ? null : (rep: number) => {
                 dtor(rep);
               };
+              // #85: the JS-initiated-drop variant. In jspi mode a dtor may
+              // legally reach a `Suspending` import (docs §7), which needs a
+              // `promising` entry — only this module holds the raw export.
+              // Wrapped ONLY when the dtor is suspension-capable
+              // (`suspendableFuncs`: its core instance imports a blocking
+              // trampoline): `promising` settles on a later microtask even
+              // for a non-suspending activation (jspi pin (j)), which would
+              // leave the impl instance entered for a turn after every
+              // drop — a synchronous drop-then-call sequence would trap. A
+              // non-suspendable dtor cannot legally suspend, so the sync
+              // path is exact for it. `WebAssembly.promising` also rejects
+              // non-wasm callables (a dtor CoreDef can resolve to a JS
+              // trampoline) with a TypeError; fall back to the sync closure
+              // — pre-#85 behavior, where a suspension is a deterministic
+              // frame-rule trap. Deliberately does NOT set `wrappedEntries`:
+              // `finish()`'s invariant inventories the two primary wrapping
+              // sites; this is an auxiliary entry.
+              if (
+                dtor !== null && this.suspensionMode === "jspi" &&
+                this.suspendableFuncs.has(dtor as unknown as object)
+              ) {
+                try {
+                  token.dtorHost = enterWasm(
+                    dtor as (rep: number) => unknown,
+                    this.suspensionMode,
+                  );
+                } catch {
+                  token.dtorHost = null;
+                }
+              }
             }
           });
           break;
