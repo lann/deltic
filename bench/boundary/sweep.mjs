@@ -13,24 +13,47 @@ const MODES = ["immediate", "microtask"];
 const SIZES = [0, 1200];
 const rows = [];
 
+// Stream-shaped lanes (issue #68): calls-per-second doesn't apply — these
+// move a payload once via the embedder's Stream rendezvous, so what's
+// measured is bytes/s. `chunks * size` is picked per size so a timed run
+// lands in the tens-of-ms range (calibrated on the dev box; see
+// README.md). deltic drivers only — jco's p3 stream support isn't under
+// test here.
+const STREAM_SHAPES = ["stream-sink", "stream-source", "stream-pass"];
+const STREAM_CONFIGS = [
+  { size: 1200, chunks: 8000 }, // ~9.6 MB/run
+  { size: 16384, chunks: 4500 }, // ~74 MB/run
+  { size: 262144, chunks: 600 }, // ~150 MB/run
+];
+const streamRows = [];
+
 function run(cmd, args) {
   const r = spawnSync(cmd, args, { encoding: "utf8", cwd: new URL(".", import.meta.url).pathname });
   if (r.status !== 0) throw new Error(`${cmd} ${args.join(" ")}\n${r.stderr}`);
-  rows.push(JSON.parse(r.stdout.trim().split("\n").at(-1)));
+  return JSON.parse(r.stdout.trim().split("\n").at(-1));
 }
 
 const jco = withJco === "--with-jco" && existsSync(new URL("./generated/bench.js", import.meta.url));
 for (const shape of SHAPES) {
   for (const mode of MODES) {
     for (const size of SIZES) {
-      run("node", ["driver-deltic.mjs", bundle, translator, shape, mode, "50000", String(size), "5"]);
-      run("node", ["--experimental-wasm-jspi", "driver-deltic.mjs", bundle, translator, shape, mode, "20000", String(size), "5", "jspi"]);
-      run("deno", ["run", "-A", "driver-deltic.mjs", bundle, translator, shape, mode, "50000", String(size), "5"]);
+      rows.push(run("node", ["driver-deltic.mjs", bundle, translator, shape, mode, "50000", String(size), "5"]));
+      rows.push(run("node", ["--experimental-wasm-jspi", "driver-deltic.mjs", bundle, translator, shape, mode, "20000", String(size), "5", "jspi"]));
+      rows.push(run("deno", ["run", "-A", "driver-deltic.mjs", bundle, translator, shape, mode, "50000", String(size), "5"]));
       if (jco) {
         const iters = shape === "send-sync" ? "50000" : "1500";
-        run("node", ["--experimental-wasm-jspi", "driver-jco.mjs", shape, mode, iters, String(size), "5"]);
+        rows.push(run("node", ["--experimental-wasm-jspi", "driver-jco.mjs", shape, mode, iters, String(size), "5"]));
       }
     }
+  }
+}
+
+for (const shape of STREAM_SHAPES) {
+  for (const { size, chunks } of STREAM_CONFIGS) {
+    streamRows.push(run("node", ["driver-deltic.mjs", bundle, translator, shape, "n/a", String(chunks), String(size), "5"]));
+    streamRows.push(run("node", ["--experimental-wasm-jspi", "driver-deltic.mjs", bundle, translator, shape, "n/a", String(chunks), String(size), "5", "jspi"]));
+    streamRows.push(run("deno", ["run", "-A", "driver-deltic.mjs", bundle, translator, shape, "n/a", String(chunks), String(size), "5"]));
+    // jco lane skipped: jco's p3 stream support is not under test here.
   }
 }
 
@@ -46,5 +69,19 @@ for (const shape of SHAPES) {
       });
       console.log(pad(shape, 10) + pad(mode, 11) + pad(size, 6) + cells.join(""));
     }
+  }
+}
+
+console.log();
+console.log("stream lanes (bytes/s; jco lane skipped — see README.md):");
+const streamLanes = [...new Set(streamRows.map((r) => r.lane))];
+console.log(pad("shape", 14) + pad("size", 10) + streamLanes.map((l) => String(l).padStart(22)).join(""));
+for (const shape of STREAM_SHAPES) {
+  for (const { size } of STREAM_CONFIGS) {
+    const cells = streamLanes.map((lane) => {
+      const r = streamRows.find((x) => x.lane === lane && x.shape === shape && x.size === size);
+      return (r ? `${r.mbPerSec.toLocaleString("en-US", { maximumFractionDigits: 1 })} MB/s` : "-").padStart(22);
+    });
+    console.log(pad(shape, 14) + pad(size, 10) + cells.join(""));
   }
 }

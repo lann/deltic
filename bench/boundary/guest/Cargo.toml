@@ -8,7 +8,9 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
-wit-bindgen = { version = "=0.60.0", features = ["async"] }
+# `async-spawn` backs `stream-source`'s background producer task (issue
+# #68); the existing calls-per-second shapes only need plain `async`.
+wit-bindgen = { version = "=0.60.0", features = ["async", "async-spawn"] }
 
 [profile.release]
 opt-level = "s"

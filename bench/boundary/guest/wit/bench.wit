@@ -19,4 +19,21 @@ world bench {
     export send: async func(iters: u32, size: u32) -> u64;
     export recv: async func(iters: u32, size: u32) -> u64;
     export send-sync: async func(iters: u32, size: u32) -> u64;
+
+    /// Stream-shaped lanes (issue #68): no host import involved — the
+    /// host drives the stream endpoint directly via the embedder's
+    /// `Stream` API, so these measure host<->guest (and, for
+    /// `stream-pass`, host<->host) rendezvous throughput in isolation
+    /// from lift/lower of scalar imports.
+    /// Host->guest payload: the guest drains its input stream to EOS and
+    /// returns the element count.
+    export stream-sink: async func(s: stream<u8>) -> u64;
+    /// Guest->host payload: the guest pumps `n` bytes onto a stream it
+    /// creates and returns immediately (pumping continues in the
+    /// background).
+    export stream-source: async func(n: u32) -> stream<u8>;
+    /// Returns its input stream unchanged, never reading it — once both
+    /// ends are host-side (amendment A5) the payload rendezvous is
+    /// host<->host with no guest memory touched.
+    export stream-pass: async func(s: stream<u8>) -> stream<u8>;
 }
