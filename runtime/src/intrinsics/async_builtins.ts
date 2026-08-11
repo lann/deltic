@@ -310,8 +310,15 @@ export function createWaitableSetWait(
       // The `num_waiting` bracket is real now. Skipping it was justified only
       // while this path could not actually yield; a genuine block CAN be
       // observed, because `WaitableSet.drop` traps on `num_waiting > 0`
-      // (line 852). Incremented before blocking and decremented in `produce`,
-      // which runs exactly once whether we resume normally or cancelled.
+      // (line 852). Incremented before blocking and decremented in
+      // `onSettled`, which runs exactly once on EVERY terminal transition —
+      // normal resume, cancelled resume, produce-throw, and `abandon`
+      // (#106: decrementing in `produce` missed the abandon leg, leaving
+      // `numWaiting` elevated forever and a later `waitable-set.drop`
+      // trapping spuriously). The decrement is not idempotent, so it lives
+      // ONLY here, not in `produce` as well; nothing can observe the still-
+      // elevated count between `produce` and the hook — both run
+      // synchronously inside the settle, before any other code.
       wset.numWaiting += 1;
       return blockCurrentActivation({
         store: inst.store,
@@ -319,11 +326,13 @@ export function createWaitableSetWait(
         readyFunc: () => wset.hasPendingEvent(),
         cancellable,
         produce: (cancelled: Cancelled) => {
-          wset.numWaiting -= 1;
           const ev: EventTuple = cancelled
             ? [EventCode.TASK_CANCELLED, 0, 0]
             : wset.getPendingEvent();
           return unpackEvent(opts, inst, ptr ?? 0, ev);
+        },
+        onSettled: () => {
+          wset.numWaiting -= 1;
         },
       }) as unknown as number;
     } else {
@@ -505,6 +514,13 @@ export function createSubtaskCancel(
               produce: () => {
                 st.hasSyncWaiter = false;
                 return finish();
+              },
+              // #106: `abandon` never runs `produce`; without the backstop
+              // the flag stayed set forever and a later `waitable.join` on
+              // this subtask trapped spuriously. Idempotent, so the success
+              // path's clear-inside-`produce` ordering is untouched.
+              onSettled: () => {
+                st.hasSyncWaiter = false;
               },
             }) as unknown as number;
           }

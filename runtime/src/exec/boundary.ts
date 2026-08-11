@@ -1668,6 +1668,15 @@ export function createLoweredImport(input: {
           // and the embedder's per-declaration `suspending()` marker: the
           // Suspending wrap is applied per-declaration (`importValue`), so an
           // unmarked import physically cannot suspend, whatever the mode.
+          //
+          // A capability signal is expressly NON-poisoning (amendment 2, #91
+          // scope clarification): the caller keeps running, so the borrows
+          // `onStart` lifted into this subtask must be discharged here or
+          // its lenders stay elevated forever and later `resource.drop`s
+          // trap "handle still lent out" on a healthy instance (found
+          // during the #106 closure; same class as the fact_calls.ts #91
+          // sites).
+          subtask.unwindLenders();
           needsJspi(
             suspendable
               ? `synchronous lower of import '${name}', whose host ` +
@@ -1720,6 +1729,32 @@ export function createLoweredImport(input: {
         // precondition of the deadlock verdict) and so teardown can observe
         // the outstanding call, mirroring the async arm below.
         store.pendingHostCalls.add(promise);
+        // LENDER DISCHARGE ON EVERY SETTLE PATH (#106, the sibling of the
+        // fact_calls.ts sync-start park's #102 enumeration):
+        //
+        //  * produce SUCCESS   -> `onResolve` + `deliverResolve` release the
+        //    lenders; the `onSettled` backstop below observes
+        //    `resolveDelivered()` and is a no-op.
+        //  * produce THROW     -> exempt-by-poisoning under amendment 2
+        //    (contracts/intrinsics.md v0.2 §2: release is owed only on exits
+        //    that do NOT poison the caller). Every rejection that reaches
+        //    this park is a poisoning trap in the CALLER's own frame:
+        //    branded `WitError`s on fallible imports were already resolved
+        //    into err-shaped VALUES by the conventions layer
+        //    (embedder/instantiate.ts `#wrapImportFn`'s `fail` — they take
+        //    the success arm above), every other conventions-layer throw is
+        //    a `Trap`, and a raw-executor rejection is a declared host bug
+        //    that traps (empirical fact (e)). No capability signal can
+        //    originate inside `produce`: this park only exists once jspi +
+        //    `suspending()` were both granted. The backstop's unwind here is
+        //    belt-and-braces bookkeeping on a poisoned instance, not an
+        //    obligation.
+        //  * abandon           -> produce never runs, and an abandoned park
+        //    does NOT poison the caller (pinned by
+        //    resource_lender_park_settle_test.ts) — without the hook the
+        //    subtask's lenders stayed elevated forever and later
+        //    `resource.drop`s trapped "handle still lent out". The hook is
+        //    the fix.
         return blockCurrentActivation({
           store,
           task: currentTask(),
@@ -1733,8 +1768,9 @@ export function createLoweredImport(input: {
               // which the engine turns back into a wasm trap (empirical
               // fact (e); `SuspensionPoint` routes a produce-throw through
               // exactly that path). Branded `WitError`s never reach the raw
-              // boundary — the bindgen adapter resolves them into err-shaped
-              // values one layer up.
+              // boundary — the conventions layer resolves them into
+              // err-shaped values one layer up (see the settle-path
+              // enumeration above).
               throw done.error;
             }
             onResolve(toResults(done.value));
@@ -1745,6 +1781,7 @@ export function createLoweredImport(input: {
             if (flatResults.length === 1) return flatResults[0];
             return flatResults;
           },
+          onSettled: () => subtask.unwindLenders(),
         });
       }
       const promise = Promise.resolve(raw).then(

@@ -782,24 +782,12 @@ export function createSyncStartCall(
  * Release a never-delivered subtask's lenders after a trap or capability bail
  * broke the `[async-start-call]` bracket (#91).
  *
- * The reference has no analogue because it never resumes after a trap: the
- * store dies with the lent handles inside it. contracts/intrinsics.md v0.2
- * amendment 2 makes the unwind this runtime's obligation instead.
- *
- * The resolution state mirrors `canon_lower`'s `on_resolve(None)` branch
- * (definitions.py line 2267): CANCELLED_BEFORE_STARTED if the callee never
- * started, CANCELLED_BEFORE_RETURNED otherwise.
+ * Now a thin alias of `Subtask.unwindLenders` — the same unwind serves the
+ * host-import parks (exec/boundary.ts, #106) — kept for the local name the
+ * `[async-start-call]` comments reference.
  */
 function unwindSubtaskLenders(subtask: Subtask): void {
-  if (!subtask.resolved()) {
-    subtask.resolve(
-      subtask.state === SubtaskState.STARTING
-        ? SubtaskState.CANCELLED_BEFORE_STARTED
-        : SubtaskState.CANCELLED_BEFORE_RETURNED,
-      [],
-    );
-  }
-  if (!subtask.resolveDelivered()) subtask.deliverResolve();
+  subtask.unwindLenders();
 }
 
 /** The core-ABI shape of a returned results vector (0 / 1 / many). */
