@@ -44,7 +44,7 @@
 // memory that can be *partially* consumed, which is what makes partial copies
 // expressible.
 
-import { assert_, trapIf } from "../cabi/trap.ts";
+import { assert_, Trap, trapIf } from "../cabi/trap.ts";
 import { LiftLowerContext } from "../cabi/context.ts";
 import { loadListFromValidRange } from "../cabi/load.ts";
 import { storeListIntoValidRange } from "../cabi/store.ts";
@@ -369,6 +369,29 @@ export class SharedFutureImpl implements SharedBase {
   boundStore: unknown = null;
 
   dropped = false;
+  /**
+   * Set when the future's **writable** side went away without ever delivering
+   * its one value (#84 teardown of a trap-poisoned instance, #90 host
+   * `drop()` on a lowered-but-unwritten future).
+   *
+   * definitions.py keeps this state unreachable: `WritableFutureEnd.drop`
+   * traps unless the end is DONE (definitions.py:1183-1184), so a readable
+   * future end can never observe DROPPED (`future_copy`'s `on_copy_done`
+   * assertion, definitions.py:2614). Our two teardown paths deliberately
+   * bypass that trap — a poisoned instance cannot be asked to trap again, and
+   * the host `drop()` is a public API door — so the state exists here and has
+   * to be *total*: an unwritten future whose writer died can never satisfy
+   * its reader, so the reader is told at its rendezvous point, with a
+   * **trap**, never a DROPPED/COMPLETED answer and never a silent hang.
+   *
+   * Consumers of the flag:
+   *   * `read` below, for a reader that has not parked yet (trap on the spot);
+   *   * intrinsics/stream_builtins.ts `futureCopy`, for a parked guest reader
+   *     (the pending event's thunk throws instead of producing a tuple);
+   *   * exec/host_streams.ts leaves host readers on their existing DROPPED
+   *     path — the conventions layer already brands that outcome.
+   */
+  abandonReason: Error | null = null;
   pendingInst: unknown = null;
   pendingBuffer: GuestBuffer | null = null;
   pendingOnCopyDone: OnCopyDone | null = null;
@@ -408,6 +431,13 @@ export class SharedFutureImpl implements SharedBase {
   }
 
   read(inst: unknown, dstBuffer: GuestBuffer, onCopyDone: OnCopyDone): void {
+    // #84 leg (c): the reader arrives AFTER the writable side was abandoned.
+    // definitions.py:1141 asserts `not self.dropped` here because the drop
+    // trap keeps that unreachable; for our abandoned state the honest answer
+    // is the same trap the parked reader gets, delivered synchronously.
+    if (this.dropped && this.abandonReason !== null) {
+      throw futureAbandonTrap(this.abandonReason);
+    }
     assert_(!this.dropped && dstBuffer.remain() === 1, "future read shape");
     if (!this.pendingBuffer) {
       this.setPending(inst, dstBuffer, onCopyDone);
@@ -541,6 +571,49 @@ export function poisonFailureOf(shared: unknown): Error | undefined {
 /** Instances whose async ends have already been retired (idempotence). */
 const retiredInstances = new WeakSet<object>();
 
+// ---------------------------------------------------------------------------
+// Abandoned futures (#84, #90)
+// ---------------------------------------------------------------------------
+
+/**
+ * The trap a reader of an abandoned future observes at its rendezvous point.
+ *
+ * `Trap` is the guest-visible fault vocabulary (cabi/trap.ts); the recorded
+ * reason rides as `cause` so the embedder/host layers can still attribute the
+ * original fault. (`Trap`'s constructor takes only a message, so `cause` is
+ * attached after construction rather than through `ErrorOptions`.)
+ */
+export function futureAbandonTrap(reason: Error): Trap {
+  const t = new Trap(
+    `future.read can never complete: ${reason.message}`,
+  );
+  (t as { cause?: unknown }).cause = reason;
+  return t;
+}
+
+/** The abandonment reason of a shared future, if it has one (#84/#90). */
+export function abandonReasonOf(shared: unknown): Error | null {
+  return shared instanceof SharedFutureImpl ? shared.abandonReason : null;
+}
+
+/**
+ * Mark a future's writable side as gone-without-a-value and settle the
+ * rendezvous (#90's host `drop()` door; the poisoning walk below routes
+ * through `dropSharedForTeardown` instead, which adds the dead-guest
+ * discipline).
+ *
+ * Never throws, and idempotent: a second call on an already-dropped future is
+ * a no-op, so `drop()`/`Symbol.dispose` at the layers above are total.
+ */
+export function abandonSharedFuture(
+  shared: SharedFutureImpl,
+  reason: Error,
+): void {
+  if (shared.dropped) return;
+  shared.abandonReason ??= reason;
+  dropSharedForTeardown(shared);
+}
+
 /** The structural slice of `ComponentInstanceState` the walk needs. */
 interface PoisonedInstanceLike {
   readonly index?: number;
@@ -557,8 +630,34 @@ interface PoisonedInstanceLike {
  * Notifying it would queue a phantom event into the corpse's waitables, and
  * a later driving loop servicing it would resume machinery whose instance
  * can no longer be entered (`tick` asserts enterability). Host sentinels
- * carry no `mayEnter` key and healthy guest peers park only outside the
- * bracket (`mayEnter === true`), so both are always notified.
+ * carry no `mayEnter` key, so they are always notified.
+ *
+ * #84 AUDIT (the "healthy guest peers park only with `mayEnter === true`"
+ * claim this test used to rest on). Verified for the *parking* mechanism:
+ * every park — the callback ABI's waitable-set wait, and equally a
+ * sync-lowered/JSPI peer blocked inside `finishCopy`'s SITE 4 via
+ * `blockCurrentActivation` — yields the thread out of the scheduler's
+ * enter/leave bracket, and the bracket's `leaveTo` runs on the way out
+ * (task/scheduler.ts `Store.tick` :905-917, task/thread.ts
+ * `Thread.resumeWith` :157-179, whose resume-side `assert_(mayEnterFrom(null))`
+ * would fire otherwise). So a JSPI-blocked peer parks with `mayEnter === true`:
+ * blocking inside the wasm frame does NOT hold the enter bracket.
+ *
+ * NOT verified — a genuine counterexample to the *converse*: `mayEnter ===
+ * false` does not imply "poisoned". An instance that is merely mid-call is
+ * also non-enterable, and a caller instance stays non-enterable for the whole
+ * duration of a cross-component (FACT) call into the instance that traps
+ * (`ComponentInstanceState.enterFrom` clears `mayEnter` on the callee's
+ * entering set only, task/mod.ts:136-142). A *different* task of that healthy
+ * caller, parked on an end of a stream/future the trapping callee also held,
+ * is therefore classified dead here and retired silently — i.e. stranded,
+ * the outcome #66 exists to prevent. The two states are not distinguishable
+ * at this seam (the walk may be invoked over several instances in turn, so
+ * "already retired" is not a reliable proxy either). Reported with #84 rather
+ * than fixed here: narrowing the test would risk re-opening review B2 (a
+ * DROPPED event queued into a corpse's waitables), which is a
+ * scheduler-adjacent decision outside this track's territory.
+ * // CONTRACT: conservative reading — behavior deliberately unchanged.
  *
  * Used by the poisoning walk below and by the trapping-import abandonment
  * path (embedder/instantiate.ts `releaseAsyncArgs`). Idempotent.
@@ -596,6 +695,24 @@ export function dropSharedForTeardown(
  * cross-component catches (intrinsics/fact_calls.ts, callee side) — with the
  * trap as `cause`. Idempotent per instance. The parked-side notification
  * discipline lives in `dropSharedForTeardown` above.
+ *
+ * Two refinements over the original #66 walk, both from #84:
+ *
+ *  1. FUTURES ARE NOT STREAMS. A `stream`'s reader may legitimately observe
+ *     DROPPED (that is end-of-stream), but a `future`'s reader may not
+ *     (definitions.py:2614) — the reference keeps the state unreachable by
+ *     trapping an early writable-end drop (definitions.py:1183-1184), which
+ *     a poisoned instance can no longer be made to do. So an unwritten
+ *     writable future end in this table marks its shared object *abandoned*
+ *     (first pass below) and its reader traps instead. A writable end that
+ *     already reached `CopyState.DONE` delivered its value; nothing is owed.
+ *
+ *  2. ONE END'S FAILURE MUST NOT STRAND THE REST. The notification of a
+ *     retired end runs arbitrary peer callbacks (host settlers, event
+ *     thunks); a throw used to abort the loop mid-table, leaving the
+ *     remaining ends live and their peers hanging — exactly the outcome this
+ *     walk exists to prevent. The walk now always completes and rethrows the
+ *     first failure afterwards.
  */
 export function retireInstanceAsyncEnds(
   inst: PoisonedInstanceLike,
@@ -603,13 +720,20 @@ export function retireInstanceAsyncEnds(
 ): void {
   if (retiredInstances.has(inst)) return;
   retiredInstances.add(inst);
-  for (const e of inst.handles) {
-    if (!(e instanceof CopyEnd)) continue;
+  const where = inst.index !== undefined
+    ? `component instance ${inst.index}`
+    : "a component instance";
+  // Snapshot: the notifications below can run peer code that mutates tables.
+  const ends: CopyEnd[] = [];
+  for (const e of inst.handles) if (e instanceof CopyEnd) ends.push(e);
+
+  // Pass 1: record the failure, and mark abandoned every future this table
+  // owes a value on. Done before ANY notification, so the reader-side trap
+  // decision cannot depend on the order the handle table happens to yield
+  // the two ends of one future in.
+  for (const e of ends) {
     const shared = e.shared as SharedStreamImpl | SharedFutureImpl;
     if (poisonFailures.get(shared) === undefined) {
-      const where = inst.index !== undefined
-        ? `component instance ${inst.index}`
-        : "a component instance";
       poisonFailures.set(
         shared,
         new Error(
@@ -619,8 +743,28 @@ export function retireInstanceAsyncEnds(
         ),
       );
     }
-    dropSharedForTeardown(shared);
+    if (
+      e instanceof WritableFutureEnd && shared instanceof SharedFutureImpl &&
+      e.state !== CopyState.DONE && !shared.dropped
+    ) {
+      shared.abandonReason ??= poisonFailures.get(shared)!;
+    }
   }
+
+  // Pass 2: retire. Collect failures rather than abandoning the walk.
+  let first: unknown;
+  let failed = false;
+  for (const e of ends) {
+    try {
+      dropSharedForTeardown(e.shared as SharedStreamImpl | SharedFutureImpl);
+    } catch (err) {
+      if (!failed) {
+        failed = true;
+        first = err;
+      }
+    }
+  }
+  if (failed) throw first;
 }
 
 // `Store.tick`'s bracket-break site reaches the walk through this seam (its

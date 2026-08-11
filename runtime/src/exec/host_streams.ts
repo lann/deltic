@@ -62,6 +62,8 @@ import {
   whenStoreDriverIdle,
 } from "./boundary.ts";
 import {
+  abandonSharedFuture,
+  BUFFER_MAX_LENGTH,
   type ComponentInstanceState,
   CopyResult,
   type PayloadChunk,
@@ -110,7 +112,25 @@ export class HostBuffer {
     readonly t: ValType | null,
     private readonly values: PayloadChunk | null,
     readonly length: number,
-  ) {}
+  ) {
+    // definitions.py `Buffer.MAX_LENGTH` (:919) is asserted on every buffer
+    // the spec builds (`BufferGuestImpl.__init__`, :938); `GuestBuffer` traps
+    // on it. A host buffer is not guest-visible, so a violation is embedder
+    // misuse rather than a component fault — hence a loud typed JS error and
+    // not a `Trap`. Caught at construction: an over-long host offer would
+    // otherwise silently exceed the spec bound (#97).
+    if (!Number.isInteger(length) || length < 0) {
+      throw new RangeError(
+        `host buffer length must be a non-negative integer, got ${length}`,
+      );
+    }
+    if (length > BUFFER_MAX_LENGTH) {
+      throw new RangeError(
+        `host buffer length ${length} exceeds the Component Model's ` +
+          `Buffer.MAX_LENGTH (${BUFFER_MAX_LENGTH})`,
+      );
+    }
+  }
 
   remain(): number {
     return this.length - this.progress;
@@ -443,6 +463,7 @@ export interface HostStream<T> {
 function bindOnLower(
   shared: SharedStreamImpl | SharedFutureImpl,
   activity: HostActivity,
+  alsoOnLowered?: () => void,
 ): void {
   const holder = shared as unknown as {
     onLowered?: ((i: ComponentInstanceState) => void) | null;
@@ -460,7 +481,10 @@ function bindOnLower(
     "internal: a second host wrapper was built for an already-wrapped " +
       "stream/future (the wrapper cache should have returned the first)",
   );
-  holder.onLowered = (inst) => activity.bind(inst.store);
+  holder.onLowered = (inst) => {
+    alsoOnLowered?.();
+    activity.bind(inst.store);
+  };
   // A stream that came *out* of a guest was lifted, never lowered, so the hook
   // above will not fire; `boundStore` was recorded at lift time instead.
   const bound = (shared as { boundStore?: unknown }).boundStore;
@@ -607,6 +631,16 @@ function mkStreamEnds<T>(
         });
       },
       cancelRead() {
+        // #97, DELIBERATE AND PINNED: cancelling resolves the in-flight
+        // `read` promise with whatever the buffer took so far — for a read
+        // that had not yet rendezvoused, the empty chunk. An empty chunk is
+        // also this layer's end-of-stream signal (see `HostReadableEnd.read`
+        // and embedder/streams.ts `Stream.read`), so **a host-cancelled read
+        // is indistinguishable from EOS at the conventions layer**. That is
+        // accepted rather than papered over: the code that calls
+        // `cancelRead()` is the same code that observes the result, so it
+        // already knows which of the two happened. Nothing else can reach
+        // this state — a guest cannot cancel the host's read.
         if (!parked.read) return;
         parked.read = false;
         shared.cancel();
@@ -681,6 +715,23 @@ export interface HostFuture<T> {
   readResult(): Promise<{ value: T | undefined; result: CopyResult }>;
   /** Cancel an in-flight `read`/`write`; see `HostWritableEnd.cancelWrite`. */
   cancel(): void;
+  /**
+   * Release this future. Total and idempotent (#90): it never throws, and a
+   * second call is a no-op.
+   *
+   * Three cases, per the #90 ruling:
+   *
+   *  * the value was already delivered (the normal write-then-drop path) —
+   *    plain state cleanup, the spec's `WritableFutureEnd.drop` precondition
+   *    (definitions.py:1183-1184) is satisfied;
+   *  * never written, and the future was **lowered** into a guest (the guest
+   *    holds the readable end, so this wrapper plays the spec's writable
+   *    role) — *abandon*: the reader can never be satisfied, so it is armed
+   *    with the rendezvous-point trap (task/streams.ts `abandonSharedFuture`)
+   *    rather than being handed a DROPPED it may not observe;
+   *  * never written and never lowered — no guest ever saw it; plain
+   *    cleanup.
+   */
   drop(): void;
   value: ComponentValue;
 }
@@ -689,11 +740,13 @@ export interface HostFuture<T> {
 export function hostFuture<T>(element: ValType | null): HostFuture<T> {
   const shared = new SharedFutureImpl(element);
   const activity = new HostActivity();
-  bindOnLower(shared, activity);
+  const lowering = { lowered: false };
+  bindOnLower(shared, activity, () => lowering.lowered = true);
   const wrapper = mkFuture<T>(
     shared,
     activity,
     shared as unknown as ComponentValue,
+    lowering,
   );
   futureWrappers.set(shared, wrapper as HostFuture<unknown>);
   return wrapper;
@@ -712,8 +765,9 @@ export function hostFutureFor<T>(value: ComponentValue): HostFuture<T> {
   const cached = futureWrappers.get(shared);
   if (cached !== undefined) return cached as HostFuture<T>;
   const activity = new HostActivity();
-  bindOnLower(shared, activity);
-  const wrapper = mkFuture<T>(shared, activity, value);
+  const lowering = { lowered: false };
+  bindOnLower(shared, activity, () => lowering.lowered = true);
+  const wrapper = mkFuture<T>(shared, activity, value, lowering);
   futureWrappers.set(shared, wrapper as HostFuture<unknown>);
   return wrapper;
 }
@@ -722,13 +776,22 @@ function mkFuture<T>(
   shared: SharedFutureImpl,
   activity: HostActivity,
   value: ComponentValue,
+  /**
+   * Flipped by `bindOnLower` the first time this future is lowered into a
+   * guest — i.e. the first time a guest receives its READABLE end and this
+   * wrapper takes on the spec's writable role. `drop()` needs it (#90).
+   */
+  lowering: { lowered: boolean },
 ): HostFuture<T> {
   // Distinct rendezvous identities per end — see `hostEndInstance`.
   const writeInst = hostEndInstance("write");
   const readInst = hostEndInstance("read");
   const parked = { any: false };
+  /** Set once the future's one value has actually crossed (#90). */
+  let delivered = false;
   const settle = (result: CopyResult): void => {
     parked.any = false;
+    if (result === CopyResult.COMPLETED) delivered = true;
     if (result === CopyResult.DROPPED) activity.close();
     else activity.notify();
   };
@@ -797,7 +860,20 @@ function mkFuture<T>(
       activity.pump();
     },
     drop() {
-      shared.drop();
+      // #90. Never throws, idempotent: `SharedFutureImpl.drop` and
+      // `abandonSharedFuture` both no-op on an already-dropped future, and
+      // neither can raise. See the `HostFuture.drop` doc for the three cases.
+      if (!delivered && lowering.lowered && !shared.dropped) {
+        abandonSharedFuture(
+          shared,
+          new Error(
+            "the host dropped the writable end of this future without " +
+              "writing a value",
+          ),
+        );
+      } else {
+        shared.drop();
+      }
       activity.close();
       activity.pump();
     },

@@ -26,6 +26,7 @@ import { LiftLowerContext } from "../cabi/context.ts";
 import { loadStringFromRange, storeString } from "../cabi/strings.ts";
 import type { ValType } from "../cabi/types.ts";
 import {
+  abandonReasonOf,
   BUFFER_MAX_LENGTH,
   type ComponentInstanceState,
   CopyEnd,
@@ -36,6 +37,7 @@ import {
   ErrorContext,
   EventCode,
   type EventTuple,
+  futureAbandonTrap,
   GuestBuffer,
   needsJspi,
   ReadableFutureEnd,
@@ -262,6 +264,29 @@ function futureCopy(input: {
 
   end.state = CopyState.COPYING;
   const onCopyDone = (result: CopyResult) => {
+    // #84/#90: an unwritten future whose writable side was torn down (a
+    // trap-poisoned instance's table, or the host's `drop()` door) can never
+    // satisfy this reader. definitions.py keeps that state unreachable
+    // (:1183-1184 traps the early writable drop, so :2614 may assert a
+    // readable end never sees DROPPED); where we bypass the trap we owe the
+    // reader a *trap at its rendezvous point* instead of a DROPPED answer.
+    //
+    // The pending event stays a thunk, so the trap is raised exactly where
+    // the reader observes it: `waitable-set.wait`'s delivery (both the
+    // fast-path and the JSPI `produce`, intrinsics/async_builtins.ts:290/311),
+    // the callback loop's `waitForEventAnd` (exec/boundary.ts:1766), and
+    // `finishCopy`'s `take()` below — every one of which is inside the
+    // reader's guest activation, so the throw propagates as that task's trap
+    // and poisons *its* instance, and nothing else.
+    const abandoned = reading && result === CopyResult.DROPPED
+      ? abandonReasonOf(end.shared)
+      : null;
+    if (abandoned !== null) {
+      end.setPendingEvent((): EventTuple => {
+        throw futureAbandonTrap(abandoned);
+      });
+      return;
+    }
     assert_(
       result !== CopyResult.DROPPED || eventCode === EventCode.FUTURE_WRITE,
       "a readable future end cannot observe DROPPED",
