@@ -5,10 +5,25 @@
 // loop body with one typed-array view per list and a tight per-element pass
 // that preserves the interpreted path's EXACT observable semantics:
 //
-//   * integers: the same `assert_` texts as `storeInt` (`"int store"`,
-//     `"64-bit store requires bigint"`), the same wrap-on-overflow (a
-//     TypedArray element write coerces exactly like the matching DataView
-//     setter), the same number/bigint host shapes on lift;
+//   * integers: the same `assert_` type-shape texts as `storeInt` (`"int
+//     store"`, `"64-bit store requires bigint"`) but, unlike the scalar path
+//     in memory.ts (`storeInt`'s range `assert_`s, issue #96), NOT the same
+//     range check: this bulk path wraps out-of-range values instead of
+//     raising the host-precondition error (`OverflowError` per
+//     definitions.py:1568-1569 `int.to_bytes`) that `storeInt` raises. That
+//     is a deliberate scalar/bulk posture split, not an oversight:
+//       - the whole point of this file (see the perf numbers above) is an
+//         allocation-free, branch-minimal per-element loop; an added range
+//         check is itself a per-element cost, defeating the purpose;
+//       - values reaching this path from a descriptor-driven lower already
+//         went through the descriptor layer's own type conversions for the
+//         cases that matter in practice (see contracts/descriptor-ir.md);
+//         the wrap here is a defense-in-depth gap only for a raw/buggy
+//         embedder value, which the scalar path (used for non-bulk-eligible
+//         kinds, and reachable directly from embedder code) still catches.
+//     A TypedArray element write coerces exactly like the matching DataView
+//     setter (wraps mod 2^width), so this is pinned as intentional behavior
+//     (see bulk_list_test.ts), not merely undocumented;
 //   * floats: the deterministic profile's NaN canonicalization on BOTH
 //     directions (float.ts `decodeI32AsFloat` / `encodeFloatAsI32`): every
 //     lifted NaN becomes the JS canonical NaN, every stored `number` NaN

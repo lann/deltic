@@ -17,6 +17,20 @@ export function ptrSize(ptrType: PtrType): 4 | 8 {
   return ptrType === "i32" ? 4 : 8;
 }
 
+/**
+ * `MemInst` caches its `Uint8Array`/`DataView` at construction time and never
+ * re-derives them. That is only sound for a memory that cannot grow within
+ * this instance's lifetime: `memory.grow` (guest-triggered or host-triggered)
+ * detaches the backing `ArrayBuffer`, and a cached view over a detached
+ * buffer reads/writes garbage rather than trapping.
+ *
+ * Production call/lift/lower paths do NOT construct `MemInst` directly against
+ * a live, growable `WebAssembly.Memory` for this reason: the executor
+ * re-derives a fresh view per access via `LiveMemory`
+ * (`exec/boundary.ts:97-160`), which is grow-safe. `MemInst` is for contexts
+ * where the buffer is known fixed for the duration (tests, or a snapshot
+ * already taken).
+ */
 export class MemInst {
   readonly bytes: Uint8Array;
   readonly view: DataView;
@@ -108,7 +122,32 @@ export function loadPtr(mem: MemInst, ptr: number): number | bigint {
   return mem.ptrSize() === 4 ? loadIntU(mem, ptr, 4) : loadIntU(mem, ptr, 8);
 }
 
-// definitions.py store_int(cx, v, ptr, nbytes, signed).
+// definitions.py store_int(cx, v, ptr, nbytes, signed): `int.to_bytes` raises
+// `OverflowError` when `v` does not fit in `nbytes` (signed/unsigned per the
+// flag) — a host-precondition violation, not a guest-visible trap (the value
+// never came from validated guest bytes; it is a JS number/bigint an
+// embedder handed the lowering path). Ported as `assert_`/`AssertionError`
+// (see cabi/trap.ts's Trap-vs-AssertionError taxonomy), not `Trap`.
+// definitions.py:1568-1569 (`store_int`).
+//
+// This scalar path is where the check lives; the bulk (TypedArray) path in
+// bulk_lists.ts intentionally wraps instead — see that file's header for why.
+
+function bigintFitsIn64(v: bigint, signed: boolean): boolean {
+  return signed
+    ? v >= -(2n ** 63n) && v < 2n ** 63n
+    : v >= 0n && v < 2n ** 64n;
+}
+
+function numberFitsInWidth(v: number, nbytes: 1 | 2 | 4, signed: boolean): boolean {
+  const bits = nbytes * 8;
+  if (signed) {
+    const min = -(2 ** (bits - 1));
+    const max = 2 ** (bits - 1) - 1;
+    return v >= min && v <= max;
+  }
+  return v >= 0 && v <= 2 ** bits - 1;
+}
 
 export function storeInt(
   mem: MemInst,
@@ -120,11 +159,16 @@ export function storeInt(
   assert_(ptr + nbytes <= mem.length, "store out of bounds");
   if (nbytes === 8) {
     assert_(typeof v === "bigint", "64-bit store requires bigint");
+    assert_(bigintFitsIn64(v, signed), "int store: value out of range");
     if (signed) mem.view.setBigInt64(ptr, v, true);
     else mem.view.setBigUint64(ptr, v, true);
     return;
   }
   assert_(typeof v === "number" && Number.isInteger(v), "int store");
+  assert_(
+    numberFitsInWidth(v, nbytes, signed),
+    "int store: value out of range",
+  );
   switch (nbytes) {
     case 1:
       if (signed) mem.view.setInt8(ptr, v);
