@@ -53,7 +53,7 @@ import { alignment, alignTo, elemSize } from "../cabi/layout.ts";
 import { despecialize, valTypeEqual } from "../cabi/types.ts";
 import type { ComponentValue, ValType } from "../cabi/types.ts";
 import { Waitable } from "./waitable.ts";
-import { setOnInstancePoisoned } from "./scheduler.ts";
+import { isInstancePoisoned, setOnInstancePoisoned } from "./scheduler.ts";
 
 /** Structural element-type equality (`null` = the zero-width payload).
  * Delegates to `valTypeEqual`: naive `JSON.stringify` comparison throws on
@@ -625,40 +625,57 @@ interface PoisonedInstanceLike {
  * Drop a shared stream/future as *teardown*, without waking a doomed guest.
  *
  * Same outcome as `drop()` for host ends and healthy guest peers (a DROPPED
- * notification), with one difference: a parked side belonging to an entered
- * — and on every teardown path, about-to-be- or already-poisoned — guest
- * instance (`mayEnter === false`) is retired silently via `resetPending`.
+ * notification), with one difference: a parked side belonging to a
+ * **poisoned** guest instance is retired silently via `resetPending`.
  * Notifying it would queue a phantom event into the corpse's waitables, and
  * a later driving loop servicing it would resume machinery whose instance
- * can no longer be entered (`tick` asserts enterability). Host sentinels
- * carry no `mayEnter` key, so they are always notified.
+ * can no longer be entered (`tick` asserts enterability). Host sentinels are
+ * not instances at all, so they are always notified.
  *
- * #84 AUDIT (the "healthy guest peers park only with `mayEnter === true`"
- * claim this test used to rest on). Verified for the *parking* mechanism:
- * every park — the callback ABI's waitable-set wait, and equally a
- * sync-lowered/JSPI peer blocked inside `finishCopy`'s SITE 4 via
- * `blockCurrentActivation` — yields the thread out of the scheduler's
- * enter/leave bracket, and the bracket's `leaveTo` runs on the way out
- * (task/scheduler.ts `Store.tick` :905-917, task/thread.ts
- * `Thread.resumeWith` :157-179, whose resume-side `assert_(mayEnterFrom(null))`
- * would fire otherwise). So a JSPI-blocked peer parks with `mayEnter === true`:
- * blocking inside the wasm frame does NOT hold the enter bracket.
+ * #100: THE HEALTH TEST IS "POISONED", NOT "`mayEnter === false`". The
+ * original test used non-enterability as a proxy for deadness. The proxy is
+ * unsound in one direction, and the unsoundness stranded healthy tasks:
  *
- * NOT verified — a genuine counterexample to the *converse*: `mayEnter ===
- * false` does not imply "poisoned". An instance that is merely mid-call is
- * also non-enterable, and a caller instance stays non-enterable for the whole
- * duration of a cross-component (FACT) call into the instance that traps
- * (`ComponentInstanceState.enterFrom` clears `mayEnter` on the callee's
- * entering set only, task/mod.ts:136-142). A *different* task of that healthy
- * caller, parked on an end of a stream/future the trapping callee also held,
- * is therefore classified dead here and retired silently — i.e. stranded,
- * the outcome #66 exists to prevent. The two states are not distinguishable
- * at this seam (the walk may be invoked over several instances in turn, so
- * "already retired" is not a reliable proxy either). Reported with #84 rather
- * than fixed here: narrowing the test would risk re-opening review B2 (a
- * DROPPED event queued into a corpse's waitables), which is a
- * scheduler-adjacent decision outside this track's territory.
- * // CONTRACT: conservative reading — behavior deliberately unchanged.
+ *  * (sound half, #84 audit) a healthy guest peer always parks with
+ *    `mayEnter === true`. Every park — the callback ABI's waitable-set wait,
+ *    and equally a sync-lowered/JSPI peer blocked inside `finishCopy`'s
+ *    SITE 4 via `blockCurrentActivation` — yields the thread out of the
+ *    scheduler's enter/leave bracket, and the bracket's `leaveTo` runs on the
+ *    way out (task/scheduler.ts `Store.tick` :905-917, task/thread.ts
+ *    `Thread.resumeWith` :157-179, whose resume-side
+ *    `assert_(mayEnterFrom(null))` would fire otherwise). Blocking inside a
+ *    wasm frame does NOT hold the enter bracket.
+ *  * (unsound converse) `mayEnter === false` does not imply "poisoned". An
+ *    instance that is merely mid-call is also non-enterable, and a CALLER
+ *    instance stays non-enterable for the whole duration of a
+ *    cross-component (FACT) call into an instance that traps
+ *    (`ComponentInstanceState.enterFrom` clears `mayEnter` on the callee's
+ *    entering set only, task/mod.ts). A *different*, healthy task of that
+ *    caller, parked on an end of a stream/future the trapping callee also
+ *    held, was classified dead here and retired silently — stranded, the
+ *    exact outcome #66 exists to prevent.
+ *
+ * So the test consults the poison marker itself. It is per-instance and
+ * recorded at the single seam every bracket-break site routes through
+ * (`notifyInstancePoisoned`, task/scheduler.ts: exec/boundary.ts `poison`,
+ * `Store.tick`, `Thread.resumeWith`, the FACT cross-component catches in
+ * intrinsics/fact_calls.ts, and cabi/handles.ts's gated destructor call),
+ * and it is recorded *before* the retirement walk runs, so an instance's own
+ * parked ends still see it during its own walk. `retiredInstances` is
+ * consulted alongside it because the walk is also reachable directly (it is
+ * set at walk entry, so the two agree); neither ever contains the synthetic
+ * per-instantiation root, which every poison site skips or releases (plan v3
+ * amendment 4, `releaseSyntheticRootOnPoison`).
+ *
+ * Why this does not re-open review B2 (phantom events into a corpse): the
+ * concern is that a DROPPED event queued onto a waitable of an instance that
+ * can never be entered again would be serviced by a later driving loop and
+ * resume machinery whose `tick` asserts enterability. "Can never be entered
+ * again" is precisely poisoning — a mid-call instance's `mayEnter` is
+ * restored by its own `leaveTo` when the call returns, and its parked task
+ * then resumes normally and consumes the event. The narrowed predicate
+ * therefore excludes exactly the population B2 is about, and admits only
+ * peers that will run again.
  *
  * Used by the poisoning walk below and by the trapping-import abandonment
  * path (embedder/instantiate.ts `releaseAsyncArgs`). Idempotent.
@@ -669,9 +686,9 @@ export function dropSharedForTeardown(
   if (shared.dropped) return;
   shared.dropped = true;
   if (shared.pendingBuffer) {
-    const pi = shared.pendingInst as { mayEnter?: boolean } | null;
-    const parkedInDeadGuest = pi !== null && typeof pi === "object" &&
-      typeof pi.mayEnter === "boolean" && !pi.mayEnter;
+    const pi = shared.pendingInst;
+    const parkedInDeadGuest = typeof pi === "object" && pi !== null &&
+      (isInstancePoisoned(pi) || retiredInstances.has(pi));
     if (parkedInDeadGuest) shared.resetPending();
     else shared.resetAndNotifyPending(CopyResult.DROPPED);
   }
