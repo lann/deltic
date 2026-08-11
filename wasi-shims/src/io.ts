@@ -139,8 +139,11 @@ export class Pollable {
  * `wasi:io/poll.poll` — indices of the ready pollables, parking the
  * calling frame until at least one is ready. Sync fast path: if anything
  * is ready right now, the indices return without a suspension.
+ *
+ * The explicit annotation is JSR's no-slow-types rule (the `suspending`
+ * wrapper would otherwise leave this public symbol's type inferred).
  */
-export const poll = suspending(
+export const poll: (pollables: readonly Pollable[]) => number[] | Promise<number[]> = suspending(
   (pollables: readonly Pollable[]): number[] | Promise<number[]> => {
     // io.wit: "poll [...] traps if the list [...] is empty". An unbranded
     // host throw is the embedder contract's spelling of a trap.
