@@ -16,10 +16,11 @@ ci: (gha::core) (gha::browser)
 # Includes the consumer smokes CI cannot run (they need the polymorph
 # checkouts; docs/consumers.md).
 # The full pre-commit pass (AGENTS.md "Gates"): everything.
-gates: build test-rust test-runtime test-wasi-shims test-ct-runner test-bundle examples test-translate conformance sched-seeds test-ports test-webrtc shells browsers websocket-conformance smoke-tls smoke-c0
+gates: build test-rust test-protocol test-runtime test-wasi-shims test-ct-runner test-bundle examples test-translate conformance sched-seeds test-ports test-webrtc shells browsers websocket-conformance smoke-tls smoke-c0
 
 # Fast sanity: builds + native tests + type-checks, no suites.
 check: build test-rust
+    cd protocol && deno task check
     cd runtime && deno task check
     cd wasi-shims && deno task check
     cd ct-runner && deno task check
@@ -79,6 +80,11 @@ test-rust:
 test-runtime: shim fixtures corpus
     cd runtime && deno task check && deno task test
 
+# The brand vocabulary (contracts/embedder-api.md amendment A9): dependency-
+# free, so this is the one Deno suite that needs no build artifacts at all.
+test-protocol:
+    cd protocol && deno task test
+
 test-wasi-shims:
     cd wasi-shims && deno task test
 
@@ -87,8 +93,12 @@ test-ct-runner: shim fixtures
 
 # The embedder-bundle release-asset gate (deltic-embedder.mjs:
 # build + shape checks for tools/release-bundle/entry.ts).
+# `dual_copy_test.ts` rides here because the bundle IS the second runtime copy
+# (amendment A9 / issue #83): it is the only way to get two genuinely distinct
+# copies in one process — query-string cache-busting does not, since relative
+# imports below the entry resolve to the same cached modules.
 test-bundle: shim
-    deno test -A tools/release-bundle/bundle_test.ts
+    deno test -A tools/release-bundle/
 
 # The harness task chains corpus generation and the shim check itself.
 # The official CM conformance suite, Deno lane.
@@ -172,7 +182,7 @@ browsers:
 # (--allow-env: tools/smoke-c0/common.ts reads POLYMORPH_ROOT at module
 # scope since the wosh rename; the leg tasks always had it via deno task.)
 smoke-tls: shim
-    deno run --allow-read --allow-env tools/smoke-tls/run.ts --exec
+    deno run --allow-read --allow-env=POLYMORPH_ROOT,WOSH_ROOT tools/smoke-tls/run.ts --exec
 
 # The C0 smoke legs (tools/smoke-c0/REPORT.md).
 smoke-c0: shim

@@ -1,45 +1,29 @@
 // The embedder-facing error model (contracts/embedder-api.md §"Error model").
 //
-// Three classes, three meanings, no overlap:
+// The canonical definitions live in `@deltic/protocol` since amendment A9 —
+// this module is the unchanged import path for them (every existing
+// `from "./errors.ts"` / `@deltic/runtime/embedder` import keeps working) plus
+// the runtime-local `NameCollisionError`, which never crosses a copy boundary
+// (it is raised while BUILDING a facade, before any value exists) and
+// therefore carries no brand: the A9 table's omissions are deliberate.
 //
-//   * `WitError` — a WIT `result<T, E>` err **value**. The only thing that
-//     crosses the boundary as an err. Branding is the point: under jco any
-//     stray `TypeError` from a host import was fed to the lift, so every
-//     consumer wrapped every platform call defensively (webcrypto.js's
-//     `platformCall`). Here an unbranded throw is a host bug and becomes a
-//     trap, so the defensive wrapper is unnecessary by construction.
-//   * `Trap`   — component-fatal, never a value (re-exported from cabi).
-//   * `DroppedError` — awaiting a future whose write end dropped without a
-//     value (R-fix review note 4). Its uncomely sibling `PeerTrappedError`
-//     (below) is a drop that happened because the peer's instance trapped —
-//     branded separately so a fault is never mistaken for a clean end.
+// Recognition at the runtime's own boundaries is by BRAND, not class: use the
+// `is*` predicates re-exported below, never `instanceof`, for any value that
+// arrives from embedder code (issue #83).
 
-export { Trap } from "../cabi/trap.ts";
-
-/** A WIT `result<T, E>` err value, branded. `payload` is shaped per the value table. */
-export class WitError<E = unknown> extends Error {
-  readonly payload: E;
-
-  constructor(payload: E, message?: string) {
-    super(message ?? `WIT error: ${describePayload(payload)}`);
-    this.name = "WitError";
-    this.payload = payload;
-  }
-}
-
-/**
- * Awaiting a `Future<T>` whose write end dropped without ever writing.
- *
- * Discriminated on purpose: "no value, ever" is a different outcome from
- * "the value was `undefined`" (`future<void>`), and a consumer that must tell
- * them apart should not have to guess from a sentinel.
- */
-export class DroppedError extends Error {
-  constructor(message = "the write end was dropped without a value") {
-    super(message);
-    this.name = "DroppedError";
-  }
-}
+export {
+  DroppedError,
+  InvalidHandleError,
+  isDroppedError,
+  isInvalidHandleError,
+  isPeerTrappedError,
+  isStreamProducerError,
+  isTrap,
+  isWitError,
+  PeerTrappedError,
+  Trap,
+  WitError,
+} from "@deltic/protocol";
 
 /**
  * Two WIT labels in one scope camelCase to the same JS name.
@@ -53,49 +37,4 @@ export class NameCollisionError extends Error {
     super(message);
     this.name = "NameCollisionError";
   }
-}
-
-/** Use of a resource wrapper whose handle was transferred away or dropped. */
-export class InvalidHandleError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "InvalidHandleError";
-  }
-}
-
-/**
- * A stream/future operation whose peer end died in a trap-poisoned component
- * instance (#66; contracts/embedder-api.md amendment A7).
- *
- * Discriminated from `DroppedError` on purpose: a clean drop is a normal
- * outcome (end-of-stream, "no value"), while a poisoned peer means the
- * component faulted — resolving the operation as if the stream simply ended
- * would be wrong data reported as success, the same shape
- * `StreamProducerError` exists to prevent in the other direction. `cause` is
- * the recorded poisoning failure (its own `cause` is the underlying `Trap`);
- * `progress` is how many elements a write had delivered before the peer died.
- */
-export class PeerTrappedError extends Error {
-  override readonly cause: unknown;
-  readonly progress?: number;
-
-  constructor(where: string, cause: unknown, progress?: number) {
-    super(
-      `${where}: the peer component instance trapped, so this ` +
-        `stream/future operation can never complete — ` +
-        `${cause instanceof Error ? cause.message : String(cause)}`,
-    );
-    this.name = "PeerTrappedError";
-    this.cause = cause;
-    if (progress !== undefined) this.progress = progress;
-  }
-}
-
-function describePayload(p: unknown): string {
-  if (p === null || p === undefined) return String(p);
-  if (typeof p === "object" && "tag" in (p as Record<string, unknown>)) {
-    return String((p as { tag: unknown }).tag);
-  }
-  if (typeof p === "object") return JSON.stringify(p);
-  return String(p);
 }

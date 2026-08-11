@@ -40,6 +40,7 @@
 // for every known consumer (the iroh class does no stream I/O; its bytes
 // ride datagrams).
 
+import { defineBrand, POLLABLE } from "@deltic/protocol";
 import { suspending, WitError } from "@deltic/runtime/embedder";
 
 /** The engine setTimeout ceiling: delays above 2^31-1 ms are clamped to
@@ -151,6 +152,15 @@ export class Pollable {
     return this.#wait();
   }
 }
+
+// A9 brand (contracts/embedder-api.md §"Module identity"): pollables cross
+// into host provider code, which may resolve a different @deltic copy. The
+// brand makes them recognizable there; same-copy `instanceof` is unchanged
+// and stays the documented spelling (issue #83). `poll()` itself needs no
+// predicate: it consumes pollables structurally (`ready`/`waitPromise`), so a
+// foreign provider's pollable already works — the brand is for consumers that
+// must CLASSIFY one.
+defineBrand(Pollable.prototype, POLLABLE);
 
 /**
  * `wasi:io/poll.poll` — indices of the ready pollables, parking the

@@ -35,6 +35,7 @@ just gates    # everything below, in this order
 ```sh
 just build test-rust      # cargo build --workspace; translator-shim/bindgen/testgen tests
 just test-runtime         # runtime check + tests (deps: shim, fixtures, corpus)
+just test-protocol
 just test-wasi-shims test-ct-runner
 just test-bundle          # embedder-bundle release asset
 just conformance          # official CM suite, Deno lane

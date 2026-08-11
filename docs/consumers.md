@@ -40,6 +40,22 @@ Their jco blockers map one-for-one onto this project's proven strengths
   most important interfaces are exactly these. The embedder-api contract
   carries paper signatures for a representative WASI slice; the
   `wasi-shims/` package is the executable check.
+- **The application owns the import map** (issue #83, decision 2026-08-11;
+  the WICG import-maps stance as a family convention). Host-module
+  packages import `@deltic/*` by bare specifier and carry **no** mapping
+  for it in any config a consumer resolves through — standalone dev/test
+  mappings live outside the package directory (sibling repo root), because
+  Deno applies package-local config to package files and a package-carried
+  pin silently overrides the consumer's root import map (wosh finding 26:
+  four extra runtime copies, one per sibling pin). Consumers assert the
+  invariant mechanically: after `deno install`, the resolved graph
+  contains **exactly one** deltic source (for a vendoring consumer like
+  wosh: zero remote deltic URLs in the lockfile — a one-line CI guard).
+  Since amendment A9 (contracts/embedder-api.md §"Module identity"),
+  cross-boundary brands are process-global symbols via `@deltic/protocol`,
+  so a violation degrades to a diagnosed inefficiency instead of a latent
+  `instanceof` failure — host modules SHOULD import `@deltic/protocol` at
+  most, keeping runtime selection entirely with the deploying application.
 - **Their suites are engine sanity checks, not gates** (operator ruling,
   2026-08-10; supersedes the earlier "their suites become our gates"
   posture and the release-gate framing of the now-closed

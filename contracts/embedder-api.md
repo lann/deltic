@@ -23,7 +23,11 @@ and limits host ends to one in-flight operation per direction; amendment
 A8 (2026-08-10, deltic#90/#97) makes `Future.drop()` before writing an
 **abandonment** (total, never-throwing; a guest reader observes a trap at
 its rendezvous, never DROPPED) and documents host `cancelRead` as
-indistinguishable from end-of-stream by design.** This document supersedes `descriptor-ir.md`'s interim
+indistinguishable from end-of-stream by design; amendment A9 (2026-08-11)
+makes every cross-boundary brand a process-global registry symbol carried
+by the new dependency-free `@deltic/protocol` package — class identity is
+not part of the embedder API — and adds loud multi-copy diagnostics
+(issue #83).** This document supersedes `descriptor-ir.md`'s interim
 "host value mapping" table as the destination for host-facing value shapes.
 The runtime's *raw* boundary (`instance.exports`, `HostImports`) keeps the
 `definitions.py` interpreter shapes as an **internal** surface; the
@@ -239,6 +243,12 @@ class PeerTrappedError extends Error {  // A7: a stream/future op whose peer ins
   applies: text is for humans and logs.
 - Results nested inside values never throw anywhere — they are plain
   `{ tag, val }` data (table above).
+- **Recognition is by brand, not class** (amendment A9): every class above
+  carries a process-global brand symbol, and the runtime's checks read the
+  brand. Same-copy `instanceof` still works and stays the documented
+  spelling in single-copy graphs; `@deltic/protocol` exports predicates
+  (`isWitError`, `isTrap`, `isPeerTrappedError`, …) as the multi-copy-robust
+  form. See §"Module identity and @deltic/protocol".
 
 ## Functions and async
 
@@ -252,8 +262,9 @@ class PeerTrappedError extends Error {  // A7: a stream/future op whose peer ins
   `async` JS function (or return a value synchronously); a sync `func`
   import is typed to return `T` synchronously. Returning a Promise from a
   sync-typed import parks the calling **wasm frame** and is a *declared*
-  capability (amendment A1): wrap the function in `suspending()` (exported
-  from the embedder surface). The marker
+  capability (amendment A1): wrap the function in `suspending()` (defined
+  in `@deltic/protocol` since A9; re-exported unchanged from the embedder
+  surface). The marker
   - is per-declaration — only marked imports are handed to wasm as
     `WebAssembly.Suspending`, so unmarked imports keep the plain calling
     convention and sync-only components keep their zero-cost pin;
@@ -389,6 +400,16 @@ class DroppedError extends Error { … }    // awaiting a dropped future rejects
   promise settles) and copied exactly once, at the rendezvous itself.
   Reads hand back that copy unchanged: one copy end-to-end for
   host↔host, one memory copy each way when a guest is the peer.
+- **Foreign-copy handles are recognized and refused, loudly** (amendment
+  A9). A `Stream`/`Future` (or `ErrorContext`, or a resource wrapper)
+  minted by a *different runtime copy* is recognized by its brand at
+  lowering and raises a named cross-copy error listing both copies' URLs —
+  never the silent producer-adaptation fallback (which would pump a
+  foreign `Stream` by its async iterator, quietly voiding A5's identity
+  guarantees). Remediation is by value, explicitly: pipe a foreign stream
+  via `.readable()`, a foreign future via `Promise.resolve(f)`. Handles
+  are stateful — their machinery lives in the copy that minted them — so
+  brands make foreign handles *diagnosable*, never *usable*.
 - Writer-side host ends (`hostStream()`-era API) remain the low-level seam
   underneath; the conventions layer exposes them as
   `Stream.create<T>(): { stream: Stream<T>, writer: StreamWriter<T> }`
@@ -479,6 +500,86 @@ const instance = await instantiate(artifacts, {
   component's linkable import leaves with kinds and types (C0 finding #8:
   `plan.imports` proved the right authority; blessing it removes every
   future embedder's hand-rolled equivalent).
+
+## Module identity and @deltic/protocol (amendment A9)
+
+Consumer evidence (issue #83; wosh finding 26): in a source-distributed,
+registry-less ecosystem nothing guarantees one copy of the runtime per
+module graph — sibling package pins and separately-built bundles both
+produced graphs with several coexisting copies, and every class-identity
+check then fails *latently* (first error path, or a silently-pumped
+stream), never at instantiation. A9 removes class identity from the
+contract entirely.
+
+**The protocol package.** `@deltic/protocol` is a dependency-free
+workspace package carrying the embedder contract's *vocabulary*: the
+brand symbols, the canonical error classes (`WitError`, `Trap`,
+`DroppedError`, `PeerTrappedError`, `InvalidHandleError`,
+`StreamProducerError`), `suspending()`/`isSuspending`, the recognition
+predicates, the copy registry, and `PROTOCOL_GENERATION`.
+`@deltic/runtime/embedder` re-exports all of it unchanged — existing
+embedder code keeps working with no import changes. Host-module packages
+SHOULD import `@deltic/protocol` at most (never runtime values); with
+hand-rolled brands (below) even that import is optional. Copies of the
+protocol package are harmless by construction — identity never rests on
+the package, only on the registry symbols.
+
+**Brands.** Every brand is a `Symbol.for` registry symbol, so N copies of
+the runtime (or of the protocol package) agree on every brand without
+sharing modules. Keys are generation-suffixed; bumping a generation is a
+breaking vocabulary change — an ecosystem migration event, the moral
+equivalent of a semver major:
+
+| brand key | carried by | marks |
+|---|---|---|
+| `deltic.witError/1` | `WitError.prototype` | err-result values |
+| `deltic.trap/1` | `Trap.prototype` | component-fatal errors |
+| `deltic.dropped/1` | `DroppedError.prototype` | dropped-future rejections |
+| `deltic.peerTrapped/1` | `PeerTrappedError.prototype` | peer-fault rejections (A7) |
+| `deltic.invalidHandle/1` | `InvalidHandleError.prototype` | resource-wrapper misuse |
+| `deltic.streamProducer/1` | `StreamProducerError.prototype` | producer-side failures |
+| `deltic.suspending/1` | the marked function / class prototype (A1/A2) | suspendable sync imports |
+| `deltic.stream/1` | `Stream.prototype` | embedder stream handles |
+| `deltic.future/1` | `Future.prototype` | embedder future handles |
+| `deltic.errorContext/1` | `ErrorContext.prototype` | lifted error-contexts |
+| `deltic.resourceState/1` | guest-resource wrappers (key for internal state; the state shape stays runtime-internal) | resource wrappers |
+| `deltic.pollable/1` | `Pollable.prototype` (wasi-shims) | pollables |
+| `deltic.wasiExit/1` | `ExitError.prototype` (wasi-shims) | wasi exit unwinds |
+| `deltic.runtimeCopies/1` | `globalThis` | the copy registry |
+
+**Brands are contract markers, not a security boundary.** A hand-rolled
+object carrying the right brand is a legal value: an Error with
+`[Symbol.for("deltic.witError/1")]: true` and a `payload` property IS a
+WitError to every copy; a function with `[Symbol.for("deltic.suspending/1")]:
+true` IS suspending-marked. This is what makes zero-import host modules
+possible. The canonical classes are conveniences, not gatekeepers.
+
+**Stateless vs stateful.** For the error classes and the suspending mark,
+brand agreement is the whole story — a copy-B `WitError` crossing a
+copy-A boundary is fully honored. Stateful values (stream/future handles,
+resource wrappers, error-contexts) are different: their machinery lives
+in the copy that minted them, so cross-copy use is impossible in
+principle. For those, the brand converts "misclassified" into
+"recognized-but-foreign": a named error listing both copies' URLs (see
+§"Streams and futures" and the cross-store assert family, which now
+distinguishes cross-copy from cross-store).
+
+**The copy registry.** Each embedder module instance appends
+`{ url, runtimeVersion, protocolGeneration }` (its `import.meta.url`) to
+the array at `globalThis[Symbol.for("deltic.runtimeCopies/1")]` when it
+is evaluated. Multiple copies are **diagnosed, never refused** — two
+isolated bundles on one page that exchange no values are legal. The
+registry feeds the diagnostics: cross-copy errors name both URLs, and the
+unbranded-throw trap (§"Error model") appends a copy census when more
+than one copy is registered — a throw carrying *no* brand from a graph
+with several copies is the #83 signature (typically a pre-A9 copy), and
+the trap message says so instead of leaving a latent puzzle.
+
+**Resolution discipline stays necessary** for efficiency (N copies still
+cost N compiles and N bundle payloads) and for graphs containing pre-A9
+copies: import maps are an application concern; host-module packages must
+not carry `@deltic/*` mappings in any config consumers resolve through
+(docs/consumers.md records the convention).
 
 ## Bindgen obligations (summary of what the above requires)
 

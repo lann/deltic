@@ -22,6 +22,7 @@
 // `ComponentValue` can hold beyond plain data, which the descriptor-IR
 // contract's "host-shaped component values" wording did not anticipate.
 
+import { copyCensus, ERROR_CONTEXT, hasBrand } from "@deltic/protocol";
 import { assert_, trapIf } from "./trap.ts";
 import type { LiftLowerContext } from "./context.ts";
 import type { BorrowType, OwnType, ValType } from "./types.ts";
@@ -36,6 +37,30 @@ import {
   sameElemType,
   SharedStreamImpl,
 } from "../task/streams.ts";
+
+/**
+ * Diagnostic for a handle-table entry that carries the A9 error-context brand
+ * without being one of THIS copy's `ErrorContext`s (amendment A9, issue #83).
+ *
+ * A backstop, deliberately: the embedder's lowering site (embedder/values.ts)
+ * refuses a foreign error-context before it can ever reach a handle table, so
+ * this branch should be unreachable. It exists because "handle is not an
+ * error-context" is precisely the misleading generic that made #83 expensive
+ * to diagnose — if a path ever does get here, it says what happened.
+ *
+ * This layer is below `embedder/`, so it composes the census from
+ * `@deltic/protocol` directly rather than importing `embedder/copy.ts`.
+ */
+export function errorContextTrapMessage(where: string, e: unknown): string {
+  if (!hasBrand(e, ERROR_CONTEXT)) {
+    return `${where}: handle is not an error-context`;
+  }
+  const census = copyCensus();
+  return `${where}: this error-context was minted by a DIFFERENT deltic ` +
+    `runtime copy and cannot be used through this one` +
+    `${census === "" ? "" : ` (${census})`} ` +
+    `(contracts/embedder-api.md amendment A9, issue #83)`;
+}
 
 /** definitions.py `contains_borrow` — async values may never carry borrows. */
 function containsBorrow(t: ValType): boolean {
@@ -83,9 +108,19 @@ function liftAsyncValue(
   const holder = end.shared as { boundStore?: unknown };
   const store = (inst as unknown as { store?: unknown }).store;
   if (holder.boundStore != null && store != null) {
+    // A9: when several runtime copies are loaded, "a second store" is very
+    // often "a second COPY" — the shared object was minted by one runtime and
+    // is being driven by another. The two stores are indistinguishable from
+    // here (stores carry no copy identity), so the census is appended as the
+    // hypothesis it is, rather than asserted (issue #83).
+    const census = copyCensus();
     assert_(
       holder.boundStore === store,
-      `${what} crossed into a second store; multi-store is unsupported`,
+      `${what} crossed into a second store; multi-store is unsupported` +
+        (census === ""
+          ? ""
+          : ` (${census} — a value from one copy cannot be lowered through ` +
+            `another)`),
     );
   }
   holder.boundStore ??= store;
@@ -180,7 +215,7 @@ export function liftErrorContext(
   const e = inst!.handles.get(i);
   trapIf(
     !(e instanceof ErrorContext),
-    "error-context lift: handle is not an error-context",
+    errorContextTrapMessage("error-context lift", e),
   );
   return e as ErrorContext;
 }
