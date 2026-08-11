@@ -16,13 +16,27 @@
 // | host passes borrow<R>   | wrapper stays valid          | rep reused/allocated      |
 
 import type { ResourceTypeInfo, ValType } from "../cabi/types.ts";
+import { RESOURCE_STATE } from "@deltic/protocol";
+import { COPY_URL, describeCrossCopy } from "./copy.ts";
 import { InvalidHandleError } from "./errors.ts";
 import { camelCase, pascalCase } from "./casing.ts";
 
-/** Internal state of a guest-resource wrapper. Keyed off a module symbol. */
-const STATE = Symbol("deltic.resource-state");
+/**
+ * Internal state of a guest-resource wrapper.
+ *
+ * The KEY is the process-global `deltic.resourceState/1` brand since amendment
+ * A8 (it used to be a module-local `Symbol(...)`, on the now-repealed
+ * assumption that bundle and source runtimes are never mixed in one process —
+ * issue #83 showed they routinely are). The state SHAPE stays strictly
+ * runtime-internal, exactly as the A8 brand table notes: another copy may
+ * RECOGNIZE a wrapper, and must never read or write this object. `copyUrl` is
+ * what lets this copy tell its own wrappers from a foreign copy's.
+ */
+const STATE = RESOURCE_STATE;
 
 interface WrapperState {
+  /** The runtime copy that minted this wrapper (A8). */
+  copyUrl: string;
   rep: number;
   /** False once the handle was transferred away or dropped. */
   valid: boolean;
@@ -64,19 +78,50 @@ const leaked = new FinalizationRegistry<WrapperState>((s) => {
 
 export function initWrapper(
   w: GuestResource,
-  state: WrapperState,
+  state: Omit<WrapperState, "copyUrl"> & { copyUrl?: string },
 ): void {
-  (w as unknown as Record<symbol, WrapperState>)[STATE] = state;
-  if (state.owns) leaked.register(w, state, w);
+  state.copyUrl ??= COPY_URL;
+  (w as unknown as Record<symbol, WrapperState>)[STATE] = state as WrapperState;
+  if (state.owns) leaked.register(w, state as WrapperState, w);
 }
 
+/**
+ * This copy's state for a wrapper, or `undefined`.
+ *
+ * A wrapper minted by ANOTHER copy carries the same (process-global) brand key
+ * but its state belongs to that copy — reading it here would be reading a
+ * foreign copy's private shape (A8). So it is not a state: it is
+ * `undefined` here, and `requireLive` turns that into the named cross-copy
+ * error rather than a misleading "not a resource handle" / "not live".
+ */
 export function wrapperState(w: object): WrapperState | undefined {
-  return (w as unknown as Record<symbol, WrapperState | undefined>)[STATE];
+  const s = (w as unknown as Record<symbol, WrapperState | undefined>)[STATE];
+  if (s === undefined) return undefined;
+  return s.copyUrl === COPY_URL ? s : undefined;
+}
+
+/**
+ * True iff `w` carries the A8 resource-state key but is not one of ours.
+ *
+ * Note the resource brand is the odd one out in the A8 table: its value is the
+ * state OBJECT, not `true`, so `hasBrand` does not apply — presence of the key
+ * is the recognition. Only meaningful once `wrapperState` has returned
+ * `undefined`, i.e. presence here means "another copy's wrapper".
+ */
+function isForeignWrapper(w: object): boolean {
+  return (w as unknown as Record<symbol, unknown>)[STATE] !== undefined;
 }
 
 function requireLive(w: object, what: string): WrapperState {
   const s = wrapperState(w);
   if (s === undefined) {
+    if (isForeignWrapper(w)) {
+      throw new InvalidHandleError(`${what}: ${describeCrossCopy(
+        "this resource handle",
+        "Resource wrappers hold a rep in the minting copy's tables; there " +
+          "is no by-value form — call through the copy that created it.",
+      )}`);
+    }
     throw new InvalidHandleError(`${what}: not a resource handle`);
   }
   if (!s.valid) {

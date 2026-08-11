@@ -25,6 +25,16 @@ import {
   ErrorContext as InternalErrorContext,
   poisonFailureOf,
 } from "../task/mod.ts";
+import {
+  defineBrand,
+  ERROR_CONTEXT,
+  FUTURE,
+  hasBrand,
+  isStreamProducerError,
+  STREAM,
+  StreamProducerError,
+} from "@deltic/protocol";
+import { describeCrossCopy } from "./copy.ts";
 import { DroppedError, PeerTrappedError } from "./errors.ts";
 
 /** `Chunk<u8>` is a `Uint8Array`; every other element type chunks as `T[]`. */
@@ -41,32 +51,11 @@ export interface ElemCodec<T> {
   readonly where?: string;
 }
 
-/**
- * A producer feeding a lowered `stream<T>` failed — the element did not lower,
- * or the producer itself threw.
- *
- * This is a *host bug at a named site*, exactly like an unbranded throw from a
- * host import, and it is surfaced the same way: never as a silent truncation
- * of the guest's stream, never as a floating rejection.
- */
-export class StreamProducerError extends Error {
-  override readonly cause: unknown;
-
-  constructor(where: string, cause: unknown) {
-    super(
-      `${where}: the stream producer failed — ` +
-        `${describeCause(cause)}. The guest's stream is NOT closed cleanly: ` +
-        `the in-flight call fails instead, because a short stream presented ` +
-        `as end-of-stream would be wrong data reported as success.`,
-    );
-    this.name = "StreamProducerError";
-    this.cause = cause;
-  }
-}
-
-function describeCause(e: unknown): string {
-  return e instanceof Error ? `${e.name}: ${e.message}` : String(e);
-}
+// `StreamProducerError`'s canonical definition moved to `@deltic/protocol`
+// with amendment A8 (it is an embedder-contract value: recognition must
+// survive multiple runtime copies, issue #83). Re-exported here so every
+// existing import path is unchanged.
+export { StreamProducerError } from "@deltic/protocol";
 
 /**
  * Failures recorded against a shared stream object whose driving store could
@@ -100,7 +89,9 @@ function reportProducerFailure(
   where: string,
   cause: unknown,
 ): boolean {
-  const err = cause instanceof StreamProducerError
+  // Brand, not class (A8): a producer failure raised by another runtime copy
+  // must not be re-wrapped into a second layer of the same error.
+  const err = isStreamProducerError(cause)
     ? cause
     : new StreamProducerError(where, cause);
   const shared = host.value as unknown as {
@@ -580,6 +571,14 @@ export class ErrorContext {
   }
 }
 
+// A8 brands (contracts/embedder-api.md §"Module identity"): the three
+// STATEFUL embedder-facing handle classes. Their machinery lives in the copy
+// that minted them, so the brand never makes a foreign handle usable — it
+// makes it DIAGNOSABLE, at the lowering sites below.
+defineBrand(Stream.prototype, STREAM);
+defineBrand(Future.prototype, FUTURE);
+defineBrand(ErrorContext.prototype, ERROR_CONTEXT);
+
 /** Anything the layer accepts where a guest expects `stream<T>`. */
 export type StreamSource<T> =
   | Stream<T>
@@ -602,8 +601,19 @@ export function lowerStreamSource<T>(
   src: StreamSource<T>,
   codec: ElemCodec<T>,
 ): ComponentValue {
+  // Order matters (amendment A8). Same-copy handle: the fast path, unchanged.
   if (src instanceof Stream) {
     return src.takeValue(codec);
+  }
+  // Branded but not ours: a `Stream` minted by ANOTHER runtime copy. Without
+  // this check it would fall through to producer adaptation below and be
+  // pumped by its async iterator — a silent downgrade that quietly voids A5's
+  // identity guarantees. Refused, loudly, naming both copies (issue #83).
+  if (hasBrand(src, STREAM)) {
+    throw new TypeError(describeCrossCopy(
+      "this stream handle",
+      "To pipe it by value, pass `src.readable()` instead.",
+    ));
   }
   const host = hostStream<T>(codec.element);
   const stream = Stream.fromHostStream<T>(host, codec);
@@ -717,6 +727,17 @@ export function lowerFutureSource<T>(
   codec: ElemCodec<T>,
 ): ComponentValue {
   if (src instanceof Future) return src.takeValue();
+  // Branded but not ours (amendment A8). This one is the sharpest edge in the
+  // family: `Future` is a `PromiseLike`, so a foreign future would otherwise
+  // be adopted as a plain thenable and appear to work — exactly the silent
+  // path A8 bans, since the awaited value would ride the OTHER copy's
+  // machinery with no handle transfer at all.
+  if (hasBrand(src, FUTURE)) {
+    throw new TypeError(describeCrossCopy(
+      "this future handle",
+      "To pipe it by value, pass `Promise.resolve(f)` instead.",
+    ));
+  }
   const host = hostFuture<T>(codec.element);
   void (async () => {
     try {

@@ -26,6 +26,7 @@ import {
 import { camelCase, parseLeafName, pascalCase } from "./casing.ts";
 import { isSuspending, suspending } from "../jspi/suspending.ts";
 import { Translator } from "../shim/mod.ts";
+import { copyCensus, isTrap, isWitError } from "@deltic/protocol";
 import { NameCollisionError, WitError } from "./errors.ts";
 import { type ImportLeaf, requiredImports } from "./imports.ts";
 import {
@@ -674,7 +675,10 @@ class Facade {
       return fromHost(v, resultType, o);
     };
     const fail = (e: unknown, args: unknown[]): ComponentValue => {
-      if (e instanceof WitError && isResult) {
+      // Brand, not class (amendment A8): a `WitError` thrown by a host module
+      // that resolved a DIFFERENT runtime copy — or hand-rolled with the
+      // registry symbol — is the same value here (issue #83).
+      if (isWitError(e) && isResult) {
         const rt = resultType as ValType & { kind: "result" };
         return {
           error: rt.error === null ? null : fromHost(e.payload, rt.error, o),
@@ -690,17 +694,27 @@ class Facade {
       // deliberately does NOT do this: a fallible import returning err is a
       // normal outcome whose implementation may retain the handles.
       releaseAsyncArgs(args);
-      if (e instanceof Trap) throw e;
-      if (e instanceof WitError) {
+      if (isTrap(e)) throw e;
+      if (isWitError(e)) {
         throw new Trap(
           `${where} threw a WitError, but its WIT type has no err side; ` +
             `only a fallible import may signal an error value`,
         );
       }
+      // The #83 signature: in a graph with several copies, an UNBRANDED throw
+      // is usually a pre-A8 copy's `WitError` (its brand rode class identity,
+      // which does not survive the copy boundary). Say so rather than leaving
+      // the latent puzzle that motivated amendment A8.
+      const census = copyCensus();
       throw new Trap(
         `${where} threw ${describeThrow(e)}. An unbranded throw from a host ` +
           `import is a host bug and becomes a trap: signal a WIT error with ` +
-          `\`throw new WitError(payload)\`.`,
+          `\`throw new WitError(payload)\`.` +
+          (census === ""
+            ? ""
+            : ` (${census} — an error carrying no deltic brand in a ` +
+              `multi-copy graph usually means a pre-A8 runtime copy threw ` +
+              `it, issue #83.)`),
       );
     };
 

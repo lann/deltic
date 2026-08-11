@@ -3,6 +3,7 @@
 // `iroh_exec_model_guest.wasm` / `engine-go/main.wasm`, tools/smoke-c0/
 // REPORT.md §"C1 design-input notes" finding provenance).
 
+import { defineBrand, WASI_EXIT } from "@deltic/protocol";
 import { InputStream, OutputStream } from "./io.ts";
 
 /** Raised by `exit()` when `throwOnExit` is set (contract: "option to throw a named ExitError"). */
@@ -12,6 +13,10 @@ export class ExitError extends Error {
     this.name = "ExitError";
   }
 }
+// A8 brand: an exit unwind propagates out through the embedder and any host
+// frames in between, so it must be recognizable across runtime copies
+// (contracts/embedder-api.md §"Module identity", issue #83).
+defineBrand(ExitError.prototype, WASI_EXIT);
 
 /** `terminal-input`/`terminal-output` are opaque resources; never produced (no terminal). */
 export class TerminalInput {}

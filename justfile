@@ -16,10 +16,11 @@ ci: (gha::core) (gha::browser)
 # Includes the consumer smokes CI cannot run (they need the polymorph
 # checkouts; docs/consumers.md).
 # The full pre-commit pass (AGENTS.md "Gates"): everything.
-gates: build test-rust test-runtime test-wasi-shims test-ct-runner test-bundle examples test-translate conformance sched-seeds test-ports test-webrtc shells browsers websocket-conformance smoke-tls smoke-c0
+gates: build test-rust test-protocol test-runtime test-wasi-shims test-ct-runner test-bundle examples test-translate conformance sched-seeds test-ports test-webrtc shells browsers websocket-conformance smoke-tls smoke-c0
 
 # Fast sanity: builds + native tests + type-checks, no suites.
 check: build test-rust
+    cd protocol && deno task check
     cd runtime && deno task check
     cd wasi-shims && deno task check
     cd ct-runner && deno task check
@@ -79,6 +80,11 @@ test-rust:
 test-runtime: shim fixtures corpus
     cd runtime && deno task check && deno task test
 
+# The brand vocabulary (contracts/embedder-api.md amendment A8): dependency-
+# free, so this is the one Deno suite that needs no build artifacts at all.
+test-protocol:
+    cd protocol && deno task test
+
 test-wasi-shims:
     cd wasi-shims && deno task test
 
@@ -87,8 +93,12 @@ test-ct-runner: shim fixtures
 
 # The embedder-bundle release-asset gate (deltic-embedder.mjs:
 # build + shape checks for tools/release-bundle/entry.ts).
+# `dual_copy_test.ts` rides here because the bundle IS the second runtime copy
+# (amendment A8 / issue #83): it is the only way to get two genuinely distinct
+# copies in one process — query-string cache-busting does not, since relative
+# imports below the entry resolve to the same cached modules.
 test-bundle: shim
-    deno test -A tools/release-bundle/bundle_test.ts
+    deno test -A tools/release-bundle/
 
 # The harness task chains corpus generation and the shim check itself.
 # The official CM conformance suite, Deno lane.
@@ -168,9 +178,11 @@ browsers:
 # ----- consumer smokes + exams (polymorph checkouts; docs/consumers.md) -------
 
 # Translate all eight targets, then execute the suites.
-# polymorph-tls conformance under deltic (issue #18).
+# polymorph-tls conformance under deltic (issue #18). --allow-env: run.ts
+# imports smoke-c0's common.ts, whose POLYMORPH_ROOT/WOSH_ROOT env reads
+# (fab5c2e) predate this recipe's permission list.
 smoke-tls: shim
-    deno run --allow-read tools/smoke-tls/run.ts --exec
+    deno run --allow-read --allow-env=POLYMORPH_ROOT,WOSH_ROOT tools/smoke-tls/run.ts --exec
 
 # The C0 smoke legs (tools/smoke-c0/REPORT.md).
 smoke-c0: shim

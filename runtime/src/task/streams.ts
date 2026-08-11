@@ -44,6 +44,7 @@
 // memory that can be *partially* consumed, which is what makes partial copies
 // expressible.
 
+import { defineBrand, ERROR_CONTEXT } from "@deltic/protocol";
 import { assert_, trapIf } from "../cabi/trap.ts";
 import { LiftLowerContext } from "../cabi/context.ts";
 import { loadListFromValidRange } from "../cabi/load.ts";
@@ -639,3 +640,10 @@ setOnInstancePoisoned(retireInstanceAsyncEnds);
 export class ErrorContext {
   constructor(readonly debugMessage: string) {}
 }
+// A8 brand (contracts/embedder-api.md §"Module identity"): error-contexts are
+// STATEFUL — they live in a component instance's handle table — so the brand
+// exists to make a foreign one diagnosable at the lowering sites, never
+// usable. Both this internal class and the embedder-facing wrapper
+// (embedder/streams.ts) carry it, because either shape can be handed back to
+// a lowering site by embedder code.
+defineBrand(ErrorContext.prototype, ERROR_CONTEXT);

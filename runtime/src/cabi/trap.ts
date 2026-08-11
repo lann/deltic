@@ -1,16 +1,19 @@
 // Trap and assertion machinery (definitions.py `Trap`, `trap`, `trap_if`).
 //
+// `Trap`'s canonical definition lives in `@deltic/protocol` since amendment
+// A8 (it is an embedder-contract value and must be recognizable across
+// runtime copies, issue #83); it is re-exported here so every existing
+// `from "../cabi/trap.ts"` import path is unchanged. The protocol package is
+// dependency-free, so this import introduces no cycle.
+//
 // `Trap` models a Component Model trap — a deterministic guest-visible fault.
 // `AssertionError` models the reference's Python `assert`s: internal
 // invariants that callers are supposed to make unviolable. Tests treat only
 // `Trap` as an expected outcome.
 
-export class Trap extends Error {
-  constructor(message = "canonical ABI trap") {
-    super(message);
-    this.name = "Trap";
-  }
-}
+import { Trap } from "@deltic/protocol";
+
+export { isTrap, Trap } from "@deltic/protocol";
 
 export function trap(message?: string): never {
   throw new Trap(message);

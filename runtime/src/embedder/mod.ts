@@ -6,6 +6,56 @@
 // the layer works fully untyped. Bindgen (a separate track) emits compile-time
 // types that cast this facade; no generated code participates.
 
+// Copy registration (contracts/embedder-api.md §"Module identity and
+// @deltic/protocol", amendment A8; issue #83). Runs at module evaluation, so
+// merely importing the embedder surface puts this copy on the census — which
+// is what makes every cross-copy diagnostic below able to name both sides.
+// Multiple copies are DIAGNOSED, NEVER REFUSED: two isolated bundles on one
+// page that exchange no values are legal.
+import { PROTOCOL_GENERATION, registerRuntimeCopy } from "@deltic/protocol";
+import { COPY_URL, RUNTIME_VERSION } from "./copy.ts";
+
+registerRuntimeCopy({
+  // `COPY_URL` (embedder/copy.ts) rather than this module's own
+  // `import.meta.url`, so the census and every cross-copy message name the
+  // copy identically — one module owns the identity.
+  url: COPY_URL,
+  runtimeVersion: RUNTIME_VERSION,
+  protocolGeneration: PROTOCOL_GENERATION,
+});
+
+export { COPY_URL, RUNTIME_VERSION } from "./copy.ts";
+
+// The A8 vocabulary, re-exported unchanged: embedder code needs no import
+// change, and consumers that want the multi-copy-robust spellings get them
+// from the same module they already import.
+export {
+  copyCensus,
+  DROPPED,
+  ERROR_CONTEXT,
+  FUTURE,
+  hasBrand,
+  INVALID_HANDLE,
+  isDroppedError,
+  isInvalidHandleError,
+  isPeerTrappedError,
+  isStreamProducerError,
+  isSuspending,
+  isTrap,
+  isWitError,
+  PEER_TRAPPED,
+  PROTOCOL_GENERATION,
+  registerRuntimeCopy,
+  RESOURCE_STATE,
+  type RuntimeCopy,
+  runtimeCopies,
+  STREAM,
+  STREAM_PRODUCER,
+  SUSPENDING,
+  TRAP,
+  WIT_ERROR,
+} from "@deltic/protocol";
+
 export {
   artifactsFromEnvelope,
   type ComponentArtifacts,

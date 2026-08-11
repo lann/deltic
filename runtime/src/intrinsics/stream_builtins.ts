@@ -22,6 +22,7 @@
 import { blockCurrentActivation } from "../jspi/mod.ts";
 import type { SuspensionMode } from "../jspi/mod.ts";
 import { assert_, trapIf } from "../cabi/trap.ts";
+import { errorContextTrapMessage } from "../cabi/async_values.ts";
 import { LiftLowerContext } from "../cabi/context.ts";
 import { loadStringFromRange, storeString } from "../cabi/strings.ts";
 import type { ValType } from "../cabi/types.ts";
@@ -499,7 +500,7 @@ export function createErrorContextDebugMessage(
     const e = inst.handles.get(i ?? 0);
     trapIf(
       !(e instanceof ErrorContext),
-      "error-context.debug-message: handle is not an error-context",
+      errorContextTrapMessage("error-context.debug-message", e),
     );
     const cx = new LiftLowerContext(cabiOptions(opts), inst, null);
     storeString(cx, (e as ErrorContext).debugMessage, ptr ?? 0);
@@ -518,7 +519,7 @@ export function createErrorContextDrop(
     const e = inst.handles.remove(i ?? 0);
     trapIf(
       !(e instanceof ErrorContext),
-      "error-context.drop: handle is not an error-context",
+      errorContextTrapMessage("error-context.drop", e),
     );
   };
 }
@@ -865,7 +866,7 @@ export function createErrorContextTransfer(
     const e = srcInst.handles.get(srcIdx ?? 0);
     trapIf(
       !(e instanceof ErrorContext),
-      "error-context transfer: handle is not an error-context",
+      errorContextTrapMessage("error-context transfer", e),
     );
     return dstInst.handles.add(e as ErrorContext);
   };

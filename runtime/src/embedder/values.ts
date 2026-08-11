@@ -20,6 +20,8 @@
 
 import type { ComponentValue, ValType } from "../cabi/types.ts";
 import { despecialize } from "../cabi/types.ts";
+import { ERROR_CONTEXT, hasBrand } from "@deltic/protocol";
+import { describeCrossCopy } from "./copy.ts";
 import { ErrorContext as InternalErrorContext } from "../task/mod.ts";
 import { camelCase } from "./casing.ts";
 import { NameCollisionError } from "./errors.ts";
@@ -326,6 +328,16 @@ export function fromHost(
         return v.internal as unknown as ComponentValue;
       }
       if (v instanceof InternalErrorContext) return v as unknown as ComponentValue;
+      // Branded but not ours (amendment A8): an `ErrorContext` minted by
+      // another runtime copy. It is stateful (it lives in that copy's handle
+      // table), so it can never be lowered here — but "recognized and named"
+      // beats the generic "expected an ErrorContext" that sent issue #83
+      // hunting in the wrong direction.
+      if (hasBrand(v, ERROR_CONTEXT)) {
+        throw new TypeError(
+          `${o.where}: ${describeCrossCopy("this error-context")}`,
+        );
+      }
       throw new TypeError(`${o.where}: expected an ErrorContext`);
     }
     case "list": {

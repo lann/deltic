@@ -1,0 +1,17 @@
+{
+  "name": "@deltic/protocol",
+  "version": "0.1.0",
+  "exports": {
+    ".": "./src/mod.ts"
+  },
+  "tasks": {
+    "test": "deno test tests/",
+    "check": "deno check src tests"
+  },
+  "publish": {
+    "exclude": [
+      "tests/"
+    ]
+  },
+  "license": "Apache-2.0"
+}
