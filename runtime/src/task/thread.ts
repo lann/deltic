@@ -24,6 +24,7 @@ import {
   CANCELLED_TRUE,
   NeedsJspi,
   notifyInstancePoisoned,
+  isInstancePoisoned,
   PendingCapability,
   popCurrentThread,
   pushCurrentThread,
@@ -155,6 +156,15 @@ export class Thread implements SchedulableThread {
     // Capability signals release the lock, for the same reason as in `tick`:
     // they mark the RUNTIME incomplete, not the component faulted.
     const inst = this.task.inst;
+    // A poisoned instance's parked segments never run again: this settle
+    // belongs to an activation that was in flight when a SIBLING activation
+    // trapped (the trap kept the reentrance lock — CM poisoning — and #66
+    // retired the handle tables). Resuming would re-enter the corpse, and
+    // asserting turned one legible trap into an assert cascade (the
+    // wosh-M2 shape: `list too long`, then this assert as second victim).
+    // Retire quietly: the abandoned call's own driver reports, via its
+    // deadlock trap naming the export.
+    if (isInstancePoisoned(inst)) return;
     assert_(
       inst.mayEnterFrom(null),
       "resumeWith: parked thread's instance is not enterable from the host",

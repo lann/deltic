@@ -145,7 +145,18 @@ export function notifyInstancePoisoned(
   inst: { handles: Iterable<unknown> },
   cause: unknown,
 ): void {
+  poisonedInstances.add(inst);
   onInstancePoisoned?.(inst, cause);
+}
+
+/** Poisoned instances, for late-settle retirement (`Thread.resumeWith`):
+ * a WeakSet mirror of streams.ts's `retiredInstances`, kept here because
+ * thread.ts cannot import streams.ts (the same evaluation-order
+ * constraint that made `setOnInstancePoisoned` an injection seam). */
+const poisonedInstances = new WeakSet<object>();
+
+export function isInstancePoisoned(inst: object): boolean {
+  return poisonedInstances.has(inst);
 }
 
 // ---------------------------------------------------------------------------
