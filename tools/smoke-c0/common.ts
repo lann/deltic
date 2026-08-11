@@ -17,16 +17,20 @@ import { TranslateError } from "../../runtime/src/plan/mod.ts";
 import type { WirePlan } from "../../runtime/src/plan/format.ts";
 
 export const REPO_ROOT = new URL("../../", import.meta.url);
-export const POLYMORPH = "/home/lmartin/p/polymorph";
+export const POLYMORPH = Deno.env.get("POLYMORPH_ROOT") ??
+  "/home/lmartin/p/polymorph";
+/** experiment-mosh renamed and moved out of the polymorph tree
+ * (2026-08-10): it is `wosh`, a sibling OF the polymorph directory. */
+export const WOSH = Deno.env.get("WOSH_ROOT") ?? "/home/lmartin/p/wosh";
 
 /** Absolute paths to the consumer artifacts under test (never copied). */
 export const ARTIFACTS = {
-  tdz: `${POLYMORPH}/experiment-mosh/spikes/compose-async-tdz/composed.wasm`,
+  tdz: `${WOSH}/spikes/compose-async-tdz/composed.wasm`,
   execModel:
     `${POLYMORPH}/polymorph-iroh/target/wasm32-wasip2/release/iroh_exec_model_guest.wasm`,
-  engineGo: `${POLYMORPH}/experiment-mosh/engine-go/main.wasm`,
-  composedClient: `${POLYMORPH}/experiment-mosh/client-core/composed-client.wasm`,
-  composedProxy: `${POLYMORPH}/experiment-mosh/proxy/composed-proxy.wasm`,
+  engineGo: `${WOSH}/engine-go/main.wasm`,
+  composedClient: `${WOSH}/client-core/composed-client.wasm`,
+  composedProxy: `${WOSH}/proxy/composed-proxy.wasm`,
   irohEndpoint:
     `${POLYMORPH}/polymorph-iroh/target/wasm32-wasip2/release/iroh_endpoint.wasm`,
 } as const;
