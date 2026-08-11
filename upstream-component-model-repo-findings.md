@@ -183,10 +183,14 @@ In `cancel_copy`, when the pending event is a stream `COMPLETED`, deliver
 ## CM-4: `sync-streams.wast:145` overfits wasmtime's scheduler — entry-status timing is not normative
 
 **Status:** ADJUDICATED (operator, 2026-08-10) — upstream **test defect**,
-not a reference-semantics issue. Candidate filing against the test suite;
-distilled finding + filing kit:
-[deltic#43](https://github.com/lann/deltic/issues/43) (filing itself
-tracked by [deltic#15](https://github.com/lann/deltic/issues/15)).
+not a reference-semantics issue. **Filing kit READY** (2026-08-11, closes
+[deltic#43](https://github.com/lann/deltic/issues/43)):
+`upstream-issue-sync-streams-schedule-overfit.md` (ready-to-file draft) +
+`upstream-sync-streams-schedule-agnostic.patch` (applies at the spec repo
+root, verified against 73b7ad5; both arms exercised green through the
+deltic pipeline, FIFO + seeds — see the kit PR for the recipe). Filing
+itself tracked by
+[deltic#15](https://github.com/lann/deltic/issues/15).
 Archived evidence tree (mechanism docs, both experiment patches, trace,
 verify script): `4f3351f:exams/wasmtime-exclusivity/`.
 **Found:** 2026-08-08 (JSPI flip, M2 exit). **Mechanism corrected:**
