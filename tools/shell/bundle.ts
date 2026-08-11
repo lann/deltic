@@ -33,6 +33,12 @@ export async function bundle(): Promise<void> {
   });
   const { code } = await cmd.output();
   if (code !== 0) throw new Error(`deno bundle failed with code ${code}`);
+  // Byte-identical .mjs copy for the node/bun lanes (host-node.mjs imports
+  // it): with no package.json anywhere above tools/shell/dist/, node parses
+  // a .js file as CommonJS and rejects the bundle's import/export syntax;
+  // the .mjs extension forces ESM. (The jsshells keep loading entry.js —
+  // one bundle, two names, so every lane runs the same bytes.)
+  await Deno.copyFile(out, join(dirname(out), "entry.mjs"));
   return;
 }
 

@@ -10,7 +10,13 @@ export type { LaneDelta, LaneTotals };
 export { deltaKey } from "../../browser/expectations/types.ts";
 
 export interface ShellLaneExpectation {
-  lane: "sm-pinned" | "sm-nightly" | "jsc-pinned" | "jsc-trunk";
+  lane:
+    | "sm-pinned"
+    | "sm-nightly"
+    | "jsc-pinned"
+    | "jsc-trunk"
+    | "node-pinned"
+    | "bun-pinned";
   /** Human summary printed with the table. */
   notes: string;
   /** `true` = a red lane is a gate failure; `false` = findings-only lane.

@@ -2,15 +2,19 @@
 //
 // Deno-lane-shaped, not browser-lane-shaped: this file is bundled
 // (`tools/shell/bundle.ts`) and executed directly by a JS shell (SpiderMonkey
-// `js` nightly or JSC `jsc` trunk) as a module. There is no HTTP server and
-// no page: the corpus is read straight off disk — at absolute paths derived
-// from `import.meta.url` (the repo root is three directories above the
-// bundle), because the shell's CWD is not trustworthy: JSC trunk bundles
-// chdir into their own directory (see `readBinary` below) — and results are
-// streamed as `@deltic:`-prefixed JSON lines on stdout via `print()`, which
-// both target shells provide. `tools/shell/run-lane.ts` parses these lines
-// and classifies with the exact same `harness/src/xfail.ts` + `Summary` +
-// per-lane-overlay machinery the browser lanes use (`tools/browser/classify.ts`).
+// `js` nightly or JSC `jsc` trunk) as a module — or by a JS *runtime* (node,
+// bun) via the `tools/shell/host-node.mjs` preamble, which supplies the two
+// host capabilities this entry needs (binary reads, `print`) without putting
+// node: builtin imports into this browser-platform bundle. There is no HTTP
+// server and no page: the corpus is read straight off disk — at absolute
+// paths derived from `import.meta.url` (the repo root is three directories
+// above the bundle), because the shell's CWD is not trustworthy: JSC trunk
+// bundles chdir into their own directory (see `readBinary` below) — and
+// results are streamed as `@deltic:`-prefixed JSON lines on stdout via
+// `print()`, which both target shells provide. `tools/shell/run-lane.ts`
+// parses these lines and classifies with the exact same
+// `harness/src/xfail.ts` + `Summary` + per-lane-overlay machinery the
+// browser lanes use (`tools/browser/classify.ts`).
 //
 // IMPORTANT: the polyfill import below MUST be first. ES module evaluation
 // runs side-effect imports in declaration order; `runtime-executor.ts` pulls
@@ -31,9 +35,16 @@ import { runWastJson } from "../../harness/src/runner.ts";
 // deno-lint-ignore no-explicit-any
 const g = globalThis as any;
 
-type EngineName = "spidermonkey" | "jsc" | "unknown";
+type EngineName = "spidermonkey" | "jsc" | "node" | "bun" | "unknown";
 
 function detectEngine(): EngineName {
+  // Order matters twice: bun defines process.versions.node too (check bun
+  // first), and Deno 2's node-compat layer defines globalThis.process as
+  // well — but this entry never runs under Deno (the Deno lane is
+  // harness/tests/conformance_test.ts), so process.versions.node here means
+  // a real node (or bun) driven via tools/shell/host-node.mjs.
+  if (typeof g.process?.versions?.bun === "string") return "bun";
+  if (typeof g.process?.versions?.node === "string") return "node";
   if (typeof g.os?.file?.readFile === "function") return "spidermonkey";
   if (typeof g.readFile === "function") return "jsc";
   return "unknown";
@@ -42,7 +53,9 @@ function detectEngine(): EngineName {
 const engine = detectEngine();
 
 // Both target shells provide a global `print()` for stdout; `deno check`
-// does not know it (it is not a Deno global), so declare it here.
+// does not know it (it is not a Deno global), so declare it here. On the
+// node/bun lanes the host preamble (tools/shell/host-node.mjs) installs it
+// before importing this bundle.
 declare function print(s: string): void;
 
 function readBinary(path: string): Uint8Array {
@@ -52,11 +65,35 @@ function readBinary(path: string): Uint8Array {
       return g.os.file.readFile(abs, "binary");
     case "jsc":
       return g.readFile(abs, "binary");
+    case "node":
+    case "bun":
+      // Installed by tools/shell/host-node.mjs (which keeps node: builtin
+      // imports out of this browser-platform bundle). It copies out of
+      // node's pooled Buffer — see the preamble for why that is load-bearing.
+      if (typeof g.__delticHostRead !== "function") {
+        throw new Error(
+          `readBinary: ${engine} detected but no __delticHostRead — run this ` +
+            `bundle via tools/shell/host-node.mjs, not directly`,
+        );
+      }
+      return g.__delticHostRead(abs);
     default:
       throw new Error(
         `readBinary: unrecognized shell (no os.file.readFile, no readFile)`,
       );
   }
+}
+
+/** Best-effort engine identity for the header. The jsshells expose a
+ * `version()` global; node/bun carry theirs on `process.versions`. */
+function engineVersionString(): string | null {
+  if (engine === "node") {
+    return `node ${g.process.version} (v8 ${g.process.versions.v8})`;
+  }
+  if (engine === "bun") {
+    return `bun ${g.process.versions.bun} (webkit ${g.process.versions.webkit ?? "?"})`;
+  }
+  return typeof g.version === "function" ? g.version() : null;
 }
 
 // Repo root, derived from this bundle's own location rather than the CWD.
@@ -211,7 +248,7 @@ async function main() {
     // Best-effort engine identity string; run-lane.ts overrides/augments
     // this with fetched build metadata (nightly buildid / jsc revision) it
     // already knows from the fetch step.
-    engineVersion: typeof g.version === "function" ? g.version() : null,
+    engineVersion: engineVersionString(),
     capabilities,
     shimBuildHash: sha256Hex(shimBytes),
     fileCount: manifest.files.length,

@@ -137,11 +137,18 @@ shell-lane lane *args: shim corpus
     deno run -A tools/shell/run-lane.ts {{lane}} {{args}}
 
 # JSC has no arm64 channel (jsc-built-products is x86_64-only), so its
-# lane guards on the arch and skips cleanly elsewhere.
-# The per-push pinned shell gates: sm-pinned everywhere; jsc-pinned on x64.
+# lane guards on the arch and skips cleanly elsewhere. node/bun publish
+# both linux arches, so those lanes run everywhere; bun-pinned is
+# findings-only (expectation carries `required: false` — deviations print
+# and exit 0, only infrastructure failures gate) until it has a track
+# record, then promote.
+# The per-push pinned shell gates: sm-pinned + node-pinned (+ bun-pinned,
+# findings-only) everywhere; jsc-pinned on x64.
 shells:
     just shell-lane sm-pinned
     @if [ "$(uname -m)" = "x86_64" ]; then just shell-lane jsc-pinned; else echo "jsc-pinned: skipped (no arm64 channel)"; fi
+    just shell-lane node-pinned
+    just shell-lane bun-pinned
 
 # The Deno canary probe (V8-trailing-edge d8-lane substitute; findings-only).
 deno-canary *args:
