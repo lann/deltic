@@ -16,7 +16,7 @@ ci: (gha::core) (gha::browser)
 # Includes the consumer smokes CI cannot run (they need the polymorph
 # checkouts; docs/consumers.md).
 # The full pre-commit pass (AGENTS.md "Gates"): everything.
-gates: build test-rust test-protocol test-runtime test-wasi-shims test-ct-runner test-bundle examples test-translate conformance sched-seeds test-ports test-webrtc shells browsers websocket-conformance smoke-tls smoke-c0
+gates: build test-rust test-protocol test-runtime test-wasi-shims test-ct-runner test-bundle publish-check examples test-translate conformance sched-seeds test-ports test-webrtc shells browsers websocket-conformance smoke-tls smoke-c0
 
 # Fast sanity: builds + native tests + type-checks, no suites.
 check: build test-rust
@@ -99,6 +99,18 @@ test-ct-runner: shim fixtures
 # imports below the entry resolve to the same cached modules.
 test-bundle: shim
     deno test -A tools/release-bundle/
+
+# The JSR publish checks (public-API type check, slow types, export and
+# import analyzability, config validation) — `deno task check` covers
+# none of them, so they only fired at publish time on main before this
+# gate. Needs the shim: @deltic/translator ships translator_shim.wasm
+# (statically imported by shim_asset_deno.ts). Registry-side failures
+# (scope auth, version conflicts) still only manifest on a real publish.
+# --allow-dirty because this is a PRE-commit gate (the dirty check
+# protects uploads; there is no upload here).
+# JSR publish verification, no upload (`deno publish --dry-run`).
+publish-check: shim
+    deno publish --dry-run --allow-dirty
 
 # The harness task chains corpus generation and the shim check itself.
 # The official CM conformance suite, Deno lane.
