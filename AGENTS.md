@@ -38,6 +38,8 @@ just test-runtime         # runtime check + tests (deps: shim, fixtures, corpus)
 just test-protocol
 just test-wasi-shims test-ct-runner
 just test-bundle          # embedder-bundle release asset
+just publish-check        # deno publish --dry-run: the JSR publish checks, no upload
+just examples test-translate  # embedder examples; build-time translation CLI
 just conformance          # official CM suite, Deno lane
 just sched-seeds          # seeded-shuffle reruns: DELTIC_SCHED_SEED=1, =4242 (FIFO when unset)
 just test-ports           # ports/webcrypto + ports/websocket unit suites

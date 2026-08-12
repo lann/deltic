@@ -59,6 +59,41 @@ jobs:
         # bundle_test.ts in the core matrix), and SHA256SUMS.
         run: just release-artifacts
 
+      - name: publish unstable prereleases to JSR
+        # Version scheme (issue #16, interim): 0.1.0-pre.g<shorthash> —
+        # correlates 1:1 with this run's `pre-<shorthash>` release tag. The
+        # `g` prefix (git-describe's convention) is load-bearing: a bare
+        # short hash can be all-digits-with-leading-zero, which is INVALID
+        # semver (numeric identifiers forbid leading zeros) and would fail
+        # ~0.4% of publishes at random. Hash versions are unique per commit
+        # (JSR refuses duplicates, making re-runs no-ops-by-failure like
+        # the tag guard) but deliberately NOT monotonic under semver
+        # ordering: unstable prereleases are pinned exactly, never ranged.
+        # The stamped versions are CI-working-tree-only (never committed);
+        # cross-package workspace deps are rewritten by `deno publish`.
+        # Auth: OIDC (permissions.id-token) — the @deltic packages must
+        # exist on jsr.io and be linked to this repository (one-time
+        # manual setup; see the #16 checklist). The scope's "actor must be
+        # a scope member" restriction is OFF: merges armed by the machine
+        # account make the workflow actor `lannbot`, which broke the
+        # publish (actorNotScopeMember) until the setting was disabled.
+        # Runs BEFORE the GitHub release: it is the step most likely to
+        # fail, and ordering it first keeps partial failures re-runnable —
+        # a re-run passes the tag guard (no release yet) and `deno
+        # publish` skips already-published versions, so it converges
+        # instead of stranding a release that claims unpublished JSR
+        # versions.
+        run: |
+          VERSION="0.1.0-pre.g${SHORT}"
+          echo "publishing @deltic/* ${VERSION}"
+          for p in runtime translator wasi-shims ct-runner; do
+            jq --arg v "$VERSION" '.version = $v' "$p/deno.json" > "$p/deno.json.tmp"
+            mv "$p/deno.json.tmp" "$p/deno.json"
+          done
+          deno publish --allow-dirty
+        env:
+          SHORT: ${{ steps.tag.outputs.short }}
+
       - name: create prerelease
         run: |
           {
@@ -88,29 +123,3 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.tag.outputs.tag }}
-
-      - name: publish unstable prereleases to JSR
-        # Version scheme (issue #16, interim): 0.1.0-pre.g<shorthash> —
-        # correlates 1:1 with this run's `pre-<shorthash>` release tag. The
-        # `g` prefix (git-describe's convention) is load-bearing: a bare
-        # short hash can be all-digits-with-leading-zero, which is INVALID
-        # semver (numeric identifiers forbid leading zeros) and would fail
-        # ~0.4% of publishes at random. Hash versions are unique per commit
-        # (JSR refuses duplicates, making re-runs no-ops-by-failure like
-        # the tag guard) but deliberately NOT monotonic under semver
-        # ordering: unstable prereleases are pinned exactly, never ranged.
-        # The stamped versions are CI-working-tree-only (never committed);
-        # cross-package workspace deps are rewritten by `deno publish`.
-        # Auth: OIDC (permissions.id-token) — the @deltic packages must
-        # exist on jsr.io and be linked to this repository (one-time
-        # manual setup; see the #16 checklist).
-        run: |
-          VERSION="0.1.0-pre.g${SHORT}"
-          echo "publishing @deltic/* ${VERSION}"
-          for p in runtime translator wasi-shims ct-runner; do
-            jq --arg v "$VERSION" '.version = $v' "$p/deno.json" > "$p/deno.json.tmp"
-            mv "$p/deno.json.tmp" "$p/deno.json"
-          done
-          deno publish --allow-dirty
-        env:
-          SHORT: ${{ steps.tag.outputs.short }}
