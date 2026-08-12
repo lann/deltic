@@ -42,7 +42,7 @@ export {
   isStreamProducerError,
   isSuspending,
   isTrap,
-  isWitError,
+  isComponentException,
   PEER_TRAPPED,
   PROTOCOL_GENERATION,
   registerRuntimeCopy,
@@ -53,7 +53,7 @@ export {
   STREAM_PRODUCER,
   SUSPENDING,
   TRAP,
-  WIT_ERROR,
+  COMPONENT_EXCEPTION,
 } from "@deltic/protocol";
 
 export {
@@ -75,7 +75,7 @@ export {
   NameCollisionError,
   PeerTrappedError,
   Trap,
-  WitError,
+  ComponentException,
 } from "./errors.ts";
 
 export {

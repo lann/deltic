@@ -16,7 +16,7 @@
 // pass vacuously.
 //
 // What is pinned: the census sees both copies; the STATELESS contract values
-// (`WitError`, the `suspending` mark, hand-rolled brands) are honored across
+// (`ComponentException`, the `suspending` mark, hand-rolled brands) are honored across
 // the boundary; the STATEFUL ones (`Stream`) are refused with a named
 // cross-copy error rather than silently adapted; and an unbranded throw in a
 // multi-copy graph says so.
@@ -29,7 +29,7 @@ import {
   isSuspending,
   runtimeCopies,
   Stream,
-  WitError,
+  ComponentException,
 } from "../../runtime/src/embedder/mod.ts";
 import { lowerStreamSource } from "../../runtime/src/embedder/streams.ts";
 import { Translator } from "../../runtime/src/shim/mod.ts";
@@ -93,7 +93,7 @@ Deno.test({
     const census = copyCensus();
     assert(census.startsWith(`${copies.length} deltic copies loaded: `), census);
 
-    // ---- 2. copy B's WitError is a WitError to copy A ------------------
+    // ---- 2. copy B's ComponentException is a ComponentException to copy A ------------------
     const translator = await Translator.create(await Deno.readFile(TRANSLATOR));
     const componentBytes = await Deno.readFile(FIXTURE);
     const { plan, adapters } = translator.translate(componentBytes);
@@ -102,16 +102,16 @@ Deno.test({
       instantiate(artifacts, { "host:api/fallible": { tryIt } });
 
     assert(
-      !(new B.WitError("boom") instanceof WitError),
+      !(new B.ComponentException("boom") instanceof ComponentException),
       "premise: the two copies' classes are distinct",
     );
     const viaForeignClass = await withImport(() => {
-      throw new B.WitError("boom");
+      throw new B.ComponentException("boom");
     });
     assertEq(
       await viaForeignClass.exports.run(),
       1004,
-      "copy B's WitError became the guest's err case with its payload intact",
+      "copy B's ComponentException became the guest's err case with its payload intact",
     );
 
     // ---- 3. the suspending mark crosses ------------------------------
@@ -143,7 +143,7 @@ Deno.test({
     assert(m.includes("src.readable()"), `names the by-value remedy: ${m}`);
     for (const u of urls) assert(m.includes(u), `census names ${u}: ${m}`);
 
-    // ---- 5. a hand-rolled brand is a WitError to copy A ----------------
+    // ---- 5. a hand-rolled brand is a ComponentException to copy A ----------------
     // The zero-import host-module path: no deltic import anywhere.
     const viaHandRolled = await withImport(() => {
       throw Object.assign(new Error("x"), {
@@ -154,7 +154,7 @@ Deno.test({
     assertEq(
       await viaHandRolled.exports.run(),
       1000 + "hand-rolled".length,
-      "a hand-rolled brand IS a WitError (brands are markers, not gatekeepers)",
+      "a hand-rolled brand IS a ComponentException (brands are markers, not gatekeepers)",
     );
 
     // ---- 6. an unbranded throw names the multi-copy hypothesis ---------

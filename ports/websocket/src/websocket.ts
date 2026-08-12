@@ -12,7 +12,7 @@
 //
 //   jco                                  | this port
 //   -------------------------------------+------------------------------------
-//   `throw { tag, val }` (bare payload)   | `throw new WitError({ tag, val })`
+//   `throw { tag, val }` (bare payload)   | `throw new ComponentException({ kind, value })`
 //   jco `Stream` (`read({count})`)        | `Stream<T>` / `ReadableStream`
 //   module-namespace `--map` wiring       | `websocketImports()` record fragment
 //   module-level setters                  | `configure()` + compatible setters
@@ -27,20 +27,20 @@
 import {
   Stream,
   type StreamSource,
-  WitError,
+  ComponentException,
 } from "../../../runtime/src/embedder/mod.ts";
 
 // ----- WIT value types (contracts/embedder-api.md §"Value mapping") ---------
 
-/** `types.error` — a variant; `val` is absent for payloadless cases. */
+/** `types.error` — a variant; `value` is absent for payloadless cases. */
 export type WebsocketError =
-  | { tag: "invalid-url"; val: string }
-  | { tag: "connect-failed"; val: string }
-  | { tag: "closed" }
-  | { tag: "receiving-via-stream" }
-  | { tag: "receive-buffer-overflow" }
-  | { tag: "invalid-argument"; val: string }
-  | { tag: "other"; val: string };
+  | { kind: "invalid-url"; value: string }
+  | { kind: "connect-failed"; value: string }
+  | { kind: "closed" }
+  | { kind: "receiving-via-stream" }
+  | { kind: "receive-buffer-overflow" }
+  | { kind: "invalid-argument"; value: string }
+  | { kind: "other"; value: string };
 
 /**
  * `types.message` — `variant { binary(list<u8>), %string(string) }`.
@@ -49,8 +49,8 @@ export type WebsocketError =
  * of the name, so the conventions' "kebab-case verbatim" tag is `"string"`.
  */
 export type Message =
-  | { tag: "binary"; val: Uint8Array }
-  | { tag: "string"; val: string };
+  | { kind: "binary"; value: Uint8Array }
+  | { kind: "string"; value: string };
 
 /** `types.message-kind` — an enum, so a string-literal union. */
 export type MessageKind = "binary" | "string";
@@ -85,10 +85,10 @@ export interface CloseInfo {
 export type WebsocketState = "open" | "closing" | "closed";
 
 /** Throw a WIT `error` the branded way (contracts/embedder-api.md §"Error model"). */
-function witError(payload: WebsocketError): WitError<WebsocketError> {
-  return new WitError<WebsocketError>(
+function componentException(payload: WebsocketError): ComponentException<WebsocketError> {
+  return new ComponentException<WebsocketError>(
     payload,
-    payload.tag + ("val" in payload ? `: ${payload.val}` : ""),
+    payload.kind + ("value" in payload ? `: ${payload.value}` : ""),
   );
 }
 
@@ -219,30 +219,30 @@ function isValidProtocolToken(token: string): boolean {
 /** Validate a connect URL per the WIT contract; throws `invalid-url`. */
 function validateUrl(url: string): void {
   if (url.includes("#")) {
-    throw witError({ tag: "invalid-url", val: "URL must not have a fragment" });
+    throw componentException({ kind: "invalid-url", value: "URL must not have a fragment" });
   }
   let parsed: URL;
   try {
     parsed = new URL(url);
   } catch (err) {
-    throw witError({
-      tag: "invalid-url",
-      val: `URL does not parse: ${(err as Error)?.message ?? err}`,
+    throw componentException({
+      kind: "invalid-url",
+      value: `URL does not parse: ${(err as Error)?.message ?? err}`,
     });
   }
   if (parsed.protocol !== "ws:" && parsed.protocol !== "wss:") {
-    throw witError({
-      tag: "invalid-url",
-      val: `URL scheme must be ws or wss, not ${JSON.stringify(parsed.protocol)}`,
+    throw componentException({
+      kind: "invalid-url",
+      value: `URL scheme must be ws or wss, not ${JSON.stringify(parsed.protocol)}`,
     });
   }
   if (!parsed.hostname) {
-    throw witError({ tag: "invalid-url", val: "URL must have a host" });
+    throw componentException({ kind: "invalid-url", value: "URL must have a host" });
   }
   // The WHATWG WebSocket constructor rejects credentials in the URL; the
   // eager taxonomy matches that floor uniformly. websocket.js:127-131.
   if (parsed.username || parsed.password) {
-    throw witError({ tag: "invalid-url", val: "URL must not have userinfo" });
+    throw componentException({ kind: "invalid-url", value: "URL must not have userinfo" });
   }
 }
 
@@ -251,15 +251,15 @@ function validateProtocols(protocols: string[]): void {
   for (let i = 0; i < protocols.length; i += 1) {
     const protocol = protocols[i];
     if (!isValidProtocolToken(protocol)) {
-      throw witError({
-        tag: "invalid-argument",
-        val: `subprotocol ${JSON.stringify(protocol)} is not a valid token`,
+      throw componentException({
+        kind: "invalid-argument",
+        value: `subprotocol ${JSON.stringify(protocol)} is not a valid token`,
       });
     }
     if (protocols.indexOf(protocol) !== i) {
-      throw witError({
-        tag: "invalid-argument",
-        val: `subprotocol ${JSON.stringify(protocol)} is offered twice`,
+      throw componentException({
+        kind: "invalid-argument",
+        value: `subprotocol ${JSON.stringify(protocol)} is offered twice`,
       });
     }
   }
@@ -273,22 +273,22 @@ function validateProtocols(protocols: string[]): void {
 function validateCloseArgs(code: number | undefined, reason: string): void {
   if (code !== undefined && code !== null) {
     if (code !== 1000 && !(code >= 3000 && code <= 4999)) {
-      throw witError({
-        tag: "invalid-argument",
-        val: `close code must be 1000 or in 3000-4999, not ${code}`,
+      throw componentException({
+        kind: "invalid-argument",
+        value: `close code must be 1000 or in 3000-4999, not ${code}`,
       });
     }
   } else if (reason.length) {
-    throw witError({
-      tag: "invalid-argument",
-      val: "a close reason requires a close code",
+    throw componentException({
+      kind: "invalid-argument",
+      value: "a close reason requires a close code",
     });
   }
   const bytes = utf8ByteLength(reason);
   if (bytes > 123) {
-    throw witError({
-      tag: "invalid-argument",
-      val: `close reason must be at most 123 bytes, got ${bytes}`,
+    throw componentException({
+      kind: "invalid-argument",
+      value: `close reason must be at most 123 bytes, got ${bytes}`,
     });
   }
 }
@@ -331,7 +331,7 @@ export class Websocket {
   /**
    * `connect: static async func(url, protocols) -> result<websocket, error>`.
    * Resolves with a `Websocket` once the handshake completes; throws
-   * `WitError<WebsocketError>` on failure. websocket.js:203.
+   * `ComponentException<WebsocketError>` on failure. websocket.js:203.
    */
   static async connect(url: string, protocols: string[]): Promise<Websocket> {
     validateUrl(url);
@@ -343,9 +343,9 @@ export class Websocket {
     } catch (err) {
       // Eager validation covered the SyntaxError cases; anything left is a
       // platform policy refusing the connection.
-      throw witError({
-        tag: "connect-failed",
-        val: String((err as Error)?.message ?? err),
+      throw componentException({
+        kind: "connect-failed",
+        value: String((err as Error)?.message ?? err),
       });
     }
     ws.binaryType = "arraybuffer";
@@ -366,9 +366,9 @@ export class Websocket {
         const ce = event as CloseEvent;
         settle(
           reject,
-          witError({
-            tag: "connect-failed",
-            val: ce.reason || `connection failed (code ${ce.code})`,
+          componentException({
+            kind: "connect-failed",
+            value: ce.reason || `connection failed (code ${ce.code})`,
           }),
         );
       };
@@ -382,9 +382,9 @@ export class Websocket {
       timer = setTimeout(() => {
         settle(
           reject,
-          witError({
-            tag: "connect-failed",
-            val: `handshake timed out after ${connectTimeoutMs}ms`,
+          componentException({
+            kind: "connect-failed",
+            value: `handshake timed out after ${connectTimeoutMs}ms`,
           }),
         );
         try {
@@ -402,9 +402,9 @@ export class Websocket {
       try {
         ws.close();
       } catch { /* already closing */ }
-      throw witError({
-        tag: "connect-failed",
-        val: ws.protocol
+      throw componentException({
+        kind: "connect-failed",
+        value: ws.protocol
           ? `server selected subprotocol ${JSON.stringify(ws.protocol)} which was not offered`
           : "server selected no subprotocol although one was offered",
       });
@@ -413,9 +413,9 @@ export class Websocket {
       try {
         ws.close();
       } catch { /* already closing */ }
-      throw witError({
-        tag: "connect-failed",
-        val: `server selected subprotocol ${
+      throw componentException({
+        kind: "connect-failed",
+        value: `server selected subprotocol ${
           JSON.stringify(ws.protocol)
         } although none was offered`,
       });
@@ -450,16 +450,16 @@ export class Websocket {
   async send(message: Message): Promise<void> {
     for (;;) {
       if (this.#localClosed || this.#ws.readyState !== WebSocket.OPEN) {
-        throw witError({ tag: "closed" });
+        throw componentException({ kind: "closed" });
       }
       if (this.#ws.bufferedAmount <= MAX_BUFFERED_AMOUNT) break;
       // No `bufferedamountlow` on WebSocket: poll the drain.
       await new Promise((resolve) => setTimeout(resolve, DRAIN_POLL_MS));
     }
     try {
-      this.#ws.send(message.val as string | Uint8Array);
+      this.#ws.send(message.value as string | Uint8Array);
     } catch (err) {
-      throw witError({ tag: "other", val: String((err as Error)?.message ?? err) });
+      throw componentException({ kind: "other", value: String((err as Error)?.message ?? err) });
     }
   }
 
@@ -468,16 +468,16 @@ export class Websocket {
    * `error` once the connection closes. websocket.js:325.
    */
   receive(): Promise<Message> {
-    if (this.#localClosed) return Promise.reject(witError({ tag: "closed" }));
+    if (this.#localClosed) return Promise.reject(componentException({ kind: "closed" }));
     if (this.#streamClaimed) {
-      return Promise.reject(witError({ tag: "receiving-via-stream" }));
+      return Promise.reject(componentException({ kind: "receiving-via-stream" }));
     }
     return this.#incoming.next();
   }
 
   /**
    * `send-via-stream: async func(stream<stream-message>) -> result<_, send-via-stream-error>`.
-   * Throws `WitError<SendViaStreamError>`. websocket.js:336.
+   * Throws `ComponentException<SendViaStreamError>`. websocket.js:336.
    */
   async sendViaStream(messages: Stream<LiftedStreamMessage>): Promise<void> {
     let sent = 0n;
@@ -488,9 +488,9 @@ export class Websocket {
         // memory without bound. websocket.js:341-349.
         const { bytes, excess } = await collectByteStream(item.data, item.length);
         if (excess > 0 || bytes.length !== item.length) {
-          throw witError({
-            tag: "other",
-            val: `stream-message payload was ${
+          throw componentException({
+            kind: "other",
+            value: `stream-message payload was ${
               bytes.length + excess
             } bytes but length declared ${item.length}`,
           });
@@ -503,14 +503,14 @@ export class Websocket {
           try {
             text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
           } catch {
-            throw witError({
-              tag: "other",
-              val: "string stream-message payload is not valid UTF-8",
+            throw componentException({
+              kind: "other",
+              value: "string stream-message payload is not valid UTF-8",
             });
           }
-          message = { tag: "string", val: text };
+          message = { kind: "string", value: text };
         } else {
-          message = { tag: "binary", val: bytes };
+          message = { kind: "binary", value: bytes };
         }
         await this.send(message);
         sent += 1n;
@@ -518,10 +518,10 @@ export class Websocket {
     } catch (error) {
       // A WIT error variant passes through; anything else is a host-side
       // failure and must not masquerade as a normal close. websocket.js:370-378.
-      const payload: WebsocketError = error instanceof WitError
+      const payload: WebsocketError = error instanceof ComponentException
         ? error.payload as WebsocketError
-        : { tag: "other", val: String(error) };
-      throw new WitError<SendViaStreamError>(
+        : { kind: "other", value: String(error) };
+      throw new ComponentException<SendViaStreamError>(
         { error: payload, sent },
         `send-via-stream failed after ${sent} message(s)`,
       );
@@ -539,11 +539,11 @@ export class Websocket {
    * (contracts/embedder-api.md §"Streams and futures").
    */
   receiveViaStream(): ReadableStream<StreamMessage> {
-    if (this.#localClosed) throw witError({ tag: "closed" });
-    if (this.#streamClaimed) throw witError({ tag: "receiving-via-stream" });
+    if (this.#localClosed) throw componentException({ kind: "closed" });
+    if (this.#streamClaimed) throw componentException({ kind: "receiving-via-stream" });
     this.#streamClaimed = true;
     const incoming = this.#incoming;
-    incoming.rejectWaiters({ tag: "receiving-via-stream" });
+    incoming.rejectWaiters({ kind: "receiving-via-stream" });
     return new ReadableStream<StreamMessage>({
       async pull(controller) {
         let message: Message;
@@ -555,11 +555,11 @@ export class Websocket {
           controller.close();
           return;
         }
-        const bytes = message.tag === "string"
-          ? new TextEncoder().encode(message.val)
-          : message.val;
+        const bytes = message.kind === "string"
+          ? new TextEncoder().encode(message.value)
+          : message.value;
         controller.enqueue({
-          kind: message.tag,
+          kind: message.kind,
           length: bytes.length,
           data: bytesToStream(bytes),
         });
@@ -751,18 +751,18 @@ function incomingQueue(ws: WebSocket, onOverflowClose: () => void): IncomingQueu
       return;
     }
     const message: Message = typeof data === "string"
-      ? { tag: "string", val: data }
-      : { tag: "binary", val: new Uint8Array(data as ArrayBuffer) };
+      ? { kind: "string", value: data }
+      : { kind: "binary", value: new Uint8Array(data as ArrayBuffer) };
     push(message, size);
   });
 
   const endError = (): WebsocketError =>
-    overflowed ? { tag: "receive-buffer-overflow" } : { tag: "closed" };
+    overflowed ? { kind: "receive-buffer-overflow" } : { kind: "closed" };
   const end = () => {
     if (closed) return;
     closed = true;
     while (waiters.length) {
-      waiters.shift()!.reject(witError(endError()));
+      waiters.shift()!.reject(componentException(endError()));
     }
   };
   ws.addEventListener("close", end);
@@ -776,14 +776,14 @@ function incomingQueue(ws: WebSocket, onOverflowClose: () => void): IncomingQueu
         return Promise.resolve(message);
       }
       if (overflowed) {
-        return Promise.reject(witError({ tag: "receive-buffer-overflow" }));
+        return Promise.reject(componentException({ kind: "receive-buffer-overflow" }));
       }
-      if (closed) return Promise.reject(witError({ tag: "closed" }));
+      if (closed) return Promise.reject(componentException({ kind: "closed" }));
       return new Promise((resolve, reject) => waiters.push({ resolve, reject }));
     },
     rejectWaiters(error: WebsocketError) {
       while (waiters.length) {
-        waiters.shift()!.reject(witError(error));
+        waiters.shift()!.reject(componentException(error));
       }
     },
     end,
@@ -794,7 +794,7 @@ function incomingQueue(ws: WebSocket, onOverflowClose: () => void): IncomingQueu
       buffered = 0;
       closed = true;
       while (waiters.length) {
-        waiters.shift()!.reject(witError({ tag: "closed" }));
+        waiters.shift()!.reject(componentException({ kind: "closed" }));
       }
     },
   };

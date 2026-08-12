@@ -5,7 +5,7 @@
 
 import { assertEq, assertRejects } from "./asserts.ts";
 import { AgreementKeyOptions, x25519 } from "../src/mod.ts";
-import { WitError } from "../../../runtime/src/embedder/errors.ts";
+import { ComponentException } from "../../../runtime/src/embedder/errors.ts";
 
 function agreeOptions(): AgreementKeyOptions {
   const o = new AgreementKeyOptions();
@@ -47,11 +47,11 @@ Deno.test("key-agreement: derive-bits without can-derive-bits fails error.not-pe
   const [sk] = await x25519.generateKey(opts);
   const [, pub2] = await x25519.generateKey(agreeOptions());
   const input = await sk.agree(pub2);
-  const err = await assertRejects(() => input.deriveBits(undefined)) as WitError;
-  assertEq((err.payload as { tag: string }).tag, "not-permitted");
+  const err = await assertRejects(() => input.deriveBits(undefined)) as ComponentException;
+  assertEq((err.payload as { kind: string }).kind, "not-permitted");
 });
 
 Deno.test("x25519: import-public-key-raw with wrong length fails error.invalid-key", async () => {
-  const err = await assertRejects(() => x25519.importPublicKeyRaw(new Uint8Array(10))) as WitError;
-  assertEq((err.payload as { tag: string }).tag, "invalid-key");
+  const err = await assertRejects(() => x25519.importPublicKeyRaw(new Uint8Array(10))) as ComponentException;
+  assertEq((err.payload as { kind: string }).kind, "invalid-key");
 });

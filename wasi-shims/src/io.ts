@@ -41,7 +41,7 @@
 // ride datagrams).
 
 import { defineBrand, POLLABLE } from "@deltic/protocol";
-import { suspending, WitError } from "@deltic/runtime/embedder";
+import { suspending, ComponentException } from "@deltic/runtime/embedder";
 
 /** The engine setTimeout ceiling: delays above 2^31-1 ms are clamped to
  * ~0 (node/Deno warn and fire at 1 ms). `Pollable.timer` sleeps in
@@ -50,11 +50,11 @@ const TIMER_CHUNK_MAX_MS = 2 ** 31 - 1;
 
 /** A p2 `stream-error` value (variant): `closed` or `last-operation-failed`. */
 export type StreamErrorValue =
-  | { tag: "closed" }
-  | { tag: "last-operation-failed"; val: IoError };
+  | { kind: "closed" }
+  | { kind: "last-operation-failed"; value: IoError };
 
-function closedError(): WitError<StreamErrorValue> {
-  return new WitError({ tag: "closed" });
+function closedError(): ComponentException<StreamErrorValue> {
+  return new ComponentException({ kind: "closed" });
 }
 
 /**

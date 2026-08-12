@@ -30,7 +30,7 @@ export {
   SUSPENDING,
   TRAP,
   WASI_EXIT,
-  WIT_ERROR,
+  COMPONENT_EXCEPTION,
 } from "./brands.ts";
 
 export {
@@ -41,11 +41,11 @@ export {
   isPeerTrappedError,
   isStreamProducerError,
   isTrap,
-  isWitError,
+  isComponentException,
   PeerTrappedError,
   StreamProducerError,
   Trap,
-  WitError,
+  ComponentException,
 } from "./errors.ts";
 
 export { anySuspendingImport, isSuspending, suspending } from "./suspending.ts";

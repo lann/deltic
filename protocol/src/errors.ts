@@ -9,7 +9,7 @@
 //
 // Three classes, three meanings, no overlap:
 //
-//   * `WitError` — a WIT `result<T, E>` err **value**. The only thing that
+//   * `ComponentException` — a WIT `result<T, E>` err **value**. The only thing that
 //     crosses the boundary as an err. Branding is the point: under jco any
 //     stray `TypeError` from a host import was fed to the lift, so every
 //     consumer wrapped every platform call defensively (webcrypto.js's
@@ -24,7 +24,7 @@
 // The predicates below are brand-based and NOT `instanceof`. They are also
 // deliberately NOT installed as `Symbol.hasInstance` on the classes: a
 // consumer subclass would inherit that `hasInstance` and then match ANY
-// branded value (`x instanceof MyWitError` true for a plain `WitError`),
+// branded value (`x instanceof MyComponentException` true for a plain `ComponentException`),
 // which is a worse footgun than the one A9 removes.
 
 import {
@@ -35,20 +35,20 @@ import {
   PEER_TRAPPED,
   STREAM_PRODUCER,
   TRAP,
-  WIT_ERROR,
+  COMPONENT_EXCEPTION,
 } from "./brands.ts";
 
 /** A WIT `result<T, E>` err value, branded. `payload` is shaped per the value table. */
-export class WitError<E = unknown> extends Error {
+export class ComponentException<E = unknown> extends Error {
   readonly payload: E;
 
   constructor(payload: E, message?: string) {
-    super(message ?? `WIT error: ${describePayload(payload)}`);
-    this.name = "WitError";
+    super(message ?? `component error: ${describePayload(payload)}`);
+    this.name = "ComponentException";
     this.payload = payload;
   }
 }
-defineBrand(WitError.prototype, WIT_ERROR);
+defineBrand(ComponentException.prototype, COMPONENT_EXCEPTION);
 
 /**
  * A Component Model trap — a deterministic guest-visible fault
@@ -140,8 +140,8 @@ export class StreamProducerError extends Error {
 defineBrand(StreamProducerError.prototype, STREAM_PRODUCER);
 
 /** Brand check: is this a WIT `result` err value? (A9; any copy, or hand-rolled.) */
-export function isWitError(v: unknown): v is WitError {
-  return hasBrand(v, WIT_ERROR);
+export function isComponentException(v: unknown): v is ComponentException {
+  return hasBrand(v, COMPONENT_EXCEPTION);
 }
 
 /** Brand check: is this a component-fatal trap? (A9.) */
@@ -171,8 +171,8 @@ export function isStreamProducerError(v: unknown): v is StreamProducerError {
 
 function describePayload(p: unknown): string {
   if (p === null || p === undefined) return String(p);
-  if (typeof p === "object" && "tag" in (p as Record<string, unknown>)) {
-    return String((p as { tag: unknown }).tag);
+  if (typeof p === "object" && "kind" in (p as Record<string, unknown>)) {
+    return String((p as { kind: unknown }).kind);
   }
   if (typeof p === "object") return JSON.stringify(p);
   return String(p);

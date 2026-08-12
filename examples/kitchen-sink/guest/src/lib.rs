@@ -114,7 +114,7 @@ impl Guest for Component {
         notify::log(notify::Level::Info, "batch: start");
 
         // Fallible import, both sides. The err side arrives as a plain
-        // Result::Err here — the host threw a branded WitError.
+        // Result::Err here — the host threw a branded ComponentException.
         let id = notify::parse_id("42").map_err(|e| format!("parse-id(42): {e}"))?;
         if notify::parse_id("not a number").is_ok() {
             return Err("parse-id accepted garbage".into());

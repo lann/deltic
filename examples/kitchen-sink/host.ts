@@ -3,7 +3,7 @@
 // the contract ever disagree).
 //
 //   §1  translate + instantiate, with a real imports record
-//   §2  host-implemented imports: sync, fallible (WitError), suspending
+//   §2  host-implemented imports: sync, fallible (ComponentException), suspending
 //   §3  a host-implemented resource class (@suspending method, static,
 //       dispose-on-guest-drop)
 //   §4  calling exports: enum/variant/record/flags spellings
@@ -20,7 +20,7 @@
 import {
   instantiate,
   suspending,
-  WitError,
+  ComponentException,
 } from "@deltic/runtime/embedder";
 import { defaultTranslator } from "@deltic/translator";
 
@@ -88,12 +88,12 @@ const imports = {
     },
 
     // §2b — fallible import (result return-place): return the ok value;
-    // throw `new WitError(payload)` for the err side. Any OTHER throw is a
+    // throw `new ComponentException(payload)` for the err side. Any OTHER throw is a
     // host bug and traps the component — the anti-footgun inversion.
     parseId: (raw: string): number => {
       const n = Number(raw);
       if (!Number.isInteger(n) || n < 0) {
-        throw new WitError(`'${raw}' is not an id`);
+        throw new ComponentException(`'${raw}' is not an id`);
       }
       return n;
     },
@@ -139,15 +139,15 @@ const api = component.exports["deltic:kitchen-sink/api"];
 
 // --- §4: plainly-shaped values ----------------------------------------------
 
-// variant → { tag } / { tag, val }; nested records are plain objects.
-assertEq(await api.describe({ tag: "dot" }), "a dot", "describe dot");
+// variant → { kind } / { kind, value }; nested records are plain objects.
+assertEq(await api.describe({ kind: "dot" }), "a dot", "describe dot");
 assertEq(
-  await api.describe({ tag: "circle", val: 3 }),
+  await api.describe({ kind: "circle", value: 3 }),
   "a circle of radius 3",
   "describe circle",
 );
 assertEq(
-  await api.describe({ tag: "rect", val: { x: 4, y: 5 } }),
+  await api.describe({ kind: "rect", value: { x: 4, y: 5 } }),
   "a rectangle to (4, 5)",
   "describe rect",
 );
@@ -173,27 +173,27 @@ assertEq(await api.allowed({ exec: true }), false, "allowed exec-only");
 assertEq(await api.find("origin"), { x: 0, y: 0 }, "find origin");
 assertEq(await api.find("atlantis"), undefined, "find missing");
 
-// RETURN-PLACE result: ok resolves; err arrives as a thrown WitError whose
+// RETURN-PLACE result: ok resolves; err arrives as a thrown ComponentException whose
 // `.payload` is the WIT err value. Match on the brand, never on message.
 assertEq(await api.lookup("unit"), { x: 1, y: 1 }, "lookup ok");
 try {
   await api.lookup("atlantis");
   throw new Error("lookup should have thrown");
 } catch (e) {
-  if (!(e instanceof WitError)) throw e;
+  if (!(e instanceof ComponentException)) throw e;
   assertEq(e.payload, "no point named 'atlantis'", "lookup err payload");
 }
 
 // NESTED option/result are plain data — but note WHICH rule applies where:
-// the result-as-value is { tag: "ok" | "err", val }, while the option
+// the result-as-value is { kind: "ok" | "err", value }, while the option
 // wrapping it is still the outermost of ITS OWN chain (the list does not
-// count), so the none slot is a genuine `undefined`, not a { tag: "none" }.
+// count), so the none slot is a genuine `undefined`, not a { kind: "none" }.
 assertEq(
   await api.survey(),
   [
     undefined,
-    { tag: "ok", val: { x: 2, y: 3 } },
-    { tag: "err", val: "survey hole" },
+    { kind: "ok", value: { x: 2, y: 3 } },
+    { kind: "err", value: "survey hole" },
   ],
   "survey nested shapes",
 );
@@ -201,10 +201,10 @@ assertEq(
 // Option-inside-option is the ONE place boxing appears, and it boxes
 // exactly as deep as needed (the contract's worked example):
 assertEq(await api.maybeMaybe(0), undefined, "maybe-maybe none");
-assertEq(await api.maybeMaybe(1), { tag: "none" }, "maybe-maybe some(none)");
+assertEq(await api.maybeMaybe(1), { kind: "none" }, "maybe-maybe some(none)");
 assertEq(
   await api.maybeMaybe(2),
-  { tag: "some", val: 7 },
+  { kind: "some", value: 7 },
   "maybe-maybe some(some(7))",
 );
 

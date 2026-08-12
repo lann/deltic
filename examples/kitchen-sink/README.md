@@ -6,7 +6,7 @@ One world exercising the surfaces an embedder actually touches:
 |---|---|---|---|
 | enum / record / variant / flags | `types` interface | `describe`, `classify`, `scale`, `allowed` | §4 |
 | outermost `option` → `undefined \| T` | `find` | | §5 |
-| return-place `result` → resolve / throw `WitError` | `lookup` | | §5 |
+| return-place `result` → resolve / throw `ComponentException` | `lookup` | | §5 |
 | nested option/result as plain data + the boxing rule | `survey`, `maybe-maybe` | | §5 |
 | host-implemented imports: sync, fallible, **suspending** | `notify` interface | `run-batch` | §2 |
 | host-implemented resource (ctor / method / static / dispose) | `notify.channel` | `run-batch` | §3 |
@@ -31,11 +31,11 @@ What to notice:
   (a continuation hop per call, illegal from `start` functions) — see
   the §2c comment in [`host.ts`](host.ts).
 - **Match errors on the brand, never the message.** `lookup`'s err side
-  arrives as a thrown `WitError` with `.payload`; any *unbranded* throw
+  arrives as a thrown `ComponentException` with `.payload`; any *unbranded* throw
   from a host import is a host bug and traps the component.
 - **The option rule is per-chain.** An option inside a `list` is still
   the outermost of its own chain (`undefined | T`); boxing to
-  `{ tag: "some" | "none" }` happens only for option directly inside
+  `{ kind: "some" | "none" }` happens only for option directly inside
   another option — `maybe-maybe` pins all three depths.
 - **Resources are classes on both sides.** The host's `Channel` class is
   handed over as-is (the runtime calls `[Symbol.dispose]` when the guest

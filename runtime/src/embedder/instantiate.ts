@@ -26,8 +26,8 @@ import {
 import { camelCase, parseLeafName, pascalCase } from "./casing.ts";
 import { isSuspending, suspending } from "../jspi/suspending.ts";
 import { Translator } from "../shim/mod.ts";
-import { copyCensus, isTrap, isWitError } from "@deltic/protocol";
-import { NameCollisionError, WitError } from "./errors.ts";
+import { copyCensus, isTrap, isComponentException } from "@deltic/protocol";
+import { NameCollisionError, ComponentException } from "./errors.ts";
 import { type ImportLeaf, requiredImports } from "./imports.ts";
 import {
   buildGuestResourceClass,
@@ -666,7 +666,7 @@ class Facade {
    *
    * Error model (contract §"Error model"), the inversion of jco's convention:
    *   * a returned value is the ok side;
-   *   * `throw new WitError(payload)` is the err side of a `result<T, E>`;
+   *   * `throw new ComponentException(payload)` is the err side of a `result<T, E>`;
    *   * a `Trap` passes through unchanged;
    *   * **any other throw is a host bug and becomes a trap naming the import**
    *     — never a guest-visible err. This is what makes the consumers'
@@ -691,10 +691,10 @@ class Facade {
       return fromHost(v, resultType, o);
     };
     const fail = (e: unknown, args: unknown[]): ComponentValue => {
-      // Brand, not class (amendment A9): a `WitError` thrown by a host module
+      // Brand, not class (amendment A9): a `ComponentException` thrown by a host module
       // that resolved a DIFFERENT runtime copy — or hand-rolled with the
       // registry symbol — is the same value here (issue #83).
-      if (isWitError(e) && isResult) {
+      if (isComponentException(e) && isResult) {
         const rt = resultType as ValType & { kind: "result" };
         return {
           error: rt.error === null ? null : fromHost(e.payload, rt.error, o),
@@ -711,21 +711,21 @@ class Facade {
       // normal outcome whose implementation may retain the handles.
       releaseAsyncArgs(args);
       if (isTrap(e)) throw e;
-      if (isWitError(e)) {
+      if (isComponentException(e)) {
         throw new Trap(
-          `${where} threw a WitError, but its WIT type has no err side; ` +
+          `${where} threw a ComponentException, but its WIT type has no err side; ` +
             `only a fallible import may signal an error value`,
         );
       }
       // The #83 signature: in a graph with several copies, an UNBRANDED throw
-      // is usually a pre-A9 copy's `WitError` (its brand rode class identity,
+      // is usually a pre-A9 copy's `ComponentException` (its brand rode class identity,
       // which does not survive the copy boundary). Say so rather than leaving
       // the latent puzzle that motivated amendment A9.
       const census = copyCensus();
       throw new Trap(
         `${where} threw ${describeThrow(e)}. An unbranded throw from a host ` +
           `import is a host bug and becomes a trap: signal a WIT error with ` +
-          `\`throw new WitError(payload)\`.` +
+          `\`throw new ComponentException(payload)\`.` +
           (census === ""
             ? ""
             : ` (${census} — an error carrying no deltic brand in a ` +
@@ -981,7 +981,7 @@ class Facade {
    * Uniformly Promise-shaped (contract §"Functions and async"): a sync
    * completion resolves immediately, so there is one calling convention.
    * A `result<T, E>` in *function-result* position resolves `T` or rejects
-   * `WitError<E>`; a result nested inside a value is plain `{tag, val}` data
+   * `ComponentException<E>`; a result nested inside a value is plain `{kind, value}` data
    * and never throws.
    */
   #wrapExportFn(
@@ -1039,7 +1039,7 @@ class Facade {
       if (resultType.kind === "result") {
         const v = raw as Record<string, ComponentValue>;
         if ("error" in v) {
-          throw new WitError(
+          throw new ComponentException(
             resultType.error === null
               ? undefined
               : toHost(v["error"], resultType.error, o),

@@ -15,7 +15,7 @@ import {
   type ComponentArtifacts,
   instantiate,
   Trap,
-  WitError,
+  ComponentException,
 } from "@deltic/runtime/embedder";
 import { Context, testContextImportRecord } from "./context.ts";
 import { analyzeImports, requireImportsResolved } from "./import-analysis.ts";
@@ -351,28 +351,28 @@ export async function runSuite(
       }
     } catch (e) {
       const durationMs = Math.round(performance.now() - start);
-      if (e instanceof WitError) {
+      if (e instanceof ComponentException) {
         const payload = e.payload as
-          | { tag: "failed"; val: string }
-          | { tag: "skipped"; val: string }
+          | { kind: "failed"; value: string }
+          | { kind: "skipped"; value: string }
           | undefined;
-        if (payload?.tag === "failed") {
+        if (payload?.kind === "failed") {
           counts.failed++;
           event = {
             case: name,
             status: "fail",
             provenance: "returned",
-            detail: payload.val,
+            detail: payload.value,
             "duration-ms": durationMs,
             "diagnostics-complete": true,
           };
-        } else if (payload?.tag === "skipped") {
+        } else if (payload?.kind === "skipped") {
           counts.skipped++;
           event = {
             case: name,
             status: "skipped",
             provenance: "returned",
-            detail: payload.val,
+            detail: payload.value,
             "duration-ms": durationMs,
             "diagnostics-complete": true,
           };

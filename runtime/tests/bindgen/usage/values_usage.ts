@@ -12,7 +12,7 @@ import type {
   Shape,
   ValuesExports,
 } from "../generated/values.ts";
-import type { EmbedderInstance, WitError } from "../../../src/embedder/mod.ts";
+import type { EmbedderInstance, ComponentException } from "../../../src/embedder/mod.ts";
 import type { Equal, Expect } from "./type_assert.ts";
 
 // --- record: camelCase fields -------------------------------------------
@@ -20,30 +20,30 @@ type _MixedFields = Expect<
   Equal<Mixed, { a: number; b: string; c: number; d: boolean }>
 >;
 
-// --- variant: `{tag}` | `{tag,val}`, val ABSENT (not undefined) for the
+// --- variant: `{kind}` | `{kind,value}`, value ABSENT (not undefined) for the
 // payloadless case ---------------------------------------------------------
-type _ShapeIsTagVal = Expect<
+type _ShapeIsKindValue = Expect<
   Equal<
     Shape,
-    | { tag: "point" }
-    | { tag: "circle"; val: number }
-    | { tag: "label"; val: string }
-    | { tag: "rect"; val: Size_ }
+    | { kind: "point" }
+    | { kind: "circle"; value: number }
+    | { kind: "label"; value: string }
+    | { kind: "rect"; value: Size_ }
   >
 >;
 interface Size_ {
   w: number;
   h: number;
 }
-// Payloadless case really has no `val` key at all (not `val: undefined`):
-// a value assignable to the point case must not require providing `val`,
-// and `val` must not be a legal key on it.
-const point: Shape = { tag: "point" };
-// @ts-expect-error val is not a valid property on the payloadless case
-const _pointWithVal: Shape = { tag: "point", val: 1 };
+// Payloadless case really has no `value` key at all (not `value: undefined`):
+// a value assignable to the point case must not require providing `value`,
+// and `value` must not be a legal key on it.
+const point: Shape = { kind: "point" };
+// @ts-expect-error value is not a valid property on the payloadless case
+const _pointWithValue: Shape = { kind: "point", value: 1 };
 void point;
 
-// --- enum: kebab string literal union, NOT `{tag}` objects --------------
+// --- enum: kebab string literal union, NOT `{kind}` objects --------------
 type _ColorIsStringUnion = Expect<Equal<Color, "red" | "green" | "blue">>;
 const _colorLiteral: Color = "red";
 
@@ -94,34 +94,34 @@ export function useValues(instance: EmbedderInstance) {
   >;
 
   // option<option<u32>>: outer option -> T | undefined; the option nested
-  // directly inside another option boxes into the {tag:"some"|"none"}
+  // directly inside another option boxes into the {kind:"some"|"none"}
   // variant family instead of a second `undefined` — this is the
   // values-fixture Some(None) edge the contract calls out by name.
   type _EchoOptionNested = Expect<
     Equal<
       ValuesExports["echoOptionNested"],
       (
-        v: { tag: "some"; val: number } | { tag: "none" } | undefined,
-      ) => Promise<{ tag: "some"; val: number } | { tag: "none" } | undefined>
+        v: { kind: "some"; value: number } | { kind: "none" } | undefined,
+      ) => Promise<{ kind: "some"; value: number } | { kind: "none" } | undefined>
     >
   >;
   const none: ReturnType<ValuesExports["echoOptionNested"]> extends
     Promise<infer T> ? T : never = undefined; // none(): bare undefined
-  const someNone: { tag: "none" } = { tag: "none" }; // some(none)
-  const someSome: { tag: "some"; val: number } = { tag: "some", val: 7 }; // some(some(7))
+  const someNone: { kind: "none" } = { kind: "none" }; // some(none)
+  const someSome: { kind: "some"; value: number } = { kind: "some", value: 7 }; // some(some(7))
   void none;
   void someNone;
   void someSome;
 
   // result<u32,string> AS A FUNCTION RESULT: resolves to the ok payload,
-  // `@throws {WitError<string>}` documents the err channel (never part of
+  // `@throws {ComponentException<string>}` documents the err channel (never part of
   // the resolved value) — contracts/embedder-api.md §"Error model". As a
   // *parameter*, `result` is not in return position, so it keeps the plain
-  // `{tag,val}` value shape (same family as `variant`).
-  type _EchoResultParamIsTagVal = Expect<
+  // `{kind,value}` value shape (same family as `variant`).
+  type _EchoResultParamIsKindValue = Expect<
     Equal<
       Parameters<ValuesExports["echoResult"]>[0],
-      { tag: "ok"; val: number } | { tag: "err"; val: string }
+      { kind: "ok"; value: number } | { kind: "err"; value: string }
     >
   >;
   type _EchoResultReturnsOkOnly = Expect<
@@ -130,11 +130,11 @@ export function useValues(instance: EmbedderInstance) {
 
   async function callEchoResult(): Promise<number> {
     try {
-      return await exports.echoResult({ tag: "ok", val: 1 });
+      return await exports.echoResult({ kind: "ok", value: 1 });
     } catch (e) {
-      // Branded per the error model: an err value crosses only as WitError.
-      const witErr = e as WitError<string>;
-      return witErr.payload.length;
+      // Branded per the error model: an err value crosses only as ComponentException.
+      const componentErr = e as ComponentException<string>;
+      return componentErr.payload.length;
     }
   }
   void callEchoResult;

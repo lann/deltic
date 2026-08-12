@@ -1739,7 +1739,7 @@ export function createLoweredImport(input: {
         //    (contracts/intrinsics.md v0.2 §2: release is owed only on exits
         //    that do NOT poison the caller). Every rejection that reaches
         //    this park is a poisoning trap in the CALLER's own frame:
-        //    branded `WitError`s on fallible imports were already resolved
+        //    branded `ComponentException`s on fallible imports were already resolved
         //    into err-shaped VALUES by the conventions layer
         //    (embedder/instantiate.ts `#wrapImportFn`'s `fail` — they take
         //    the success arm above), every other conventions-layer throw is
@@ -1767,7 +1767,7 @@ export function createLoweredImport(input: {
               // reaches the guest as a rejection of the import's Promise,
               // which the engine turns back into a wasm trap (empirical
               // fact (e); `SuspensionPoint` routes a produce-throw through
-              // exactly that path). Branded `WitError`s never reach the raw
+              // exactly that path). Branded `ComponentException`s never reach the raw
               // boundary — the conventions layer resolves them into
               // err-shaped values one layer up (see the settle-path
               // enumeration above).

@@ -2,7 +2,7 @@
 ;;
 ;; The sibling `host-result.wat` pins the *branding* with `result` (both sides
 ;; empty), whose flat lowering is a single i32 and needs no memory. This one
-;; pins the **payload lowering** — `WitError.payload` -> the guest's err case —
+;; pins the **payload lowering** — `ComponentException.payload` -> the guest's err case —
 ;; with `result<u32, string>`: three flat values, so the lowered import spills
 ;; through a return pointer, and the string rides the guest's realloc.
 ;;

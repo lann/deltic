@@ -8,7 +8,7 @@
 
 import { assertEq } from "../support/asserts.ts";
 import { caught, guest, haveFixture, instantiateFixture } from "./support.ts";
-import { WitError } from "../../src/embedder/mod.ts";
+import { ComponentException } from "../../src/embedder/mod.ts";
 
 const ready = await haveFixture(guest("values"));
 
@@ -77,28 +77,28 @@ Deno.test({
 });
 
 Deno.test({
-  name: "values: variants are { tag, val? }, payloadless cases omit val",
+  name: "values: variants are { kind, value? }, payloadless cases omit value",
   ignore: !ready,
   fn: async () => {
     // `variant shape { point, circle(f64), label(string), rect(size) }`.
-    const point = await v.echoVariant({ tag: "point" });
-    assertEq(point, { tag: "point" });
-    assertEq("val" in point, false, "`val` is ABSENT, not undefined");
-    assertEq(await v.echoVariant({ tag: "circle", val: 1.5 }), {
-      tag: "circle",
-      val: 1.5,
+    const point = await v.echoVariant({ kind: "point" });
+    assertEq(point, { kind: "point" });
+    assertEq("value" in point, false, "`value` is ABSENT, not undefined");
+    assertEq(await v.echoVariant({ kind: "circle", value: 1.5 }), {
+      kind: "circle",
+      value: 1.5,
     });
-    assertEq(await v.echoVariant({ tag: "label", val: "x" }), {
-      tag: "label",
-      val: "x",
+    assertEq(await v.echoVariant({ kind: "label", value: "x" }), {
+      kind: "label",
+      value: "x",
     });
-    assertEq(await v.echoVariant({ tag: "rect", val: { w: 3, h: 4 } }), {
-      tag: "rect",
-      val: { w: 3, h: 4 },
+    assertEq(await v.echoVariant({ kind: "rect", value: { w: 3, h: 4 } }), {
+      kind: "rect",
+      value: { w: 3, h: 4 },
     });
     // Case names are DATA: kebab-case verbatim, never camelCased.
     assertEq(
-      String(await caught(() => v.echoVariant({ tag: "nope" }))).includes(
+      String(await caught(() => v.echoVariant({ kind: "nope" }))).includes(
         "unknown variant case",
       ),
       true,
@@ -148,32 +148,32 @@ Deno.test({
   fn: async () => {
     // contracts/embedder-api.md §"Option rule", the Some(None) edge:
     //   undefined                 -> none
-    //   { tag: "none" }           -> some(none)
-    //   { tag: "some", val: 7 }   -> some(some(7))
+    //   { kind: "none" }           -> some(none)
+    //   { kind: "some", value: 7 }   -> some(some(7))
     assertEq(await v.echoOptionNested(undefined), undefined);
-    const someNone = await v.echoOptionNested({ tag: "none" });
-    assertEq(someNone, { tag: "none" });
-    assertEq("val" in someNone, false);
-    assertEq(await v.echoOptionNested({ tag: "some", val: 7 }), {
-      tag: "some",
-      val: 7,
+    const someNone = await v.echoOptionNested({ kind: "none" });
+    assertEq(someNone, { kind: "none" });
+    assertEq("value" in someNone, false);
+    assertEq(await v.echoOptionNested({ kind: "some", value: 7 }), {
+      kind: "some",
+      value: 7,
     });
   },
 });
 
 Deno.test({
-  name: "values: result in FUNCTION-RESULT position resolves T / rejects WitError",
+  name: "values: result in FUNCTION-RESULT position resolves T / rejects ComponentException",
   ignore: !ready,
   fn: async () => {
     // `echo-result: func(v: result<u32, string>) -> result<u32, string>`: the
-    // parameter is a result nested as a VALUE ({tag,val} data, never throws),
-    // the return is a result in function-result position (T or WitError).
-    assertEq(await v.echoResult({ tag: "ok", val: 42 }), 42);
+    // parameter is a result nested as a VALUE ({kind,value} data, never throws),
+    // the return is a result in function-result position (T or ComponentException).
+    assertEq(await v.echoResult({ kind: "ok", value: 42 }), 42);
 
-    const e = await caught(() => v.echoResult({ tag: "err", val: "boom" }));
-    assertEq(e instanceof WitError, true, `expected WitError, got ${e}`);
-    assertEq((e as WitError).payload, "boom");
-    assertEq((e as WitError).name, "WitError");
+    const e = await caught(() => v.echoResult({ kind: "err", value: "boom" }));
+    assertEq(e instanceof ComponentException, true, `expected ComponentException, got ${e}`);
+    assertEq((e as ComponentException).payload, "boom");
+    assertEq((e as ComponentException).name, "ComponentException");
   },
 });
 
@@ -222,15 +222,15 @@ Deno.test({
   ignore: !ready,
   fn: async () => {
     // Symmetric with the variant path: silently lowering `null` for a missing
-    // `val` would put a zero where the guest expects data.
+    // `value` would put a zero where the guest expects data.
     assertEq(
-      String(await caught(() => v.echoResult({ tag: "ok" })))
-        .includes("needs a 'val'"),
+      String(await caught(() => v.echoResult({ kind: "ok" })))
+        .includes("needs a 'value'"),
       true,
     );
     assertEq(
-      String(await caught(() => v.echoResult({ tag: "err" })))
-        .includes("needs a 'val'"),
+      String(await caught(() => v.echoResult({ kind: "err" })))
+        .includes("needs a 'value'"),
       true,
     );
   },

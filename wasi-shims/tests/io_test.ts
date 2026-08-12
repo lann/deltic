@@ -1,8 +1,8 @@
-// wasi:io@0.2 — pollable tier (a), stream sink write paths, WitError
+// wasi:io@0.2 — pollable tier (a), stream sink write paths, ComponentException
 // stream-error cases (contracts/embedder-api.md §"WASI examination").
 
 import { assertEq, assertRejects, assertTrue } from "./asserts.ts";
-import { WitError } from "@deltic/runtime/embedder";
+import { ComponentException } from "@deltic/runtime/embedder";
 import { InputStream, io, OutputStream, Pollable, poll } from "../src/io.ts";
 import type { StreamErrorValue } from "../src/io.ts";
 
@@ -37,16 +37,16 @@ Deno.test("io: OutputStream.blockingWriteAndFlush degenerates to write (tier b)"
   assertEq(chunks.length, 1);
 });
 
-Deno.test("io: writes after drop throw WitError<stream-error> 'closed'", () => {
+Deno.test("io: writes after drop throw ComponentException<stream-error> 'closed'", () => {
   const out = new OutputStream(() => {});
   out[Symbol.dispose]();
   try {
     out.write(new Uint8Array([1]));
     throw new Error("expected a throw");
   } catch (e) {
-    assertTrue(e instanceof WitError, "closed write throws WitError");
-    const payload = (e as WitError<StreamErrorValue>).payload;
-    assertEq(payload.tag, "closed");
+    assertTrue(e instanceof ComponentException, "closed write throws ComponentException");
+    const payload = (e as ComponentException<StreamErrorValue>).payload;
+    assertEq(payload.kind, "closed");
   }
 });
 
@@ -57,8 +57,8 @@ Deno.test("io: checkWrite after drop also throws the closed stream-error", () =>
     out.checkWrite();
     throw new Error("expected a throw");
   } catch (e) {
-    assertTrue(e instanceof WitError);
-    assertEq((e as WitError<StreamErrorValue>).payload.tag, "closed");
+    assertTrue(e instanceof ComponentException);
+    assertEq((e as ComponentException<StreamErrorValue>).payload.kind, "closed");
   }
 });
 
@@ -84,8 +84,8 @@ Deno.test("io: reading a dropped input stream throws closed stream-error", () =>
     s.read(1n);
     throw new Error("expected a throw");
   } catch (e) {
-    assertTrue(e instanceof WitError);
-    assertEq((e as WitError<StreamErrorValue>).payload.tag, "closed");
+    assertTrue(e instanceof ComponentException);
+    assertEq((e as ComponentException<StreamErrorValue>).payload.kind, "closed");
   }
 });
 
@@ -109,7 +109,7 @@ Deno.test("io() provider fragment exposes error/poll/streams under @0.2 keys", (
 });
 
 // Guards the D-2-adjacent claim for streams specifically: no async parking
-// anywhere in the tier-(b) synchronous fast path (WitError branded, never a
+// anywhere in the tier-(b) synchronous fast path (ComponentException branded, never a
 // bare throw) — this doubles as the "no unbranded throw" smoke check the
 // error-model contract requires of every host import in this package.
 Deno.test("io: a closed-stream failure never leaks an unbranded throw type", async () => {
@@ -119,7 +119,7 @@ Deno.test("io: a closed-stream failure never leaks an unbranded throw type", asy
   const rejected = await assertRejects(async () => {
     out.write(new Uint8Array([1]));
   });
-  assertTrue(rejected instanceof Error && !(rejected instanceof WitError));
+  assertTrue(rejected instanceof Error && !(rejected instanceof ComponentException));
   // NOTE: this documents current behavior — a sink that itself throws
   // propagates its raw Error out of this synchronous host-import function.
   // Per contracts/embedder-api.md §"Error model", the *embedder facade*

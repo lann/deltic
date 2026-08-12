@@ -10,13 +10,13 @@ import type {
   StreamSource,
   FutureSource,
   ErrorContext,
-  WitError,
+  ComponentException,
   Trap,
   EmbedderInstance,
 } from "../../../src/embedder/mod.ts";
 
 // deno-lint-ignore no-unused-vars
-type _EnsureEmbedderTypesUsed = [Stream<unknown>, Future<unknown>, StreamSource<unknown>, FutureSource<unknown>, ErrorContext, WitError, Trap];
+type _EnsureEmbedderTypesUsed = [Stream<unknown>, Future<unknown>, StreamSource<unknown>, FutureSource<unknown>, ErrorContext, ComponentException, Trap];
 
 /** Canonical structural digest (docs/architecture.md §9). */
 export const WORLD_DIGEST = "sha256:e0791536cb4b9731057b82831150611eed64f22d665130a02f247d3227e2e4a7";
@@ -41,10 +41,10 @@ export interface Size {
 }
 
 export type Shape=
-| { tag: "point" }
-| { tag: "circle"; val: number }
-| { tag: "label"; val: string }
-| { tag: "rect"; val: Size };
+| { kind: "point" }
+| { kind: "circle"; value: number }
+| { kind: "label"; value: string }
+| { kind: "rect"; value: Size };
 
 export type Color=
 | "red"
@@ -71,9 +71,9 @@ export interface ValuesExports {
   echoEnum(v: Color): Promise<Color>;
   echoFlags(v: Perms): Promise<Perms>;
   echoOption(v: (string | undefined)): Promise<(string | undefined)>;
-  echoOptionNested(v: (({ tag: "some"; val: number } | { tag: "none" }) | undefined)): Promise<(({ tag: "some"; val: number } | { tag: "none" }) | undefined)>;
-  /** @throws {WitError<string>} */
-  echoResult(v: ({ tag: "ok"; val: number } | { tag: "err"; val: string })): Promise<number>;
+  echoOptionNested(v: (({ kind: "some"; value: number } | { kind: "none" }) | undefined)): Promise<(({ kind: "some"; value: number } | { kind: "none" }) | undefined)>;
+  /** @throws {ComponentException<string>} */
+  echoResult(v: ({ kind: "ok"; value: number } | { kind: "err"; value: string })): Promise<number>;
   echoListU8(v: Uint8Array): Promise<Uint8Array>;
   echoListString(v: (string)[]): Promise<(string)[]>;
   echoTuple(v: [number, string, number]): Promise<[number, string, number]>;

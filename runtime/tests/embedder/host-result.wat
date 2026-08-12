@@ -2,7 +2,7 @@
 ;; (contracts/embedder-api.md §"Error model", C2 checklist item 5).
 ;;
 ;; The corpus has no component that imports a *fallible* host function, so the
-;; branded-throw round trip — `throw new WitError(payload)` becoming the guest's
+;; branded-throw round trip — `throw new ComponentException(payload)` becoming the guest's
 ;; `err` case, and an unbranded throw becoming a trap — has nothing to run
 ;; against. This is the smallest component that does.
 ;;

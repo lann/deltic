@@ -10,13 +10,13 @@ import type {
   StreamSource,
   FutureSource,
   ErrorContext,
-  WitError,
+  ComponentException,
   Trap,
   EmbedderInstance,
 } from "../../../src/embedder/mod.ts";
 
 // deno-lint-ignore no-unused-vars
-type _EnsureEmbedderTypesUsed = [Stream<unknown>, Future<unknown>, StreamSource<unknown>, FutureSource<unknown>, ErrorContext, WitError, Trap];
+type _EnsureEmbedderTypesUsed = [Stream<unknown>, Future<unknown>, StreamSource<unknown>, FutureSource<unknown>, ErrorContext, ComponentException, Trap];
 
 /** Canonical structural digest (docs/architecture.md §9). */
 export const WORLD_DIGEST = "sha256:3d7b4e1c6a8e82f5cda2650c07eed5eb1e8d139d818afcf670a2acd942bf85e1";

@@ -25,7 +25,7 @@ Deno prints is benign.
   browser-first host the consumer's suite asserts. `src/websocket.ts`
   preserves its logic line-for-line (cited as `websocket.js:LINE`) and
   translates only the conventions:
-  bare-payload throws → `WitError`, jco `Stream` → `Stream<T>` /
+  bare-payload throws → `ComponentException`, jco `Stream` → `Stream<T>` /
   `ReadableStream`, `--map` module wiring → `websocketImports()`,
   module-level setters → `configure()` **plus** the compatible
   `setMaxInboundBufferBytes` / `setConnectTimeoutMs` /

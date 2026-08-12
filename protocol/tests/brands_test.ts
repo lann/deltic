@@ -8,10 +8,10 @@
 
 import { assertEquals } from "./assert.ts";
 import * as brands from "../src/brands.ts";
-import { PROTOCOL_GENERATION, WitError } from "../src/mod.ts";
+import { PROTOCOL_GENERATION, ComponentException } from "../src/mod.ts";
 
 const EXPECTED: Record<string, symbol> = {
-  "deltic.witError/1": brands.WIT_ERROR,
+  "deltic.witError/1": brands.COMPONENT_EXCEPTION,
   "deltic.trap/1": brands.TRAP,
   "deltic.dropped/1": brands.DROPPED,
   "deltic.peerTrapped/1": brands.PEER_TRAPPED,
@@ -51,16 +51,16 @@ Deno.test("A9: the protocol generation matches the key suffix", () => {
 
 Deno.test("A9: brands are non-enumerable and non-writable on prototypes", () => {
   const d = Object.getOwnPropertyDescriptor(
-    WitError.prototype,
-    brands.WIT_ERROR,
+    ComponentException.prototype,
+    brands.COMPONENT_EXCEPTION,
   );
   assertEquals(d?.value, true);
   assertEquals(d?.enumerable, false);
   assertEquals(d?.writable, false);
   // Not inherited by plain objects, and invisible to value walks.
-  assertEquals(Object.keys(new WitError(1)).includes("payload"), true);
+  assertEquals(Object.keys(new ComponentException(1)).includes("payload"), true);
   assertEquals(
-    Object.getOwnPropertySymbols(new WitError(1)).length,
+    Object.getOwnPropertySymbols(new ComponentException(1)).length,
     0,
     "the brand lives on the prototype, never on instances",
   );

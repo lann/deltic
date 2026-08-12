@@ -273,7 +273,7 @@ Platform-neutral core (dependencies: `WebAssembly` JS API, `TextEncoder`/
 Above the raw boundary sits the **embedder conventions layer**
 (`runtime/src/embedder/`, governed by
 [contracts/embedder-api.md](../contracts/embedder-api.md)): camelCase facades,
-branded `WitError`s, resources as classes in both directions, `Stream`/
+branded `ComponentException`s, resources as classes in both directions, `Stream`/
 `Future` handles over web-native producers, and semver-canonical import
 resolution matching the spec + wasmtime's `NameMap`.
 

@@ -6,7 +6,7 @@
 import { assertEq, assertRejects } from "./asserts.ts";
 import { AeadKeyOptions, aesGcm } from "../src/mod.ts";
 import { arrayStream } from "./testStream.ts";
-import { WitError } from "../../../runtime/src/embedder/errors.ts";
+import { ComponentException } from "../../../runtime/src/embedder/errors.ts";
 
 const VECTORS_DIR = "/home/lmartin/p/polymorph/polymorph-webcrypto/conformance/vectors";
 
@@ -62,8 +62,8 @@ Deno.test("aes-gcm: open with a tampered ciphertext fails error.authentication-f
   sealed[0] ^= 0xff;
   const err = await assertRejects(
     () => key.open(nonce, new Uint8Array(0), undefined, arrayStream(sealed)),
-  ) as WitError;
-  assertEq((err.payload as { tag: string }).tag, "authentication-failed");
+  ) as ComponentException;
+  assertEq((err.payload as { kind: string }).kind, "authentication-failed");
 });
 
 Deno.test("aes-gcm: seal on an open-only key fails error.not-permitted", async () => {
@@ -72,21 +72,21 @@ Deno.test("aes-gcm: seal on an open-only key fails error.not-permitted", async (
   const key = await aesGcm.generateKey("aes256", opts);
   const err = await assertRejects(
     () => key.seal(new Uint8Array(12), new Uint8Array(0), undefined, arrayStream(new Uint8Array(4))),
-  ) as WitError;
-  assertEq((err.payload as { tag: string }).tag, "not-permitted");
+  ) as ComponentException;
+  assertEq((err.payload as { kind: string }).kind, "not-permitted");
 });
 
 Deno.test("aes-gcm: seal with an out-of-window nonce fails error.invalid-nonce", async () => {
   const key = await aesGcm.generateKey("aes256", fullOptions());
   const err = await assertRejects(
     () => key.seal(new Uint8Array(4), new Uint8Array(0), undefined, arrayStream(new Uint8Array(4))),
-  ) as WitError;
-  assertEq((err.payload as { tag: string }).tag, "invalid-nonce");
+  ) as ComponentException;
+  assertEq((err.payload as { kind: string }).kind, "invalid-nonce");
 });
 
 Deno.test("aes-gcm: aes192 is declined with error.unsupported (WIT portability ruling, not a Deno-specific gap)", async () => {
   const err = await assertRejects(
     () => aesGcm.generateKey("aes192", fullOptions()),
-  ) as WitError;
-  assertEq((err.payload as { tag: string }).tag, "unsupported");
+  ) as ComponentException;
+  assertEq((err.payload as { kind: string }).kind, "unsupported");
 });
