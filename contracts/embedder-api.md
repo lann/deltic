@@ -36,7 +36,11 @@ exception naming) while it is still cheap — semantics unchanged
 (payloadless cases still omit `value`); the **wire vocabulary is
 untouched**: the brand key stays `deltic.witError/1` (an opaque constant,
 CEWD-style, so pre-A10 copies and hand-rolled brands keep interoperating)
-and plan-format op discriminants (a different contract) keep `tag`.**
+and plan-format op discriminants (a different contract) keep `tag`;
+A10 release note (2026-08-12): the rename changes `@deltic/protocol`'s
+export surface, so the JSR package moves to **0.2.0** — immutable `0.1.0`
+keeps the pre-A10 names for pre-A10 runtime prereleases (`^0.1.0` never
+resolves across), and post-A10 workspace publishes depend on `^0.2.0`.**
 This document supersedes `descriptor-ir.md`'s interim
 "host value mapping" table as the destination for host-facing value shapes.
 The runtime's *raw* boundary (`instance.exports`, `HostImports`) keeps the
