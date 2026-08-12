@@ -2,7 +2,7 @@
 //
 // Governing docs:
 //   - contracts/embedder-api.md §"Error model" — host imports report a WIT
-//     `result<_, error>` err case by throwing `new WitError(payload)`; an
+//     `result<_, error>` err case by throwing `new ComponentException(payload)`; an
 //     UNBRANDED throw becomes a host-fatal trap. That is a deliberate
 //     inversion of jco's convention (any stray `TypeError` was fed to the
 //     lift), which is why the polymorph reference wraps every platform call
@@ -14,46 +14,46 @@
 //
 // `error` is a WIT variant; per the value-mapping table
 // (contracts/embedder-api.md §"Value mapping", `variant` row) its payload
-// shape is `{ tag, val? }` with `val` absent for payloadless cases.
+// shape is `{ kind, value? }` with `value` absent for payloadless cases.
 
-import { WitError } from "../../../runtime/src/embedder/errors.ts";
+import { ComponentException } from "../../../runtime/src/embedder/errors.ts";
 
 /** The `types.error` payload shape (the value-mapping table's variant row). */
 export type WcErrorPayload =
-  | { tag: "invalid-key"; val: string }
-  | { tag: "invalid-nonce"; val: string }
-  | { tag: "authentication-failed" }
-  | { tag: "not-extractable" }
-  | { tag: "unsupported"; val: string }
-  | { tag: "not-permitted"; val: string }
-  | { tag: "other"; val: string }
-  | { tag: "extension"; val: { origin: string; name: string; message: string } };
+  | { kind: "invalid-key"; value: string }
+  | { kind: "invalid-nonce"; value: string }
+  | { kind: "authentication-failed" }
+  | { kind: "not-extractable" }
+  | { kind: "unsupported"; value: string }
+  | { kind: "not-permitted"; value: string }
+  | { kind: "other"; value: string }
+  | { kind: "extension"; value: { origin: string; name: string; message: string } };
 
 /** Throw the branded `result<_, error>` err value for a WIT-declared case. */
 export function witError(payload: WcErrorPayload): never {
-  throw new WitError(payload);
+  throw new ComponentException(payload);
 }
 
 export function errInvalidKey(detail: string): never {
-  return witError({ tag: "invalid-key", val: detail });
+  return witError({ kind: "invalid-key", value: detail });
 }
 export function errInvalidNonce(detail: string): never {
-  return witError({ tag: "invalid-nonce", val: detail });
+  return witError({ kind: "invalid-nonce", value: detail });
 }
 export function errAuthenticationFailed(): never {
-  return witError({ tag: "authentication-failed" });
+  return witError({ kind: "authentication-failed" });
 }
 export function errNotExtractable(): never {
-  return witError({ tag: "not-extractable" });
+  return witError({ kind: "not-extractable" });
 }
 export function errUnsupported(detail: string): never {
-  return witError({ tag: "unsupported", val: detail });
+  return witError({ kind: "unsupported", value: detail });
 }
 export function errNotPermitted(detail: string): never {
-  return witError({ tag: "not-permitted", val: detail });
+  return witError({ kind: "not-permitted", value: detail });
 }
 export function errOther(detail: string): never {
-  return witError({ tag: "other", val: detail });
+  return witError({ kind: "other", value: detail });
 }
 
 /** The refusal an operation renders on a usage-denied key (reference parity: js/jco/webcrypto.js:162-164). */
@@ -75,8 +75,8 @@ function asPlatformError(err: unknown): { name: string | undefined; detail: stri
  * js/jco/webcrypto.js:251-262). `NotSupportedError` is the WIT's
  * "well-formed request this implementation does not serve"
  * (`error.unsupported`); everything else platform-thrown is operational
- * (`error.other`). Anything already a `WitError` passes through unchanged.
- * An exception that is neither a `WitError` nor DOMException-shaped is a
+ * (`error.other`). Anything already a `ComponentException` passes through unchanged.
+ * An exception that is neither a `ComponentException` nor DOMException-shaped is a
  * host bug, not a taxonomy case: it is rethrown as-is and becomes a trap
  * per contracts/embedder-api.md's error model, not smuggled into `other`.
  */
@@ -84,7 +84,7 @@ export async function platformCall<T>(what: string, run: () => Promise<T>): Prom
   try {
     return await run();
   } catch (err) {
-    if (err instanceof WitError) throw err;
+    if (err instanceof ComponentException) throw err;
     const { name, detail } = asPlatformError(err);
     if (err instanceof DOMException) {
       if (name === "NotSupportedError") {

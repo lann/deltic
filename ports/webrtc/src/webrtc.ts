@@ -9,9 +9,9 @@
 // authority) written against the standard W3C `RTCPeerConnection` /
 // `RTCDataChannel` API. Behavior is preserved; only the boundary conventions
 // change:
-//   - thrown bare `{ tag, val }` payloads become `throw new WitError(payload)`
+//   - thrown bare `{ tag, val }` payloads become `throw new ComponentException(payload)`
 //     (contracts/embedder-api.md §"Error model" — "Host import with
-//     result<T, E>": throw new WitError(payload) for err).
+//     result<T, E>": throw new ComponentException(payload) for err).
 //   - jco `Stream`/`ReadableStream` params/results become the runtime's real
 //     `Stream<T>` (consumed, e.g. `send-via-stream`'s guest-provided
 //     messages) / `ReadableStream` (produced, e.g. `receive-via-stream`'s
@@ -19,10 +19,10 @@
 //     a `stream<T>` is expected). Imported from
 //     `@deltic/runtime/embedder` (aliased in this package's
 //     `deno.json` to the exact same file the runtime and every other port
-//     use), NOT reimplemented locally: `WitError` is a plain branded class
+//     use), NOT reimplemented locally: `ComponentException` is a plain branded class
 //     with no `Store` involvement, so a local clone would produce a second
 //     class identity and every `throw` from this port would fail
-//     `instanceof WitError` at a real component boundary — silently
+//     `instanceof ComponentException` at a real component boundary — silently
 //     becoming an unbranded-throw trap instead of a guest-visible err. This
 //     is exactly the cross-package brand hazard `ports/websocket/deno.json`
 //     documents and solves the same way.
@@ -34,7 +34,7 @@
 //     interpretation the reference authors made; the WIT gives no accessor
 //     for it, so there is no guest-facing shape to convert.
 
-import { Stream, type StreamSource, WitError } from "@deltic/runtime/embedder";
+import { Stream, type StreamSource, ComponentException } from "@deltic/runtime/embedder";
 import type {
   ConfigError,
   ConnectionState,
@@ -217,13 +217,13 @@ export class PeerConnectionConfig {
   setIceServers(servers: IceServer[]): void {
     for (const server of servers) {
       if (!server.urls.length) {
-        throw new WitError<ConfigError>({ tag: "invalid", val: "ice-server has no urls" });
+        throw new ComponentException<ConfigError>({ kind: "invalid", value: "ice-server has no urls" });
       }
       for (const url of server.urls) {
         if (!/^(stun|stuns|turn|turns):/.test(url)) {
-          throw new WitError<ConfigError>({
-            tag: "invalid",
-            val: `ice-server url ${JSON.stringify(url)} has no stun:/stuns:/turn:/turns: scheme`,
+          throw new ComponentException<ConfigError>({
+            kind: "invalid",
+            value: `ice-server url ${JSON.stringify(url)} has no stun:/stuns:/turn:/turns: scheme`,
           });
         }
       }
@@ -297,13 +297,13 @@ function incomingQueue(channel: {
       return;
     }
     const message: Message = typeof data === "string"
-      ? { tag: "string", val: data }
-      : { tag: "binary", val: new Uint8Array(data) };
+      ? { kind: "string", value: data }
+      : { kind: "binary", value: new Uint8Array(data) };
     push(message, size);
   });
 
   const endError = (): WebrtcError =>
-    overflowed ? { tag: "receive-buffer-overflow" } : { tag: "closed" };
+    overflowed ? { kind: "receive-buffer-overflow" } : { kind: "closed" };
   const end = () => {
     if (closed) return;
     closed = true;
@@ -319,12 +319,12 @@ function incomingQueue(channel: {
         buffered -= size;
         return Promise.resolve(message);
       }
-      if (overflowed) return Promise.reject(new WitError<WebrtcError>({ tag: "receive-buffer-overflow" }));
-      if (closed) return Promise.reject(new WitError<WebrtcError>({ tag: "closed" }));
+      if (overflowed) return Promise.reject(new ComponentException<WebrtcError>({ kind: "receive-buffer-overflow" }));
+      if (closed) return Promise.reject(new ComponentException<WebrtcError>({ kind: "closed" }));
       return new Promise<Message>((resolve, reject) => {
         waiters.push({
           resolve,
-          reject: (e) => reject(new WitError<WebrtcError>(e)),
+          reject: (e) => reject(new ComponentException<WebrtcError>(e)),
         });
       });
     },
@@ -337,7 +337,7 @@ function incomingQueue(channel: {
       messages.length = 0;
       buffered = 0;
       closed = true;
-      while (waiters.length) waiters.shift()!.reject({ tag: "closed" });
+      while (waiters.length) waiters.shift()!.reject({ kind: "closed" });
     },
   };
 }
@@ -376,20 +376,20 @@ export class DataChannel {
     // `"open"`), unlike a synchronous local latch. Gate on the local flag
     // first so this port's `close()` is observed synchronously regardless of
     // backend timing.
-    if (this.#localClosed) throw new WitError<WebrtcError>({ tag: "closed" });
+    if (this.#localClosed) throw new ComponentException<WebrtcError>({ kind: "closed" });
     await this.#waitOpen();
     await this.#waitForDrain();
     try {
-      this.#channel.send(message.val);
+      this.#channel.send(message.value);
     } catch {
-      throw new WitError<WebrtcError>({ tag: "closed" });
+      throw new ComponentException<WebrtcError>({ kind: "closed" });
     }
   }
 
   async receive(): Promise<Message> {
-    if (this.#localClosed) throw new WitError<WebrtcError>({ tag: "closed" });
+    if (this.#localClosed) throw new ComponentException<WebrtcError>({ kind: "closed" });
     if (this.#streamClaimed) {
-      throw new WitError<WebrtcError>({ tag: "receiving-via-stream" });
+      throw new ComponentException<WebrtcError>({ kind: "receiving-via-stream" });
     }
     return this.#incoming.next();
   }
@@ -412,21 +412,21 @@ export class DataChannel {
         const bytes = await collectByteStream(item.data);
         if (bytes.length !== item.length) {
           throw {
-            tag: "other",
-            val: `stream-message payload was ${bytes.length} bytes but length declared ${item.length}`,
+            kind: "other",
+            value: `stream-message payload was ${bytes.length} bytes but length declared ${item.length}`,
           } satisfies WebrtcError;
         }
         const message: Message = item.kind === "string"
-          ? { tag: "string", val: new TextDecoder().decode(bytes) }
-          : { tag: "binary", val: bytes };
+          ? { kind: "string", value: new TextDecoder().decode(bytes) }
+          : { kind: "binary", value: bytes };
         await this.send(message);
         sent += 1n;
       }
     } catch (error) {
-      const payload: WebrtcError = error instanceof WitError
+      const payload: WebrtcError = error instanceof ComponentException
         ? (error.payload as WebrtcError)
-        : (isWebrtcError(error) ? error : { tag: "closed" });
-      throw new WitError<SendViaStreamError>({ error: payload, sent });
+        : (isWebrtcError(error) ? error : { kind: "closed" });
+      throw new ComponentException<SendViaStreamError>({ error: payload, sent });
     }
   }
 
@@ -438,13 +438,13 @@ export class DataChannel {
    * expected — the runtime lowers it; this port never drives a `Store`.
    */
   receiveViaStream(): ReadableStream<StreamMessage> {
-    if (this.#localClosed) throw new WitError<WebrtcError>({ tag: "closed" });
+    if (this.#localClosed) throw new ComponentException<WebrtcError>({ kind: "closed" });
     if (this.#streamClaimed) {
-      throw new WitError<WebrtcError>({ tag: "receiving-via-stream" });
+      throw new ComponentException<WebrtcError>({ kind: "receiving-via-stream" });
     }
     this.#streamClaimed = true;
     const incoming = this.#incoming;
-    incoming.rejectWaiters({ tag: "receiving-via-stream" });
+    incoming.rejectWaiters({ kind: "receiving-via-stream" });
     return new ReadableStream<StreamMessage>({
       async pull(controller) {
         let message: Message;
@@ -456,11 +456,11 @@ export class DataChannel {
           controller.close();
           return;
         }
-        const bytes = message.tag === "string"
-          ? new TextEncoder().encode(message.val)
-          : message.val;
+        const bytes = message.kind === "string"
+          ? new TextEncoder().encode(message.value)
+          : message.value;
         controller.enqueue({
-          kind: message.tag,
+          kind: message.kind,
           length: bytes.length,
           data: bytesToReadable(bytes) as StreamSource<number>,
         });
@@ -473,18 +473,18 @@ export class DataChannel {
     const channel = this.#channel;
     if (channel.readyState === "open") return Promise.resolve();
     if (channel.readyState === "closing" || channel.readyState === "closed") {
-      return Promise.reject(new WitError<WebrtcError>({ tag: "closed" }));
+      return Promise.reject(new ComponentException<WebrtcError>({ kind: "closed" }));
     }
     return new Promise<void>((resolve, reject) => {
       channel.addEventListener("open", () => resolve(), { once: true });
       channel.addEventListener(
         "close",
-        () => reject(new WitError<WebrtcError>({ tag: "closed" })),
+        () => reject(new ComponentException<WebrtcError>({ kind: "closed" })),
         { once: true },
       );
       channel.addEventListener(
         "error",
-        () => reject(new WitError<WebrtcError>({ tag: "closed" })),
+        () => reject(new ComponentException<WebrtcError>({ kind: "closed" })),
         { once: true },
       );
     });
@@ -547,7 +547,7 @@ export class DataChannel {
 }
 
 function isWebrtcError(v: unknown): v is WebrtcError {
-  return typeof v === "object" && v !== null && typeof (v as { tag?: unknown }).tag === "string";
+  return typeof v === "object" && v !== null && typeof (v as { kind?: unknown }).kind === "string";
 }
 
 // --- peer-connection ------------------------------------------------------------
@@ -684,7 +684,7 @@ export class PeerConnection {
       this.#closed || this.#failed || this.#isFailedNow() ||
       this.#pc.connectionState === "closed"
     ) {
-      throw new WitError<WebrtcError>({ tag: "closed" });
+      throw new ComponentException<WebrtcError>({ kind: "closed" });
     }
   }
 
@@ -709,7 +709,7 @@ export class PeerConnection {
       this.#ownedWrappers.add(wrapper);
       return wrapper;
     } catch (err) {
-      throw new WitError<WebrtcError>({ tag: "other", val: String(err) });
+      throw new ComponentException<WebrtcError>({ kind: "other", value: String(err) });
     }
   }
 
@@ -734,7 +734,7 @@ export class PeerConnection {
       const offer = await this.#pc.createOffer();
       return { kind: "offer", sdp: offer.sdp };
     } catch (err) {
-      throw new WitError<WebrtcError>({ tag: "other", val: String(err) });
+      throw new ComponentException<WebrtcError>({ kind: "other", value: String(err) });
     }
   }
 
@@ -744,7 +744,7 @@ export class PeerConnection {
       const answer = await this.#pc.createAnswer();
       return { kind: "answer", sdp: answer.sdp };
     } catch (err) {
-      throw new WitError<WebrtcError>({ tag: "other", val: String(err) });
+      throw new ComponentException<WebrtcError>({ kind: "other", value: String(err) });
     }
   }
 
@@ -753,7 +753,7 @@ export class PeerConnection {
     try {
       await this.#pc.setLocalDescription({ type: description.kind, sdp: description.sdp });
     } catch (err) {
-      throw new WitError<WebrtcError>({ tag: "invalid-signaling", val: String(err) });
+      throw new ComponentException<WebrtcError>({ kind: "invalid-signaling", value: String(err) });
     }
   }
 
@@ -762,7 +762,7 @@ export class PeerConnection {
     try {
       await this.#pc.setRemoteDescription({ type: description.kind, sdp: description.sdp });
     } catch (err) {
-      throw new WitError<WebrtcError>({ tag: "invalid-signaling", val: String(err) });
+      throw new ComponentException<WebrtcError>({ kind: "invalid-signaling", value: String(err) });
     }
   }
 
@@ -787,7 +787,7 @@ export class PeerConnection {
         sdpMLineIndex: candidate.sdpMlineIndex ?? null,
       });
     } catch (err) {
-      throw new WitError<WebrtcError>({ tag: "invalid-signaling", val: String(err) });
+      throw new ComponentException<WebrtcError>({ kind: "invalid-signaling", value: String(err) });
     }
   }
 
@@ -821,11 +821,11 @@ export class PeerConnection {
 
     if (this.#isConnectedNow()) this.#everConnected = true;
     if (this.#everConnected) return;
-    if (this.#closed || isFailed()) throw new WitError<WebrtcError>({ tag: "closed" });
+    if (this.#closed || isFailed()) throw new ComponentException<WebrtcError>({ kind: "closed" });
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
         cleanup();
-        reject(new WitError<WebrtcError>({ tag: "timed-out" }));
+        reject(new ComponentException<WebrtcError>({ kind: "timed-out" }));
       }, CONNECT_TIMEOUT_MS);
       const check = () => {
         if (this.#isConnectedNow()) {
@@ -834,12 +834,12 @@ export class PeerConnection {
           resolve();
         } else if (isFailed()) {
           cleanup();
-          reject(new WitError<WebrtcError>({ tag: "closed" }));
+          reject(new ComponentException<WebrtcError>({ kind: "closed" }));
         }
       };
       const onClose = () => {
         cleanup();
-        reject(new WitError<WebrtcError>({ tag: "closed" }));
+        reject(new ComponentException<WebrtcError>({ kind: "closed" }));
       };
       const cleanup = () => {
         clearTimeout(timer);

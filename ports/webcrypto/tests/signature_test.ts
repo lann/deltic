@@ -7,7 +7,7 @@
 import { assertEq, assertRejects } from "./asserts.ts";
 import { ed25519Sign, ed25519Verify, SigningKeyOptions } from "../src/mod.ts";
 import { arrayStream } from "./testStream.ts";
-import { WitError } from "../../../runtime/src/embedder/errors.ts";
+import { ComponentException } from "../../../runtime/src/embedder/errors.ts";
 
 const VECTORS_DIR = "/home/lmartin/p/polymorph/polymorph-webcrypto/conformance/vectors";
 
@@ -51,19 +51,19 @@ Deno.test("ed25519: verify with a tampered signature fails error.authentication-
   sig[0] ^= 0xff; // deliberately-corrupted signature (synthetic, not real key material)
   const err = await assertRejects(
     () => vk.verify(arrayStream(new TextEncoder().encode("payload")), sig),
-  ) as WitError;
-  assertEq((err.payload as { tag: string }).tag, "authentication-failed");
+  ) as ComponentException;
+  assertEq((err.payload as { kind: string }).kind, "authentication-failed");
 });
 
 Deno.test("ed25519: import-verifying-key-raw with wrong length fails error.invalid-key", async () => {
   const err = await assertRejects(
     () => ed25519Verify.importVerifyingKeyRaw(new Uint8Array(16)),
-  ) as WitError;
-  assertEq((err.payload as { tag: string }).tag, "invalid-key");
+  ) as ComponentException;
+  assertEq((err.payload as { kind: string }).kind, "invalid-key");
 });
 
 Deno.test("ed25519: sign without can-sign fails error.not-permitted (a untouched options resource cannot mint)", async () => {
   const opts = new SigningKeyOptions(); // canSign never called
-  const err = await assertRejects(() => ed25519Sign.generateKey(opts)) as WitError;
-  assertEq((err.payload as { tag: string }).tag, "not-permitted");
+  const err = await assertRejects(() => ed25519Sign.generateKey(opts)) as ComponentException;
+  assertEq((err.payload as { kind: string }).kind, "not-permitted");
 });

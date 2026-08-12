@@ -149,7 +149,7 @@ Deno.test({
   fn: async () => {
     // A rejection at resume time routes through the suspension point's fail
     // path: the engine unwinds the parked frame (empirical fact (e): a
-    // post-resume trap is an ordinary rejection). Branded WitErrors never
+    // post-resume trap is an ordinary rejection). Branded ComponentExceptions never
     // reach this layer raw — this is the unbranded-failure path.
     const c = await instantiateFixture(testdata("imports"), {
       log: () => {},
@@ -176,23 +176,23 @@ const fallibleReady =
   isSupported();
 
 Deno.test({
-  name: "suspending(): a WitError rejection over a park becomes the guest's err case, not a trap",
+  name: "suspending(): a ComponentException rejection over a park becomes the guest's err case, not a trap",
   ignore: !fallibleReady,
   fn: async () => {
     // The branded-throw contract survives the suspension: #wrapImportFn
     // chains the marked import's Promise through its ok/fail adapters, so a
-    // WitError REJECTION settles the boundary promise with the err-shaped
+    // ComponentException REJECTION settles the boundary promise with the err-shaped
     // value — the parked frame resumes into `result::err` (run() == 1), and
     // nothing traps. The sync-throw variant of this pin lives in
     // host_imports_test.ts; this is the same rail at resume time.
-    const { WitError } = await import("../../src/embedder/mod.ts");
+    const { ComponentException } = await import("../../src/embedder/mod.ts");
     const c = await instantiateFixture(
       "runtime/tests/embedder/host-result.wasm",
       {
         "host:api/fallible": {
           check: suspending(() =>
             new Promise((_r, reject) =>
-              setTimeout(() => reject(new WitError(undefined)), 0)
+              setTimeout(() => reject(new ComponentException(undefined)), 0)
             )
           ),
         },

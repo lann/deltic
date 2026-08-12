@@ -7,7 +7,7 @@
 import { assertEq, assertRejects } from "./asserts.ts";
 import { hmacSha1, hmacSha2, MacKeyOptions } from "../src/mod.ts";
 import { arrayStream } from "./testStream.ts";
-import { WitError } from "../../../runtime/src/embedder/errors.ts";
+import { ComponentException } from "../../../runtime/src/embedder/errors.ts";
 
 const VECTORS_DIR = "/home/lmartin/p/polymorph/polymorph-webcrypto/conformance/vectors";
 
@@ -60,8 +60,8 @@ Deno.test("mac: sign on a verify-only key fails error.not-permitted (the usage-g
   const opts = new MacKeyOptions();
   opts.canVerify(true); // sign NOT granted
   const key = await hmacSha2.importKeyRaw("sha256", new Uint8Array(32).fill(0x33), opts);
-  const err = await assertRejects(() => key.sign(arrayStream(new Uint8Array(0)))) as WitError;
-  assertEq((err.payload as { tag: string; val: string }).tag, "not-permitted");
+  const err = await assertRejects(() => key.sign(arrayStream(new Uint8Array(0)))) as ComponentException;
+  assertEq((err.payload as { kind: string; value: string }).kind, "not-permitted");
 });
 
 Deno.test("mac: verify with a wrong tag fails error.authentication-failed", async () => {
@@ -69,15 +69,15 @@ Deno.test("mac: verify with a wrong tag fails error.authentication-failed", asyn
   const wrongTag = new Uint8Array(32); // all-zero: not the real tag
   const err = await assertRejects(
     () => key.verify(arrayStream(new TextEncoder().encode("data")), wrongTag),
-  ) as WitError;
-  assertEq((err.payload as { tag: string }).tag, "authentication-failed");
+  ) as ComponentException;
+  assertEq((err.payload as { kind: string }).kind, "authentication-failed");
 });
 
 Deno.test("mac: importKeyRaw with empty material fails error.invalid-key", async () => {
   const err = await assertRejects(
     () => hmacSha2.importKeyRaw("sha256", new Uint8Array(0), signOptions()),
-  ) as WitError;
-  assertEq((err.payload as { tag: string }).tag, "invalid-key");
+  ) as ComponentException;
+  assertEq((err.payload as { kind: string }).kind, "invalid-key");
 });
 
 Deno.test("mac: export-key-raw on a non-extractable key fails error.not-extractable", async () => {
@@ -85,6 +85,6 @@ Deno.test("mac: export-key-raw on a non-extractable key fails error.not-extracta
   opts.canSign(true);
   // extractable NOT granted (default false, per the package-wide options contract)
   const key = await hmacSha2.importKeyRaw("sha256", new Uint8Array(32).fill(0x55), opts);
-  const err = await assertRejects(() => key.exportKeyRaw()) as WitError;
-  assertEq((err.payload as { tag: string }).tag, "not-extractable");
+  const err = await assertRejects(() => key.exportKeyRaw()) as ComponentException;
+  assertEq((err.payload as { kind: string }).kind, "not-extractable");
 });

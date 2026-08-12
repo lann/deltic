@@ -10,8 +10,8 @@ interface types {
   /// record  →  a plain JS object: { x: number, y: number }.
   record point { x: s32, y: s32 }
 
-  /// variant  →  { tag } for payload-less cases, { tag, val } otherwise:
-  ///   { tag: "dot" } | { tag: "circle", val: 3 } | { tag: "rect", val: {x,y} }
+  /// variant  →  { kind } for payload-less cases, { kind, value } otherwise:
+  ///   { kind: "dot" } | { kind: "circle", value: 3 } | { kind: "rect", value: {x,y} }
   variant shape {
     dot,
     circle(u32),
@@ -24,7 +24,7 @@ interface types {
 
 /// Host-implemented imports: the embedder provides these in the imports
 /// record. Covers a plain sync function, a fallible function (the branded
-/// WitError throw), a suspending function (sync-typed, but the host parks
+/// ComponentException throw), a suspending function (sync-typed, but the host parks
 /// the guest's frame on a Promise), and a host-implemented resource with a
 /// constructor, methods (one suspending), and a static.
 interface notify {
@@ -33,7 +33,7 @@ interface notify {
   /// Sync import; enum parameter arrives as a string.
   log: func(lvl: level, msg: string);
 
-  /// Fallible import: the host implementation throws `new WitError(msg)`
+  /// Fallible import: the host implementation throws `new ComponentException(msg)`
   /// for the err side — an unbranded throw would be a host bug and traps.
   parse-id: func(raw: string) -> result<u32, string>;
 
@@ -75,23 +75,23 @@ interface api {
   find: func(name: string) -> option<point>;
 
   /// RETURN-PLACE result → the ok value resolves the Promise; the err
-  /// value arrives as a thrown `WitError` whose `.payload` is the string.
+  /// value arrives as a thrown `ComponentException` whose `.payload` is the string.
   lookup: func(name: string) -> result<point, string>;
 
   /// Option/result NESTED inside other types are plain data (never a
   /// throw, never a wrapper-less undefined-vs-value pun):
-  ///   - result-as-value → { tag: "ok" | "err", val }
+  ///   - result-as-value → { kind: "ok" | "err", value }
   ///   - option is `undefined | T` at the OUTERMOST position of its own
   ///     chain — even inside this list — and boxes to
-  ///     { tag: "some", val } | { tag: "none" } only when nested DIRECTLY
+  ///     { kind: "some", value } | { kind: "none" } only when nested DIRECTLY
   ///     inside another option (see `maybe-maybe`).
   survey: func() -> list<option<result<point, string>>>;
 
   /// The option-boxing rule, exactly (contracts/embedder-api.md §"Value
   /// mapping", the worked `option<option<u32>>` example):
   ///   none        → undefined
-  ///   some(none)  → { tag: "none" }
-  ///   some(some7) → { tag: "some", val: 7 }
+  ///   some(none)  → { kind: "none" }
+  ///   some(some7) → { kind: "some", value: 7 }
   maybe-maybe: func(depth: u32) -> option<option<u32>>;
 
   /// Guest-implemented resource: the host constructs it (`new Counter(3)`

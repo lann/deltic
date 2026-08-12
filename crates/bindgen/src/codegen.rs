@@ -1,7 +1,7 @@
 //! TypeScript codegen implementing the C1 embedder-facing conventions
 //! (`contracts/embedder-api.md`, normative — track C2-B). Emits **types
 //! only**: `Imports`/`Exports` interfaces, value types per the mapping
-//! table, resource classes, `WitError`-typed fallible signatures,
+//! table, resource classes, `ComponentException`-typed fallible signatures,
 //! `Stream<T>`/`Future<T>` references, plus the existing WORLD_DIGEST +
 //! `verify()` digest handshake and a thin `bind()` cast. No runtime
 //! behavior is emitted or assumed to exist yet (C2-A owns the runtime
@@ -65,7 +65,7 @@ pub fn generate(resolve: &Resolve, world: WorldId, expected_digest: &str) -> Res
         src,
         "import {{ verifyWorldDigest, type DigestMismatch }} from \"../../../src/digest/mod.ts\";"
     )?;
-    // Stream<T>/Future<T>/ErrorContext/WitError/Trap plus the source-union
+    // Stream<T>/Future<T>/ErrorContext/ComponentException/Trap plus the source-union
     // types used at parameter positions (StreamSource<T>/FutureSource<T>,
     // contracts/embedder-api.md §"Streams and futures": "lowering accepts
     // the natural JS producers") and `EmbedderInstance` (the `bind()` input
@@ -79,7 +79,7 @@ pub fn generate(resolve: &Resolve, world: WorldId, expected_digest: &str) -> Res
          \x20 StreamSource,\n\
          \x20 FutureSource,\n\
          \x20 ErrorContext,\n\
-         \x20 WitError,\n\
+         \x20 ComponentException,\n\
          \x20 Trap,\n\
          \x20 EmbedderInstance,\n\
          }} from \"../../../src/embedder/mod.ts\";\n"
@@ -89,7 +89,7 @@ pub fn generate(resolve: &Resolve, world: WorldId, expected_digest: &str) -> Res
     // no fixture world raises a bare Trap type or uses error-context yet).
     writeln!(
         src,
-        "// deno-lint-ignore no-unused-vars\ntype _EnsureEmbedderTypesUsed = [Stream<unknown>, Future<unknown>, StreamSource<unknown>, FutureSource<unknown>, ErrorContext, WitError, Trap];\n"
+        "// deno-lint-ignore no-unused-vars\ntype _EnsureEmbedderTypesUsed = [Stream<unknown>, Future<unknown>, StreamSource<unknown>, FutureSource<unknown>, ErrorContext, ComponentException, Trap];\n"
     )?;
 
 
@@ -527,12 +527,12 @@ fn param_list_skip_self(resolve: &Resolve, f: &Function) -> Result<String> {
 /// - **Exports** are uniformly `Promise<T>` (contracts/embedder-api.md
 ///   §"Functions and async"). If the WIT result type is a top-level
 ///   `result<T, E>`, `T` is unwrapped (the `ok` payload; `void` if empty)
-///   and a `@throws {WitError<E>}` doc line is attached — the err channel
+///   and a `@throws {ComponentException<E>}` doc line is attached — the err channel
 ///   is a throw, never part of the resolved value (§"Error model").
 /// - **Imports**: sync WIT funcs return `T` directly; async funcs return
 ///   `T | Promise<T>` (dispatch normative bullet #3). Fallible imports are
 ///   documented the same way (`@throws`), signaling via `throw new
-///   WitError(payload)` per the host-import error-model paragraph.
+///   ComponentException(payload)` per the host-import error-model paragraph.
 ///
 /// Constructors have no explicit return type in TS (the class instance is
 /// implicit); callers of this function skip constructors entirely.
@@ -555,7 +555,7 @@ fn func_return(resolve: &Resolve, f: &Function, is_export: bool) -> Result<(Stri
             return Ok((format!("Future<{elem_ts}>"), None));
         }
         if let Some((ok, err)) = as_top_level_result(resolve, t) {
-            // Empty sides resolve `undefined` (`WitError.payload ===
+            // Empty sides resolve `undefined` (`ComponentException.payload ===
             // undefined` on the err side) — C2 amendment,
             // contracts/embedder-api.md value mapping table's
             // function-result row.
@@ -567,7 +567,7 @@ fn func_return(resolve: &Resolve, f: &Function, is_export: bool) -> Result<(Stri
                 Some(t) => ts_value_type(resolve, t)?,
                 None => "undefined".to_string(),
             };
-            let doc = format!("@throws {{WitError<{err_ts}>}}");
+            let doc = format!("@throws {{ComponentException<{err_ts}>}}");
             let ret = if is_export {
                 format!("Promise<{ok_ts}>")
             } else if is_async {
@@ -616,7 +616,7 @@ fn func_return(resolve: &Resolve, f: &Function, is_export: bool) -> Result<(Stri
 /// `result<T, E>` used directly as a function's declared result type — the
 /// "as a function result" row of the value mapping table, as opposed to a
 /// `result` nested inside some other structural type (record/list/tuple/
-/// variant payload), which stays the ordinary `{tag,val}` value shape.
+/// variant payload), which stays the ordinary `{kind,value}` value shape.
 fn as_top_level_result(resolve: &Resolve, ty: Type) -> Option<(Option<Type>, Option<Type>)> {
     let Type::Id(id) = ty else { return None };
     match &resolve.types[id].kind {
@@ -723,16 +723,16 @@ fn ts_typedef_value_type(resolve: &Resolve, id: TypeId) -> Result<String> {
         // option uses the variant family instead. `ts_option_inner` renders
         // the "some" payload, applying that boxing recursively.
         TypeDefKind::Option(t) => format!("({} | undefined)", ts_option_inner(resolve, *t)?),
-        // result<T,E> nested as a value: `{tag,val}` family, `val` absent
+        // result<T,E> nested as a value: `{kind,value}` family, `value` absent
         // for empty sides (same row as `variant`).
         TypeDefKind::Result(r) => {
             let ok_arm = match r.ok {
-                Some(t) => format!("{{ tag: \"ok\"; val: {} }}", ts_value_type(resolve, t)?),
-                None => "{ tag: \"ok\" }".to_string(),
+                Some(t) => format!("{{ kind: \"ok\"; value: {} }}", ts_value_type(resolve, t)?),
+                None => "{ kind: \"ok\" }".to_string(),
             };
             let err_arm = match r.err {
-                Some(t) => format!("{{ tag: \"err\"; val: {} }}", ts_value_type(resolve, t)?),
-                None => "{ tag: \"err\" }".to_string(),
+                Some(t) => format!("{{ kind: \"err\"; value: {} }}", ts_value_type(resolve, t)?),
+                None => "{ kind: \"err\" }".to_string(),
             };
             format!("({ok_arm} | {err_arm})")
         }
@@ -760,14 +760,14 @@ fn ts_typedef_value_type(resolve: &Resolve, id: TypeId) -> Result<String> {
 
 /// Render the "some" payload for an option, applying the nested-option
 /// boxing rule recursively: if `t` is itself an `option<...>`, box it as
-/// `{ tag: "some", val: <recurse> } | { tag: "none" }`; otherwise render it
+/// `{ kind: "some", value: <recurse> } | { kind: "none" }`; otherwise render it
 /// as a plain value type.
 fn ts_option_inner(resolve: &Resolve, t: Type) -> Result<String> {
     if let Type::Id(id) = t {
         if let TypeDefKind::Option(inner) = &resolve.types[id].kind {
             let boxed = ts_option_inner(resolve, *inner)?;
             return Ok(format!(
-                "({{ tag: \"some\"; val: {boxed} }} | {{ tag: \"none\" }})"
+                "({{ kind: \"some\"; value: {boxed} }} | {{ kind: \"none\" }})"
             ));
         }
     }
@@ -903,7 +903,7 @@ fn emit_named_type(
         TypeDefKind::Variant(v) => {
             let Some(name) = &def.name else { return Ok(()) };
             emitted.insert(id);
-            // `{ tag: "case" } | { tag: "case", val: T }` — `val` absent
+            // `{ kind: "case" } | { kind: "case", value: T }` — `value` absent
             // (not `undefined`) for payloadless cases (value mapping table
             // + the "why a discriminant property" rationale).
             let arms: Result<Vec<String>> = v
@@ -912,11 +912,11 @@ fn emit_named_type(
                 .map(|c| {
                     Ok(match c.ty {
                         Some(t) => format!(
-                            "{{ tag: {}; val: {} }}",
+                            "{{ kind: {}; value: {} }}",
                             kebab_literal(&c.name),
                             ts_value_type(resolve, t)?
                         ),
-                        None => format!("{{ tag: {} }}", kebab_literal(&c.name)),
+                        None => format!("{{ kind: {} }}", kebab_literal(&c.name)),
                     })
                 })
                 .collect();
@@ -931,7 +931,7 @@ fn emit_named_type(
             let Some(name) = &def.name else { return Ok(()) };
             emitted.insert(id);
             // enum = string literal union of kebab-case case names (value
-            // mapping table) — data, not `{tag}` objects (unlike variant).
+            // mapping table) — data, not `{kind}` objects (unlike variant).
             let arms: Vec<String> = e.cases.iter().map(|c| kebab_literal(&c.name)).collect();
             writeln!(out, "export type {} =\n  | {};\n", ts_ident(name), arms.join("\n  | "))?;
         }

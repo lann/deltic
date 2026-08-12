@@ -1,7 +1,7 @@
 // Tiny type-level assertion helpers shared by the bindgen usage samples.
 // These have no runtime behavior — they exist purely to pin generated-type
 // shapes at `deno check` time (track C2-B gate: "type-level assertions ...
-// pinning tag/val union member shapes incl. absent-val, nested option
+// pinning kind/value union member shapes incl. absent-value, nested option
 // boxing, tuple-as-tuple, camelCase fields, bigint positions, Uint8Array,
 // Promise-shaped exports, ...").
 

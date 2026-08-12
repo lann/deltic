@@ -1,6 +1,6 @@
 {
   "nodeModulesDir": "auto",
-  "//": "This package imports the runtime by relative path (like ports/websocket). The one alias below is what ports/websocket itself uses internally; it resolves to the same file URL as the relative imports here, so there is exactly one `WitError`/`Stream` module instance and `instanceof` holds across the boundary (contracts/embedder-api.md's error-model brand hazard).",
+  "//": "This package imports the runtime by relative path (like ports/websocket). The one alias below is what ports/websocket itself uses internally; it resolves to the same file URL as the relative imports here, so there is exactly one `ComponentException`/`Stream` module instance and `instanceof` holds across the boundary (contracts/embedder-api.md's error-model brand hazard).",
   "imports": {
     "@deltic/runtime/embedder": "../../runtime/src/embedder/mod.ts"
   },

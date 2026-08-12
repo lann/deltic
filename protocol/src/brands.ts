@@ -17,8 +17,16 @@
 // carrying the right symbol is a legal value (this is what makes zero-import
 // host modules possible). The canonical classes are conveniences.
 
-/** `WitError` — a WIT `result<T, E>` err value. */
-export const WIT_ERROR: unique symbol = Symbol.for(
+/**
+ * `ComponentException` — a WIT `result<T, E>` err value.
+ *
+ * The key string keeps its pre-A10 name (`witError`) deliberately: it is an
+ * opaque wire constant, CEWD-style (same precedent as bindgen's CEWD name),
+ * so pre-A10 copies and hand-rolled brands keep interoperating. Only the
+ * exported TS identifier renamed with the class (contracts/embedder-api.md
+ * amendment A10).
+ */
+export const COMPONENT_EXCEPTION: unique symbol = Symbol.for(
   "deltic.witError/1",
 );
 /** `Trap` — component-fatal, never a value. */

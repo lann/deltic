@@ -7,7 +7,7 @@
 //       (note: the internal despecialization labels result's err case
 //       `"error"`, not `"err"` — cabi/types.ts `despecialize`), kebab-case
 //       record keys, resource handles as bare reps.
-// TO:   the conventions: `{ tag, val? }` for variants and nested results,
+// TO:   the conventions: `{ kind, value? }` for variants and nested results,
 //       outermost-option-as-`undefined` with nested boxing, real tuples,
 //       camelCase record fields, flags objects, enum strings verbatim,
 //       `Uint8Array` for `list<u8>`, class instances for resources,
@@ -125,7 +125,7 @@ export interface AdapterOptions {
  *
  * `inOption` implements the contract's option rule: the *outermost* option in
  * a chain maps to `T | undefined`; an option nested **directly inside another
- * option** boxes as `{ tag: "some", val } | { tag: "none" }`. Only option maps
+ * option** boxes as `{ kind: "some", value } | { kind: "none" }`. Only option maps
  * to `undefined`, so this is the only ambiguity, and the flag is set only when
  * descending through an option's payload — every other constructor resets it.
  */
@@ -198,8 +198,8 @@ export function toHost(
         throw new TypeError(`${o.where}: unknown variant case '${label}'`);
       }
       return c.type === null
-        ? { tag: label }
-        : { tag: label, val: toHost(payload, c.type, o, scope) };
+        ? { kind: label }
+        : { kind: label, value: toHost(payload, c.type, o, scope) };
     }
     case "enum": {
       // Enum values are data: kebab-case verbatim, never camelCased.
@@ -210,8 +210,8 @@ export function toHost(
       const [label, payload] = single(v, o);
       if (inOption) {
         return label === "none"
-          ? { tag: "none" }
-          : { tag: "some", val: toHost(payload, t.type, o, scope, true) };
+          ? { kind: "none" }
+          : { kind: "some", value: toHost(payload, t.type, o, scope, true) };
       }
       return label === "none"
         ? undefined
@@ -220,10 +220,10 @@ export function toHost(
     case "result": {
       const [label, payload] = single(v, o);
       // Internal despecialization names the err case "error"; the contract's
-      // tag is "err" (cabi/types.ts `despecialize`).
-      const tag = label === "error" ? "err" : "ok";
+      // kind is "err" (cabi/types.ts `despecialize`).
+      const kind = label === "error" ? "err" : "ok";
       const ct = label === "error" ? t.error : t.ok;
-      return ct === null ? { tag } : { tag, val: toHost(payload, ct, o, scope) };
+      return ct === null ? { kind } : { kind, value: toHost(payload, ct, o, scope) };
     }
     case "flags": {
       checkNoCollisions(t, t.labels, `${o.where}: flags`);
@@ -390,16 +390,16 @@ export function fromHost(
       return out;
     }
     case "variant": {
-      const { tag, val, has } = tagged(v, o);
-      const c = t.cases.find((c) => c.label === tag);
+      const { kind, value, has } = tagged(v, o);
+      const c = t.cases.find((c) => c.label === kind);
       if (c === undefined) {
-        throw new TypeError(`${o.where}: unknown variant case '${tag}'`);
+        throw new TypeError(`${o.where}: unknown variant case '${kind}'`);
       }
-      if (c.type === null) return { [tag]: null };
+      if (c.type === null) return { [kind]: null };
       if (!has) {
-        throw new TypeError(`${o.where}: variant case '${tag}' needs a 'val'`);
+        throw new TypeError(`${o.where}: variant case '${kind}' needs a 'value'`);
       }
-      return { [tag]: fromHost(val, c.type, o) };
+      return { [kind]: fromHost(value, c.type, o) };
     }
     case "enum": {
       if (typeof v !== "string" || !t.labels.includes(v)) {
@@ -412,38 +412,38 @@ export function fromHost(
     }
     case "option": {
       if (inOption) {
-        const { tag, val, has } = tagged(v, o);
-        if (tag === "none") return { none: null };
-        if (tag !== "some") {
+        const { kind, value, has } = tagged(v, o);
+        if (kind === "none") return { none: null };
+        if (kind !== "some") {
           throw new TypeError(
-            `${o.where}: a nested option must be { tag: "some" | "none" }`,
+            `${o.where}: a nested option must be { kind: "some" | "none" }`,
           );
         }
-        return { some: has ? fromHost(val, t.type, o, true) : null };
+        return { some: has ? fromHost(value, t.type, o, true) : null };
       }
       return v === undefined
         ? { none: null }
         : { some: fromHost(v, t.type, o, true) };
     }
     case "result": {
-      const { tag, val, has } = tagged(v, o);
-      if (tag !== "ok" && tag !== "err") {
+      const { kind, value, has } = tagged(v, o);
+      if (kind !== "ok" && kind !== "err") {
         throw new TypeError(
-          `${o.where}: a result value must be { tag: "ok" | "err" }`,
+          `${o.where}: a result value must be { kind: "ok" | "err" }`,
         );
       }
-      const label = tag === "err" ? "error" : "ok";
-      const ct = tag === "err" ? t.error : t.ok;
+      const label = kind === "err" ? "error" : "ok";
+      const ct = kind === "err" ? t.error : t.ok;
       if (ct === null) return { [label]: null };
       // Symmetric with the variant path above: a case that carries a payload
       // must be given one. Silently lowering `null` would put a zero where the
       // guest expects data.
       if (!has) {
         throw new TypeError(
-          `${o.where}: result case '${tag}' carries a payload and needs a 'val'`,
+          `${o.where}: result case '${kind}' carries a payload and needs a 'value'`,
         );
       }
-      return { [label]: fromHost(val, ct, o) };
+      return { [label]: fromHost(value, ct, o) };
     }
     case "flags": {
       if (v === null || typeof v !== "object") {
@@ -474,17 +474,17 @@ export function fromHost(
 function tagged(
   v: unknown,
   o: AdapterOptions,
-): { tag: string; val: unknown; has: boolean } {
-  if (v === null || typeof v !== "object" || !("tag" in v)) {
+): { kind: string; value: unknown; has: boolean } {
+  if (v === null || typeof v !== "object" || !("kind" in v)) {
     throw new TypeError(
-      `${o.where}: expected a { tag, val? } value, got ${describe(v)}`,
+      `${o.where}: expected a { kind, value? } value, got ${describe(v)}`,
     );
   }
-  const rec = v as { tag: unknown; val?: unknown };
-  if (typeof rec.tag !== "string") {
-    throw new TypeError(`${o.where}: 'tag' must be a string`);
+  const rec = v as { kind: unknown; value?: unknown };
+  if (typeof rec.kind !== "string") {
+    throw new TypeError(`${o.where}: 'kind' must be a string`);
   }
-  return { tag: rec.tag, val: rec.val, has: "val" in rec };
+  return { kind: rec.kind, value: rec.value, has: "value" in rec };
 }
 
 function int(

@@ -19,10 +19,10 @@ export {
   isPeerTrappedError,
   isStreamProducerError,
   isTrap,
-  isWitError,
+  isComponentException,
   PeerTrappedError,
   Trap,
-  WitError,
+  ComponentException,
 } from "@deltic/protocol";
 
 /**

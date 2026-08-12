@@ -2,7 +2,7 @@
   "name": "@deltic/port-websocket",
   "version": "0.0.0",
   "exports": "./src/websocket.ts",
-  "//": "This package is deliberately NOT a member of the root workspace (like tools/smoke-c0): it imports the runtime, wasi-shims and ct-runner by relative path. The one alias below is what wasi-shims itself uses internally; it resolves to the same file URL as the relative imports here, so there is exactly one module instance and `instanceof WitError` holds across the boundary.",
+  "//": "This package is deliberately NOT a member of the root workspace (like tools/smoke-c0): it imports the runtime, wasi-shims and ct-runner by relative path. The one alias below is what wasi-shims itself uses internally; it resolves to the same file URL as the relative imports here, so there is exactly one module instance and `instanceof ComponentException` holds across the boundary.",
   "imports": {
     "@deltic/runtime/embedder": "../../runtime/src/embedder/mod.ts"
   },

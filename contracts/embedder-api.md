@@ -27,7 +27,17 @@ indistinguishable from end-of-stream by design; amendment A9 (2026-08-11)
 makes every cross-boundary brand a process-global registry symbol carried
 by the new dependency-free `@deltic/protocol` package — class identity is
 not part of the embedder API — and adds loud multi-copy diagnostics
-(issue #83).** This document supersedes `descriptor-ir.md`'s interim
+(issue #83); amendment A10 (2026-08-11) renames `WitError` to
+`ComponentException` (`isWitError` → `isComponentException`) and the
+variant-family discriminant properties `{ tag, val }` to `{ kind, value }`,
+aligning with the draft web-embedding direction
+(WebAssembly/component-model PR #686's canonical variant dictionary and
+exception naming) while it is still cheap — semantics unchanged
+(payloadless cases still omit `value`); the **wire vocabulary is
+untouched**: the brand key stays `deltic.witError/1` (an opaque constant,
+CEWD-style, so pre-A10 copies and hand-rolled brands keep interoperating)
+and plan-format op discriminants (a different contract) keep `tag`.**
+This document supersedes `descriptor-ir.md`'s interim
 "host value mapping" table as the destination for host-facing value shapes.
 The runtime's *raw* boundary (`instance.exports`, `HostImports`) keeps the
 `definitions.py` interpreter shapes as an **internal** surface; the
@@ -41,8 +51,11 @@ and docs/consumers.md.
 ## Principles
 
 1. **Fresh design; jco compatibility is a non-goal** (docs/architecture.md §2). Where jco's
-   choice is also the right choice (camelCase, `{tag, val}` variants), we
-   converge by merit — deliberately, so consumer ports stay small.
+   choice is also the right choice (camelCase, enum strings), we
+   converge by merit — deliberately, so consumer ports stay small. Where
+   the emerging standard direction points elsewhere, we align upstream
+   instead (A10: `{kind, value}` variants per the PR #686 draft, a
+   deliberate divergence from jco's `{tag, val}`).
 2. **Footguns are design defects.** Every convention here is judged against
    the defensive code the polymorph modules had to write under jco
    (bare-payload error throws, convention-only stream contracts,
@@ -66,7 +79,7 @@ and docs/consumers.md.
 |---|---|
 | function, method, static, record field, flag name, function param (docs only — calls are positional) | camelCase (`get-resolution` → `getResolution`) |
 | resource name | PascalCase class (`tcp-socket` → `TcpSocket`) |
-| enum value, variant/result tag | **kebab-case verbatim** as string literals (`connection-refused`) — they are data, not identifiers |
+| enum value, variant/result case name (the `kind` value) | **kebab-case verbatim** as string literals (`connection-refused`) — they are data, not identifiers |
 | interface key in the imports/exports record | fully-qualified WIT id **verbatim, version included**: `wasi:clocks/monotonic-clock@0.3.0` |
 | world-level (bare) imports/exports | camelCase name at the record's top level |
 
@@ -147,10 +160,10 @@ without interference).
 | `tuple<A, B, …>` | `[A, B, …]` | real TS tuple |
 | `record` | plain object, camelCase fields | fields of option type are optional properties: lift emits **absent** (not `undefined`-valued) for none; lower accepts either spelling (C2 amendment) |
 | `enum` | string literal union of kebab-case case names | `"offer" \| "answer" \| …` |
-| `variant` | `{ tag: "case" }` \| `{ tag: "case", val: T }` | `val` **absent** (not `undefined`) for payloadless cases |
+| `variant` | `{ kind: "case" }` \| `{ kind: "case", value: T }` | `value` **absent** (not `undefined`) for payloadless cases |
 | `option<T>` | `T \| undefined`; **nested** options box | see rule below |
-| `result<T, E>` **as a value** (nested in other types, or in parameter position) | `{ tag: "ok", val: T } \| { tag: "err", val: E }` | `val` absent for empty sides — same family as `variant` |
-| `result<T, E>` **as a function result** (return position only) | return `T` / throw `WitError<E>` | empty sides: resolves `undefined` / `WitError.payload === undefined`; see "Error model" |
+| `result<T, E>` **as a value** (nested in other types, or in parameter position) | `{ kind: "ok", value: T } \| { kind: "err", value: E }` | `value` absent for empty sides — same family as `variant` |
+| `result<T, E>` **as a function result** (return position only) | return `T` / throw `ComponentException<E>` | empty sides: resolves `undefined` / `ComponentException.payload === undefined`; see "Error model" |
 | `map<K, V>` | its despecialization `list<tuple<K, V>>` → `[K, V][]` | C2 amendment |
 | `flags` | object of camelCase booleans | lift: every flag present; lower: absent = `false` |
 | `own<R>` / `borrow<R>` | the resource class instance | see "Resources" |
@@ -158,19 +171,20 @@ without interference).
 
 **Terminology note.** The spec calls variant alternatives **cases**
 (Explainer, definitions.py `case_label`); prose here follows that. The
-discriminant *property* is nonetheless named `tag`, a deliberate
-divergence: "tagged union" is the JS/TS-side term of art, `{ tag, val }`
-is the established convention in this exact niche (jco, and the consumer
-host modules already written against it), and `case` is a JS reserved
-word — legal as a property, but `v.case` reads like syntax. The value of
-`tag` is always the case name, kebab-case verbatim.
+discriminant *property* is named `kind` with payload `value` (A10),
+matching the canonical variant dictionary in the draft web embedding
+(WebAssembly/component-model PR #686) — if that shape holds, native
+support and this API agree for free. v0.2 named them `{ tag, val }` after
+jco's convention; A10 supersedes that argument. `case` itself stays out:
+it is a JS reserved word — legal as a property, but `v.case` reads like
+syntax. The value of `kind` is always the case name, kebab-case verbatim.
 
 **Why a discriminant property rather than `{ [case]: value }`** (the
 single-key form the internal definitions.py-shaped boundary uses):
-(1) exhaustiveness — `switch (v.tag)` + `assertNever` is compiler-checked
+(1) exhaustiveness — `switch (v.kind)` + `assertNever` is compiler-checked
 case coverage; `in`-chains are not switchable and lose it; (2) payloadless
-cases get one uniform shape (`val` absent) instead of a null/undefined
-sentinel adjacent to `option` payloads; (3) generic code reads `v.tag`
+cases get one uniform shape (`value` absent) instead of a null/undefined
+sentinel adjacent to `option` payloads; (3) generic code reads `v.kind`
 typed and allocation-free where single-key needs an untypeable
 `Object.keys(v)[0]` cast, and per-case key shapes make every
 variant-touching site polymorphic for the engine; (4) case names stay
@@ -181,15 +195,15 @@ as an optional nicety; the value shape is unaffected.
 
 **Option rule.** The *outermost* option in a chain maps to
 `T | undefined`; every option nested **directly inside another option**
-uses the variant family: `{ tag: "some", val: … } | { tag: "none" }`.
+uses the variant family: `{ kind: "some", value: … } | { kind: "none" }`.
 Only option maps to `undefined`, so this is the only ambiguity and the
 boxing is exactly as deep as needed. Example (`option<option<u32>>`, the
 values-fixture Some(None) edge):
 
 ```ts
-undefined                          // none
-{ tag: "none" }                    // some(none)
-{ tag: "some", val: 7 }            // some(some(7))
+undefined                            // none
+{ kind: "none" }                     // some(none)
+{ kind: "some", value: 7 }           // some(some(7))
 ```
 
 **Worked example** (C0 finding #7 asked for exactly this shape) —
@@ -197,15 +211,15 @@ undefined                          // none
 
 - as a **function result**: the call resolves to `[Counter, Counter]`
   (a real two-element tuple of class instances, ownership transferred to
-  the caller), or rejects/throws `WitError` whose `.payload` is the
-  `error` variant value, e.g. `{ tag: "timed-out" }`.
+  the caller), or rejects/throws `ComponentException` whose `.payload` is
+  the `error` variant value, e.g. `{ kind: "timed-out" }`.
 - **nested as a value** (say inside `list<…>`):
-  `{ tag: "ok", val: [Counter, Counter] } | { tag: "err", val: Error… }`.
+  `{ kind: "ok", value: [Counter, Counter] } | { kind: "err", value: Error… }`.
 
 ## Error model
 
 ```ts
-class WitError<E = unknown> extends Error {
+class ComponentException<E = unknown> extends Error {
   readonly payload: E;          // the WIT err value, shaped per the table
   constructor(payload: E, message?: string);
 }
@@ -217,17 +231,21 @@ class PeerTrappedError extends Error {  // A7: a stream/future op whose peer ins
 ```
 
 - **Guest export with `result<T, E>`**: the call resolves to `T` on ok and
-  rejects (throws, for sync paths) with `WitError<E>` on err. `Trap`
-  rejections are always distinguishable by class.
+  rejects (throws, for sync paths) with `ComponentException<E>` on err.
+  `Trap` rejections are always distinguishable by class.
 - **Host import with `result<T, E>`**: the host function returns `T` for
-  ok and `throw`s `new WitError(payload)` for err — the ergonomic
-  throw-for-error pattern, **branded**.
+  ok and `throw`s `new ComponentException(payload)` for err — the ergonomic
+  throw-for-error pattern, **branded**. (The name matches PR #686's draft
+  `ComponentException`; ours does not derive from `DOMException` — absent
+  in the bare `sm`/`jsc` shell lanes — and carries the structured
+  `payload` instead. Revisit inheritance if the draft's shape stabilizes.)
 - **An unbranded throw from a host import is a host bug and becomes a
   trap** (with a message naming the import), never a guest-visible err —
   the inversion of jco's convention, where any stray `TypeError` was fed
   to the lift and the polymorph modules had to wrap every platform call
   defensively (`platformCall` in webcrypto.js). Here the defensive wrapper
-  is unnecessary by construction: only `WitError` crosses as an err value.
+  is unnecessary by construction: only `ComponentException` crosses as an
+  err value.
 - Host code must never catch-and-swallow `Trap` (re-throw if observed);
   traps poison the instance per docs/architecture.md §7 regardless.
 - **`Trap.message` is diagnostic text, not API.** Match on the `Trap`
@@ -242,13 +260,13 @@ class PeerTrappedError extends Error {  // A7: a stream/future op whose peer ins
   errors) have stable wording chosen by this project, but the same rule
   applies: text is for humans and logs.
 - Results nested inside values never throw anywhere — they are plain
-  `{ tag, val }` data (table above).
+  `{ kind, value }` data (table above).
 - **Recognition is by brand, not class** (amendment A9): every class above
   carries a process-global brand symbol, and the runtime's checks read the
   brand. Same-copy `instanceof` still works and stays the documented
   spelling in single-copy graphs; `@deltic/protocol` exports predicates
-  (`isWitError`, `isTrap`, `isPeerTrappedError`, …) as the multi-copy-robust
-  form. See §"Module identity and @deltic/protocol".
+  (`isComponentException`, `isTrap`, `isPeerTrappedError`, …) as the
+  multi-copy-robust form. See §"Module identity and @deltic/protocol".
 
 ## Functions and async
 
@@ -513,7 +531,7 @@ contract entirely.
 
 **The protocol package.** `@deltic/protocol` is a dependency-free
 workspace package carrying the embedder contract's *vocabulary*: the
-brand symbols, the canonical error classes (`WitError`, `Trap`,
+brand symbols, the canonical error classes (`ComponentException`, `Trap`,
 `DroppedError`, `PeerTrappedError`, `InvalidHandleError`,
 `StreamProducerError`), `suspending()`/`isSuspending`, the recognition
 predicates, the copy registry, and `PROTOCOL_GENERATION`.
@@ -532,7 +550,7 @@ equivalent of a semver major:
 
 | brand key | carried by | marks |
 |---|---|---|
-| `deltic.witError/1` | `WitError.prototype` | err-result values |
+| `deltic.witError/1` | `ComponentException.prototype` | err-result values (key keeps the pre-A10 name: opaque wire constant, CEWD-style — renaming it would break pre-A10 copies and hand-rolled brands) |
 | `deltic.trap/1` | `Trap.prototype` | component-fatal errors |
 | `deltic.dropped/1` | `DroppedError.prototype` | dropped-future rejections |
 | `deltic.peerTrapped/1` | `PeerTrappedError.prototype` | peer-fault rejections (A7) |
@@ -550,13 +568,14 @@ equivalent of a semver major:
 **Brands are contract markers, not a security boundary.** A hand-rolled
 object carrying the right brand is a legal value: an Error with
 `[Symbol.for("deltic.witError/1")]: true` and a `payload` property IS a
-WitError to every copy; a function with `[Symbol.for("deltic.suspending/1")]:
-true` IS suspending-marked. This is what makes zero-import host modules
-possible. The canonical classes are conveniences, not gatekeepers.
+ComponentException to every copy; a function with
+`[Symbol.for("deltic.suspending/1")]: true` IS suspending-marked. This is
+what makes zero-import host modules possible. The canonical classes are
+conveniences, not gatekeepers.
 
 **Stateless vs stateful.** For the error classes and the suspending mark,
-brand agreement is the whole story — a copy-B `WitError` crossing a
-copy-A boundary is fully honored. Stateful values (stream/future handles,
+brand agreement is the whole story — a copy-B `ComponentException`
+crossing a copy-A boundary is fully honored. Stateful values (stream/future handles,
 resource wrappers, error-contexts) are different: their machinery lives
 in the copy that minted them, so cross-copy use is impossible in
 principle. For those, the brand converts "misclassified" into
@@ -584,7 +603,7 @@ not carry `@deltic/*` mappings in any config consumers resolve through
 ## Bindgen obligations (summary of what the above requires)
 
 Per world: `Imports`/`Exports` types; resource classes (both directions);
-`WitError` payload types per fallible function; value types per the
+`ComponentException` payload types per fallible function; value types per the
 mapping table; the mangled-name assembly (`[method]r.f` ↔ `class` methods)
 in both directions; stream/future adapters incl. pumping; the digest
 handshake. The generated layer is an adapter over the runtime's raw
@@ -644,7 +663,7 @@ thin class over host-supplied readiness:
 class Pollable { ready(): boolean; block(): void /* tier (c) only */ }
 // wasi:io/poll@0.2.x  poll: (in: Pollable[]) => Uint32Array indices — Promise.race under the hood
 class InputStream {
-  read(len: bigint): Uint8Array;             // throws WitError<StreamError>
+  read(len: bigint): Uint8Array;             // throws ComponentException<StreamError>
   blockingRead(len: bigint): Uint8Array;     // tier (b)/(c)
   subscribe(): Pollable;
   [Symbol.dispose](): void;
@@ -656,7 +675,7 @@ leaves): resources with async methods and stream-shaped I/O map directly:
 
 ```ts
 class TcpSocket {
-  static create(af: "ipv4" | "ipv6"): TcpSocket;       // result → throw WitError<ErrorCode>
+  static create(af: "ipv4" | "ipv6"): TcpSocket;       // result → throw ComponentException<ErrorCode>
   bind(addr: IpSocketAddress): void;
   connect(addr: IpSocketAddress): Promise<void>;        // async func
   send(data: Stream<number>): Promise<void>;            // called once; stream drives the connection
@@ -671,19 +690,22 @@ with no impedance:
 // export handle: async func(request: request) -> result<response, error-code>
 exports["wasi:http/handler@0.3.0"].handle(req: Request): Promise<Response>
 // Request/Response are resource classes; .body(): Stream<u8> (Uint8Array
-// chunks); trailers as Future<Fields>; err → WitError<ErrorCode>.
+// chunks); trailers as Future<Fields>; err → ComponentException<ErrorCode>.
 ```
 
 **polymorph:webrtc-datachannels `data-channel`** (the consumer reference):
 
 ```ts
 class DataChannel {
-  send(msg: Message): Promise<void>;                    // throws WitError<WebrtcError>
+  send(msg: Message): Promise<void>;                    // throws ComponentException<WebrtcError>
   receive(): Promise<Message>;
   receiveViaStream(): Stream<StreamMessage>;            // record { kind, length, data: Stream<u8> }
   [Symbol.dispose](): void;
 }
-// Message = { tag: "binary", val: Uint8Array } | { tag: "string", val: string }
+// Message = { kind: "binary", value: Uint8Array } | { kind: "string", value: string }
+// (StreamMessage's own record field named `kind` is untouched by the A10
+// discriminant naming — record fields are plain properties, and a variant
+// never merges its payload's fields into the discriminant object.)
 ```
 
 Verdict of the examination: nothing in p2/p3 requires a convention not
@@ -692,13 +714,15 @@ idiom, addressed by the three-tier strategy and made visible in types.
 
 ## Migration notes for the polymorph modules (jco → this API)
 
-Small by design: camelCase, `{tag, val}` variants, enum strings, flags
-objects, and resource-classes-per-interface all carry over unchanged. The
-real deltas: (1) err results are `throw new WitError(payload)` instead of
-throwing the bare payload — and the defensive `platformCall`-style
-wrappers can be deleted rather than ported; (2) jco `Stream` objects
-(`read({count})`) become `Stream<T>`/`ReadableStream`; (3) nested results
-read `{ tag: "ok" | "err", val }`; (4) transpile-time flags
+Small by design: camelCase, enum strings, flags objects, and
+resource-classes-per-interface all carry over unchanged. The
+real deltas: (1) err results are `throw new ComponentException(payload)`
+instead of throwing the bare payload — and the defensive
+`platformCall`-style wrappers can be deleted rather than ported; (2) jco
+`Stream` objects (`read({count})`) become `Stream<T>`/`ReadableStream`;
+(3) variant-family discriminants are `{ kind, value }`, not jco's
+`{ tag, val }` (A10; mechanical rename), and nested results read
+`{ kind: "ok" | "err", value }`; (4) transpile-time flags
 (`--async-exports`/`--async-imports`, `check-flags.mjs`) have no
 equivalent — asyncness comes from the binary; (5) `--map` wildcards
 become the module-mapping helper, with version handling per "Version
@@ -720,8 +744,8 @@ canonicalization" (semver-track resolution, matching wasmtime's linker
    pumping with auto-close on end/DROPPED, `cancelRead`/`cancelWrite`,
    `DroppedError`, double-wrap and cross-store asserts (R-fix review
    notes 1–4).
-5. `WitError`/`Trap` branding at every host-import boundary; unbranded
-   throw → trap naming the import.
+5. `ComponentException`/`Trap` branding at every host-import boundary;
+   unbranded throw → trap naming the import.
 6. Bindgen: `Imports`/`Exports` world types, resource classes both
    directions, mangled-key assembly, value types per the table.
 7. WASI shim package (separate deliverable) implementing the p2 baseline

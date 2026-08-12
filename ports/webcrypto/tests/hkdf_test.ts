@@ -5,7 +5,7 @@
 
 import { assertEq, assertRejects } from "./asserts.ts";
 import { DeriveOptions, hkdf, hkdfSha2 } from "../src/mod.ts";
-import { WitError } from "../../../runtime/src/embedder/errors.ts";
+import { ComponentException } from "../../../runtime/src/embedder/errors.ts";
 
 const VECTORS_DIR = "/home/lmartin/p/polymorph/polymorph-webcrypto/conformance/vectors";
 
@@ -51,13 +51,13 @@ Deno.test("hkdf: import-ikm accepts empty material (RFC 5869 permits it)", async
 Deno.test("hkdf: import-ikm with a grantless options resource fails error.not-permitted", async () => {
   const err = await assertRejects(
     () => hkdf.importIkm(new Uint8Array(16), new DeriveOptions()),
-  ) as WitError;
-  assertEq((err.payload as { tag: string }).tag, "not-permitted");
+  ) as ComponentException;
+  assertEq((err.payload as { kind: string }).kind, "not-permitted");
 });
 
 Deno.test("hkdf-sha2: derive-bits(none) on a KDF input fails error.other (no natural output length)", async () => {
   const ikm = await hkdf.importIkm(new Uint8Array(16).fill(7), deriveOptions());
   const input = await hkdfSha2.prepare("sha256", ikm, new Uint8Array(0), new Uint8Array(0));
-  const err = await assertRejects(() => input.deriveBits(undefined)) as WitError;
-  assertEq((err.payload as { tag: string }).tag, "other");
+  const err = await assertRejects(() => input.deriveBits(undefined)) as ComponentException;
+  assertEq((err.payload as { kind: string }).kind, "other");
 });

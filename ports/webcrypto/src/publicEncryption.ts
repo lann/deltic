@@ -70,8 +70,8 @@ function oaepAlgorithm(entry: { hash: string; digestBytes: number }, modulusLeng
 /** The named plaintext-bound condition: the signal to switch to hybrid wrapping (reference: webcrypto.js:5461). */
 function errMessageTooLong(what: string, length: number, algorithm: OaepAlgorithm): never {
   witError({
-    tag: "extension",
-    val: {
+    kind: "extension",
+    value: {
       origin: "polymorph:webcrypto",
       name: "message-too-long",
       message: `${what} is ${length} bytes; this key's RSA-OAEP bound is ${algorithm.plaintextBound}`,

@@ -32,7 +32,7 @@ import {
   AgreementKeyOptions,
 } from "../src/mod.ts";
 import { arrayStream } from "./testStream.ts";
-import { WitError } from "../../../runtime/src/embedder/errors.ts";
+import { ComponentException } from "../../../runtime/src/embedder/errors.ts";
 
 const VECTORS_DIR = "/home/lmartin/p/polymorph/polymorph-webcrypto/conformance/vectors";
 
@@ -59,8 +59,8 @@ function tc(doc: any, tcId: number, group = 0): any {
   if (found === undefined) throw new Error(`tcId ${tcId} not in group ${group}`);
   return found;
 }
-function tag(err: unknown): string {
-  return ((err as WitError).payload as { tag: string }).tag;
+function errKind(err: unknown): string {
+  return ((err as ComponentException).payload as { kind: string }).kind;
 }
 function cipherOptions(): CipherKeyOptions {
   const o = new CipherKeyOptions();
@@ -91,7 +91,7 @@ Deno.test("aes-cbc: a tampered ciphertext fails the WIT's uniform error.other (n
   const ct = hexToBytes(t.ct);
   ct[ct.length - 1] ^= 0xff; // corrupt the final block: bad padding on decrypt
   const err = await assertRejects(() => key.decrypt(hexToBytes(t.iv), undefined, arrayStream(ct)));
-  assertEq(tag(err), "other");
+  assertEq(errKind(err), "other");
 });
 
 Deno.test("aes-ctr: a counter length is required, and AES-CBC refuses one (error.invalid-nonce both ways)", async () => {
@@ -99,10 +99,10 @@ Deno.test("aes-ctr: a counter length is required, and AES-CBC refuses one (error
   const missing = await assertRejects(() =>
     ctr.encrypt(new Uint8Array(16), undefined, arrayStream(new Uint8Array(4)))
   );
-  assertEq(tag(missing), "invalid-nonce");
+  assertEq(errKind(missing), "invalid-nonce");
   const cbc = await aesCbc.generateKey("aes256", cipherOptions());
   const extra = await assertRejects(() => cbc.encrypt(new Uint8Array(16), 64, arrayStream(new Uint8Array(4))));
-  assertEq(tag(extra), "invalid-nonce");
+  assertEq(errKind(extra), "invalid-nonce");
 });
 
 Deno.test("aes-ctr: encrypt/decrypt round-trip at a 128-bit counter", async () => {
@@ -146,7 +146,7 @@ Deno.test("aes-kw: a tampered wrapped blob fails error.authentication-failed (in
   const wrapped = hexToBytes(t.ct);
   wrapped[0] ^= 0xff;
   const err = await assertRejects(() => key.unwrap(wrapped));
-  assertEq(tag(err), "authentication-failed");
+  assertEq(errKind(err), "authentication-failed");
 });
 
 Deno.test("pbkdf2-sha2: KAT against pbkdf2_hmacsha256_test.json tcId 1 (RFC 7914)", async () => {
@@ -166,7 +166,7 @@ Deno.test("pbkdf2-sha2: a zero iteration count fails error.other at prepare, bef
   o.canDeriveBits(true);
   const password = await pbkdf2.importPassword(new Uint8Array([1, 2, 3]), o);
   const err = await assertRejects(() => pbkdf2Sha2.prepare("sha256", password, new Uint8Array(8), 0));
-  assertEq(tag(err), "other");
+  assertEq(errKind(err), "other");
 });
 
 Deno.test("ecdh: KAT against ecdh_secp256r1_webcrypto_test.json tcId 1 (agreed secret matches the vector)", async () => {
@@ -188,7 +188,7 @@ Deno.test("ecdh: an off-curve peer point is refused (error.invalid-key; ecdh_sec
   const t = tc(doc, 332);
   assertEq(t.result, "invalid");
   const err = await assertRejects(() => ecdh.importPublicKeyRaw("p256", hexToBytes(t.public)));
-  assertEq(tag(err), "invalid-key");
+  assertEq(errKind(err), "invalid-key");
 });
 
 Deno.test("ecdsa-verify: KAT against ecdsa_secp256r1_sha256_p1363_test.json tcId 2 (valid P1363 signature)", async () => {
@@ -208,7 +208,7 @@ Deno.test("ecdsa-verify: an upstream-invalid signature fails error.authenticatio
   const t = g.tests.find((x: { result: string }) => x.result === "invalid");
   const key = await ecdsaVerify.importVerifyingKeyJwk("p256-sha256", JSON.stringify(g.publicKeyJwk));
   const err = await assertRejects(() => key.verify(arrayStream(hexToBytes(t.msg)), hexToBytes(t.sig)));
-  assertEq(tag(err), "authentication-failed");
+  assertEq(errKind(err), "authentication-failed");
 });
 
 Deno.test("ecdsa-sign: generate -> sign -> verify round-trip (P-384/SHA-384)", async () => {
@@ -230,7 +230,7 @@ Deno.test("rsassa-pkcs1-v15-verify: KAT against rsa_signature_2048_sha256_test.j
   await key.verify(arrayStream(hexToBytes(ok.msg)), hexToBytes(ok.sig));
   const bad = g.tests.find((x: { result: string }) => x.result === "invalid");
   const err = await assertRejects(() => key.verify(arrayStream(hexToBytes(bad.msg)), hexToBytes(bad.sig)));
-  assertEq(tag(err), "authentication-failed");
+  assertEq(errKind(err), "authentication-failed");
 });
 
 Deno.test("rsa-pss-verify: KAT against rsa_pss_2048_sha256_mgf1_32_test.json (salt length bound at mint)", async () => {
@@ -244,7 +244,7 @@ Deno.test("rsa-pss-verify: KAT against rsa_pss_2048_sha256_mgf1_32_test.json (sa
   // key's salt length is mint-bound (`import-verifying-key-jwk`'s contract).
   const other = await rsaPssVerify.importVerifyingKeyJwk("sha256", 0, JSON.stringify(g.publicKeyJwk));
   const err = await assertRejects(() => other.verify(arrayStream(hexToBytes(ok.msg)), hexToBytes(ok.sig)));
-  assertEq(tag(err), "authentication-failed");
+  assertEq(errKind(err), "authentication-failed");
 });
 
 Deno.test("rsa-oaep: KAT against rsa_oaep_2048_sha256_mgf1sha256_test.json tcId 1 (valid) and tcId 32 (truncated ciphertext)", async () => {
@@ -265,7 +265,7 @@ Deno.test("rsa-oaep: KAT against rsa_oaep_2048_sha256_mgf1sha256_test.json tcId 
     key.decrypt(bad.label.length > 0 ? hexToBytes(bad.label) : undefined, hexToBytes(bad.ct))
   );
   // RFC 8017's single verdict: every decryption failure is detail-free.
-  assertEq(tag(err), "authentication-failed");
+  assertEq(errKind(err), "authentication-failed");
 });
 
 Deno.test("sha1-checked: both postures decline with error.unsupported (no platform carries sha1dc)", () => {
@@ -276,6 +276,6 @@ Deno.test("sha1-checked: both postures decline with error.unsupported (no platfo
     } catch (e) {
       caught = e;
     }
-    assertEq(tag(caught), "unsupported");
+    assertEq(errKind(caught), "unsupported");
   }
 });

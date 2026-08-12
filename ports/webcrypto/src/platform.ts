@@ -10,7 +10,7 @@
 // authority for which verdict each is.
 
 import { errInvalidKey, errNotExtractable, errUnsupported, platformCall } from "./errors.ts";
-import { WitError } from "../../../runtime/src/embedder/errors.ts";
+import { ComponentException } from "../../../runtime/src/embedder/errors.ts";
 import { asBufferSource } from "./util.ts";
 
 const subtle = globalThis.crypto.subtle;
@@ -64,7 +64,7 @@ export async function importPlatformKey(
   try {
     return await subtle.importKey(format, asBufferSource(bytes), algorithm, extractable, usages);
   } catch (err) {
-    if (err instanceof WitError) throw err;
+    if (err instanceof ComponentException) throw err;
     invalidKey(err, what);
   }
 }
@@ -81,7 +81,7 @@ export async function importPlatformKeyJwk(
   try {
     return await subtle.importKey("jwk", jwk as JsonWebKey, algorithm, extractable, usages);
   } catch (err) {
-    if (err instanceof WitError) throw err;
+    if (err instanceof ComponentException) throw err;
     invalidKey(err, what);
   }
 }
@@ -206,7 +206,7 @@ export async function redactingInvalidKey<T>(what: string, run: () => Promise<T>
   try {
     return await run();
   } catch (err) {
-    if (err instanceof WitError && (err.payload as { tag?: string })?.tag === "invalid-key") {
+    if (err instanceof ComponentException && (err.payload as { kind?: string })?.kind === "invalid-key") {
       errInvalidKey(`invalid ${what}`);
     }
     throw err;

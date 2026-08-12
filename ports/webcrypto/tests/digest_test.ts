@@ -8,7 +8,7 @@
 import { assertEq, assertRejects, assertThrows } from "./asserts.ts";
 import { sha2 } from "../src/mod.ts";
 import { arrayStream } from "./testStream.ts";
-import { WitError } from "../../../runtime/src/embedder/errors.ts";
+import { ComponentException } from "../../../runtime/src/embedder/errors.ts";
 
 function hex(bytes: Uint8Array): string {
   return Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -34,8 +34,8 @@ Deno.test("sha2: makeDigest(sha384/sha512) compute over empty stream", async () 
 
 Deno.test("sha2: sha224/sha512-224/sha512-256 decline with error.unsupported (WIT-mandated, not a Deno gap)", () => {
   for (const variant of ["sha224", "sha512-224", "sha512-256"]) {
-    const err = assertThrows(() => sha2.makeDigest(variant)) as WitError;
-    assertEq((err.payload as { tag: string }).tag, "unsupported");
+    const err = assertThrows(() => sha2.makeDigest(variant)) as ComponentException;
+    assertEq((err.payload as { kind: string }).kind, "unsupported");
   }
 });
 

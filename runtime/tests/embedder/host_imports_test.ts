@@ -9,7 +9,7 @@
 
 import { assertEq } from "../support/asserts.ts";
 import { caught, haveFixture, instantiateFixture, testdata } from "./support.ts";
-import { Trap, WitError } from "../../src/embedder/mod.ts";
+import { Trap, ComponentException } from "../../src/embedder/mod.ts";
 import { INTERNAL_HOST_REGISTRIES } from "../../src/embedder/instantiate.ts";
 
 const ready = await haveFixture(testdata("imports"));
@@ -167,12 +167,12 @@ Deno.test({
 });
 
 Deno.test({
-  name: "error model: throw new WitError(payload) is the err side",
+  name: "error model: throw new ComponentException(payload) is the err side",
   ignore: !errReady,
   fn: async () => {
     // The branded throw — and the ONLY thing that crosses as an err value.
     const c = await hostResult(() => {
-      throw new WitError(undefined);
+      throw new ComponentException(undefined);
     });
     assertEq(await c.exports.run(), 1, "1 == the guest observed err");
   },
@@ -196,7 +196,7 @@ Deno.test({
       `the trap must name the import leaf: ${e}`,
     );
     assertEq(String(e).includes("TypeError"), true, `${e}`);
-    assertEq(String(e).includes("WitError"), true, "…and say how to signal err");
+    assertEq(String(e).includes("ComponentException"), true, "…and say how to signal err");
   },
 });
 
@@ -228,7 +228,7 @@ Deno.test({
     // is NOT: it must not resolve as `ok`, and it must not be mis-branded as
     // an unbranded-throw host bug, because the host did neither.
     const c = await hostResult(() =>
-      Promise.reject(new WitError(undefined)) as unknown as void
+      Promise.reject(new ComponentException(undefined)) as unknown as void
     );
     const e = await caught(() => c.exports.run());
     assertEq(e !== undefined, true, "it must not resolve as ok");
@@ -279,15 +279,15 @@ Deno.test({
 });
 
 Deno.test({
-  name: "error model: WitError's PAYLOAD reaches the guest's err case",
+  name: "error model: ComponentException's PAYLOAD reaches the guest's err case",
   ignore: !payloadReady,
   fn: async () => {
-    // The whole branded-throw path end to end: `throw new WitError("boom")`
+    // The whole branded-throw path end to end: `throw new ComponentException("boom")`
     // -> `{error: "boom"}` -> the err side of `result<u32, string>` ->
     // the string lowered into the guest through ITS realloc. `1004` is
     // `1000 + "boom".length`, so it pins the case AND the payload.
     const c = await payloadFixture(() => {
-      throw new WitError("boom");
+      throw new ComponentException("boom");
     });
     assertEq(await c.exports.run(), 1004, "err case + 4-byte payload");
   },
@@ -299,7 +299,7 @@ Deno.test({
   fn: async () => {
     const msg = "connection refused by the host";
     const c = await payloadFixture(() => {
-      throw new WitError(msg);
+      throw new ComponentException(msg);
     });
     assertEq(await c.exports.run(), 1000 + msg.length);
   },
