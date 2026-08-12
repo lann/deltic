@@ -37,10 +37,17 @@ exception naming) while it is still cheap — semantics unchanged
 untouched**: the brand key stays `deltic.witError/1` (an opaque constant,
 CEWD-style, so pre-A10 copies and hand-rolled brands keep interoperating)
 and plan-format op discriminants (a different contract) keep `tag`;
+and plan-format op discriminants (a different contract) keep `tag`;
 A10 release note (2026-08-12): the rename changes `@deltic/protocol`'s
 export surface, so the JSR package moves to **0.2.0** — immutable `0.1.0`
 keeps the pre-A10 names for pre-A10 runtime prereleases (`^0.1.0` never
-resolves across), and post-A10 workspace publishes depend on `^0.2.0`.**
+resolves across), and post-A10 workspace publishes depend on `^0.2.0`;
+amendment A11 (2026-08-12) makes between-calls guest liveness normative:
+host-import settlements are serviced by a settlement pump while no export
+call is in flight, so background tasks parked on host-call wakeups (clocks,
+fetches) progress without embedder traffic — embedder-never-acts operations
+still hang (never trap) and failures still surface on the next driving
+call.**
 This document supersedes `descriptor-ir.md`'s interim
 "host value mapping" table as the destination for host-facing value shapes.
 The runtime's *raw* boundary (`instance.exports`, `HostImports`) keeps the
@@ -323,6 +330,18 @@ class PeerTrappedError extends Error {  // A7: a stream/future op whose peer ins
   containing object and are called unbound.
 - Params are positional; param names appear only in types/docs (they are
   excluded from the world digest — `contracts/digest.md`).
+- **Between-calls liveness** (amendment A11, 2026-08-12): guest progress
+  does not require an in-flight export call. A host import that settles
+  while no call is being driven is serviced then — a background task parked
+  on a waitable set whose pending host call resolves (a clock subscription,
+  a fetch) resumes at settlement time, not at the embedder's next call.
+  This is the JS-host analogue of dwelling in wasmtime's `run_concurrent`,
+  and what makes guest-encapsulated keep-alive tickers (componentize-go's
+  goroutine bridge over `wasi:clocks.wait-for`) self-driving under deltic.
+  Two prior bounds are unchanged: an operation waiting on the *embedder's*
+  half of a host stream/future still hangs until the embedder acts (never
+  a trap — see Streams and futures), and a settlement-time failure
+  surfaces on the next call into the instance, as before.
 
 ## Resources
 

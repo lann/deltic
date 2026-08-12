@@ -343,10 +343,18 @@ FIFO ready-queue by default; a seeded-shuffle mode (`DELTIC_SCHED_SEED` env
 var) exercises the spec-allowed nondeterminism in tests, verified across
 seeds. Documented at `runtime/src/task/scheduler.ts`. A load-bearing
 architectural rule discovered post-M2: **one driver per store** — concurrent
-`driveAsync` loops can double-resume threads; between export calls the host
-pump stands down whenever an export-call driver is live (the invariant and
-its benignity argument are documented at the site in
-`runtime/src/exec/boundary.ts`).
+`driveAsync` loops can double-resume threads; between export calls the two
+fallback drivers stand down whenever an export-call driver is live (the
+invariant and its benignity argument are documented at the site in
+`runtime/src/exec/boundary.ts`). There are exactly three drivers: export
+calls, the host-activity pump (embedder stream/future operations landing
+between calls), and — since embedder-api amendment A11 — the settlement
+pump, which services host-import settlements that land while the store is
+driver-idle. The settlement pump is what gives background tasks host-driven
+liveness between export calls (a task parked on a waitable set whose pending
+host call is a clock resumes at settlement time); wasmtime only delivers
+such wakeups while the embedder dwells in `run_concurrent`, but a JS host's
+event loop is always dwelling, so deltic makes it unconditional.
 
 Named divergence (2026-08-10, [#92](https://github.com/lann/deltic/issues/92)):
 **the async form of `subtask.cancel` is not atomic under jspi.** The

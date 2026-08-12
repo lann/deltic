@@ -937,6 +937,60 @@ export class Store {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Host-call classification (shared by the drivers in exec/)
+// ---------------------------------------------------------------------------
+
+/**
+ * Host-activity "arm" promises, by identity: entries a driver parks in
+ * `Store.pendingHostCalls` purely to say "the embedder may still act". They
+ * are NOT outstanding work — treating them as such is the "activity keeps
+ * `pendingHostCalls` non-empty forever" hazard documented in
+ * exec/host_streams.ts — so the between-calls drivers filter them out via
+ * `hasRealHostCall`/`realHostCalls`. The registry lives here (rather than in
+ * exec/host_streams.ts, which mints the arms) so exec/boundary.ts's
+ * settlement pump can share the classification without an import cycle.
+ */
+const hostActivityArms = new WeakSet<Promise<unknown>>();
+
+/** Mark `p` as an activity arm (exec/host_streams.ts `HostActivity`). */
+export function markHostActivityArm(p: Promise<unknown>): void {
+  hostActivityArms.add(p);
+}
+
+/** Is there host-call work outstanding that is not just an activity arm? */
+export function hasRealHostCall(store: Store): boolean {
+  for (const p of store.pendingHostCalls) {
+    if (!hostActivityArms.has(p)) return true;
+  }
+  return false;
+}
+
+/** Every outstanding host call that is real work (not an activity arm). */
+export function realHostCalls(store: Store): Promise<unknown>[] {
+  const out: Promise<unknown>[] = [];
+  for (const p of store.pendingHostCalls) {
+    if (!hostActivityArms.has(p)) out.push(p);
+  }
+  return out;
+}
+
+/**
+ * Is there anything left that only a turn of the event loop could advance?
+ * Activity arms do not count: they say "the embedder may still act", which is
+ * precisely the state in which a between-calls driver should stop and let the
+ * operation's promise stay pending (the documented hang, exec/host_streams.ts
+ * module header).
+ *
+ * `store.settled` (settled-but-unserviced activation tails) DOES count: it
+ * gates `tick`, so exiting with a tail queued is a lost wakeup — the store is
+ * wedged until some other driver appears.
+ */
+export function storeQuiescent(store: Store): boolean {
+  return store.settled.length === 0 && store.awaiting.size === 0 &&
+    !hasRealHostCall(store);
+}
+
 /**
  * The reference's `canon_lift` sync driving loop (line 2213):
  *
