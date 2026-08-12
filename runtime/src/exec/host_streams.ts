@@ -66,11 +66,13 @@ import {
   BUFFER_MAX_LENGTH,
   type ComponentInstanceState,
   CopyResult,
+  markHostActivityArm,
   type PayloadChunk,
   sameElemType,
   SharedFutureImpl,
   SharedStreamImpl,
   type Store,
+  storeQuiescent as quiescent,
 } from "../task/mod.ts";
 
 /**
@@ -202,32 +204,13 @@ export class HostBuffer {
  * their presence as a reason to keep looping (that is the "activity keeps
  * pendingHostCalls non-empty forever" hazard: a pump whose exit condition is
  * `pendingHostCalls.size === 0` would never exit).
- */
-const activityArms = new WeakSet<Promise<unknown>>();
-
-/**
- * Is there anything left that only a turn of the event loop could advance?
- * Activity arms do not count: they say "the embedder may still act", which is
- * precisely the state in which the pump should stop and let the operation's
- * promise stay pending (the documented hang).
  *
- * `store.settled` (an array of settled-but-unserviced activation tails) DOES
- * count: it gates `tick`, so exiting with a tail queued is a lost wakeup —
- * the store is wedged until some other driver appears, and between export
- * calls there is none.
+ * The registry and the two predicates over it (`hasRealHostCall`,
+ * `storeQuiescent`, imported above as `quiescent`) moved to
+ * task/scheduler.ts so that boundary.ts's settlement pump — the OTHER
+ * between-calls driver — shares the same classification without an import
+ * cycle. Arms are minted here and marked via `markHostActivityArm`.
  */
-function quiescent(store: Store): boolean {
-  return store.settled.length === 0 && store.awaiting.size === 0 &&
-    !hasRealHostCall(store);
-}
-
-/** Is there host-call work outstanding that is not just an activity arm? */
-function hasRealHostCall(store: Store): boolean {
-  for (const p of store.pendingHostCalls) {
-    if (!activityArms.has(p)) return true;
-  }
-  return false;
-}
 
 /**
  * Keeps `store.pendingHostCalls` non-empty while a host end is live, so the
@@ -250,7 +233,7 @@ class HostActivity {
   #arm(): void {
     if (this.#store === null || this.#promise !== null || this.#closed) return;
     this.#promise = new Promise<void>((r) => (this.#resolve = r));
-    activityArms.add(this.#promise);
+    markHostActivityArm(this.#promise);
     this.#store.pendingHostCalls.add(this.#promise);
   }
 

@@ -33,6 +33,7 @@ import {
   clearResumingThread,
   EventCode,
   withActivation,
+  hasRealHostCall,
   hasResumingThread,
   type EventTuple,
   NeedsJspi,
@@ -41,7 +42,9 @@ import {
   packSubtaskResult,
   PendingCapability,
   notifyInstancePoisoned,
+  realHostCalls,
   Store,
+  storeQuiescent,
   Subtask,
   WaitableSet,
   SubtaskState,
@@ -459,6 +462,10 @@ function drive(
     if (store.hostFailure !== undefined) throw takeHostFailure(store);
     if (done()) {
       traceDrive("drive", store, done, "EXIT-done");
+      // Fully-synchronous completion: no `driveAsync` ran, so its exit hook
+      // will not fire — arm the settlement pump here for any host calls the
+      // guest registered fire-and-forget during this drive.
+      ensureSettlementPump(store);
       return;
     }
     // A thread parked on a Promise (jspi) can only progress after a microtask
@@ -586,12 +593,14 @@ export async function driveStoreAsync(
  * the same store interleave their `serviceSettled`/`tick` phases, and the
  * host-stream pump was observed to trip `Trap: table entry empty` out of
  * `runCallbackLoop` when it drove unconditionally alongside an export call's
- * loop. Export calls own their loops and cannot yield to anyone; the pump is
- * a *fallback* driver — it exists only for host operations that land BETWEEN
- * export calls — so it is the side that stands down, using the two accessors
- * below, narrowing the window to the cooperative residue described above.
- * When an export call's loop is live it already races `pendingHostCalls` and
- * `store.awaiting`, i.e. it pumps host activity on the embedder's behalf.
+ * loop. Export calls own their loops and cannot yield to anyone; the pumps
+ * are *fallback* drivers — the host-activity pump for embedder operations
+ * that land BETWEEN export calls, the settlement pump (below) for host-call
+ * settlements that land between them — so they are the side that stands
+ * down, using the two accessors below, narrowing the window to the
+ * cooperative residue described above. When an export call's loop is live it
+ * already races `pendingHostCalls` and `store.awaiting`, i.e. it pumps host
+ * activity on the embedder's behalf.
  */
 const driverDepth = new WeakMap<Store, number>();
 const driverIdle = new WeakMap<Store, { p: Promise<void>; r: () => void }>();
@@ -611,6 +620,155 @@ export function whenStoreDriverIdle(store: Store): Promise<void> {
     driverIdle.set(store, w);
   }
   return w.p;
+}
+
+// ---------------------------------------------------------------------------
+// The settlement pump: liveness between export calls
+// ---------------------------------------------------------------------------
+//
+// A host-import promise that settles while a driver is live is serviced by
+// that driver (`driveAsync` races `store.pendingHostCalls`). One that settles
+// while NO driver is live only mutates scheduler state — the registration
+// site's continuation delivers results and readies threads, but nothing calls
+// `serviceSettled`/`tick`, so the work sits queued until the next export call
+// or host stream/future operation happens to drive the store. For a guest
+// with genuinely background work — the canonical shape is a task parked WAIT
+// on a waitable set whose pending host call is a clock (a componentize-go
+// keep-alive ticker, a wasi:clocks `wait-for`) — that turned "the host will
+// wake me" into "the embedder's next unrelated call will wake me": a liveness
+// gap, not a policy (wasmtime's event loop delivers such wakeups whenever the
+// embedder dwells in `run_concurrent`; on a JS host the event loop is always
+// dwelling).
+//
+// The settlement pump closes the gap: whenever a driver exits leaving real
+// host calls outstanding (`hasRealHostCall` — activity arms excluded, they
+// mean "the embedder may still act", not "the host owes an event"), a
+// detached keeper parks on `Promise.race` of those calls and, when one
+// settles, drives the store to quiescence with the same loop and the same
+// cooperative discipline as the host-activity pump above it in the driver
+// hierarchy:
+//
+//   * it stands down whenever an export call's loop is live
+//     (`storeDriverDepth` / `whenStoreDriverIdle`, plus the `> 1` clause in
+//     its `done`, exactly as `HostActivity.#pumpAsync`);
+//   * its `done` returns true whenever `pendingHostCalls` is empty, which is
+//     the precondition of BOTH deadlock traps in `driveAsync` — the pump can
+//     therefore never convert the documented embedder-never-acts hang into a
+//     trap (see the `driveStoreAsync` note above);
+//   * failures park on `store.hostFailure` for the next embedder call to
+//     surface, the channel every between-calls driver already uses.
+//
+// Every real `pendingHostCalls` entry is born during guest execution, i.e.
+// inside some driver, so arming at driver exit (`driveAsync`'s finally and
+// `drive`'s synchronous completion) observes every registration. One known
+// exception is documented rather than wired: a HOST-initiated async resource
+// dtor (embedder `drop()` between calls, cabi/handles.ts `callDtorGated`)
+// registers outside any driver; its settlement surfaces at the next drive
+// exactly as before this pump existed.
+//
+// STALE SNAPSHOTS: the keeper races the real host calls it saw when it
+// parked. A drive it performs can register NEW calls (the keep-alive ticker
+// re-arming is the routine case), and `ensureSettlementPump` may be called
+// while the keeper is already parked. Both are handled by a nudge promise
+// raced alongside the snapshot: arming an already-live pump fires the nudge,
+// the keeper wakes, re-snapshots, and re-parks.
+
+const settlementPumps = new WeakSet<Store>();
+const settlementNudges = new WeakMap<Store, { p: Promise<void>; r: () => void }>();
+
+function armSettlementNudge(store: Store): Promise<void> {
+  let n = settlementNudges.get(store);
+  if (n === undefined) {
+    let r!: () => void;
+    const p = new Promise<void>((res) => (r = res));
+    n = { p, r };
+    settlementNudges.set(store, n);
+  }
+  return n.p;
+}
+
+function fireSettlementNudge(store: Store): void {
+  const n = settlementNudges.get(store);
+  if (n !== undefined) {
+    settlementNudges.delete(store);
+    n.r();
+  }
+}
+
+/**
+ * Ensure a settlement pump is watching `store`'s real outstanding host calls.
+ * Idempotent and cheap; called at every driver exit. Never throws.
+ */
+export function ensureSettlementPump(store: Store): void {
+  if (settlementPumps.has(store)) {
+    // Already parked (or driving): wake it so it re-snapshots the race —
+    // this call may be reporting host calls registered after it parked.
+    fireSettlementNudge(store);
+    return;
+  }
+  if (store.hostFailure !== undefined) return;
+  if (!hasRealHostCall(store)) return;
+  settlementPumps.add(store);
+  void settlementPumpLoop(store);
+}
+
+async function settlementPumpLoop(store: Store): Promise<void> {
+  let failed = false;
+  try {
+    for (;;) {
+      // Stand down while any driver is live: it races `pendingHostCalls`
+      // itself and services settlements on the guest's behalf.
+      while (storeDriverDepth(store) > 0) {
+        await whenStoreDriverIdle(store);
+      }
+      // A parked failure belongs to the next embedder call (the only place
+      // it can surface); driving into it here would just consume and re-park
+      // it in a loop.
+      if (store.hostFailure !== undefined) return;
+      const real = realHostCalls(store);
+      if (real.length === 0) return;
+      const nudge = armSettlementNudge(store);
+      // Rejections are not this pump's to report: the registration site's
+      // own continuation parks them on `store.hostFailure`.
+      await Promise.race([
+        ...real.map((p) => p.then(() => {}, () => {})),
+        nudge,
+      ]);
+      if (storeDriverDepth(store) > 0) continue;
+      // Drive unconditionally after a wake: `storeQuiescent` cannot see a
+      // READY waiting thread (the usual product of a settlement — the
+      // continuation readied the guest and deleted its own host call), so
+      // gating the drive on it skips exactly the work this pump exists to
+      // do. `driveAsync` drains ready threads before consulting `done`, and
+      // a vacuous round exits on its first `done` evaluation.
+      await driveStoreAsync(
+        store,
+        // Quiescence, not completion — and the same three exit clauses as
+        // the host-activity pump: nothing only an event-loop turn could
+        // advance; `pendingHostCalls` empty (the deadlock traps'
+        // precondition, so this pump provably never traps); another driver
+        // appeared (ours is the 1).
+        () =>
+          store.pendingHostCalls.size === 0 ||
+          storeQuiescent(store) ||
+          storeDriverDepth(store) > 1,
+        "settlement pump",
+      );
+    }
+  } catch (e) {
+    failed = true;
+    store.hostFailure ??= e;
+  } finally {
+    settlementPumps.delete(store);
+    // Close the exit race: an `ensureSettlementPump` that saw us live and
+    // fired the nudge after our last snapshot check must not be lost.
+    if (
+      !failed && store.hostFailure === undefined &&
+      storeDriverDepth(store) === 0 && hasRealHostCall(store)
+    ) {
+      ensureSettlementPump(store);
+    }
+  }
 }
 
 async function driveAsync(
@@ -862,6 +1020,10 @@ async function driveAsync(
       const w = driverIdle.get(store);
       driverIdle.delete(store);
       w?.r();
+      // The store just went driver-idle; if real host calls remain, hand
+      // liveness to the settlement pump (which stands down again the moment
+      // any driver starts).
+      ensureSettlementPump(store);
     }
   }
 }
