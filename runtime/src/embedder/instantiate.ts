@@ -627,8 +627,19 @@ class Facade {
         // suspendability (marking follows the WIT declaration, not the
         // object); the per-call lookup below still dispatches to the
         // override's BODY as before.
-        const protoFn = (cls as { prototype?: Record<string, unknown> })
-          ?.prototype?.[camelCase(m.member)];
+        //
+        // The probe must not INVOKE accessors: a platform getter (e.g.
+        // `URLSearchParams.prototype.size`) brand-checks its receiver, and a
+        // raw `prototype[member]` read runs it with `this` = the prototype —
+        // an engine TypeError at instantiation, even for guests that never
+        // call the member. Only a data-property function can carry the A2
+        // mark (stage-3 method decorators install data properties), so an
+        // accessor-backed member yields no wrap-time function here and stays
+        // a call-time concern for the per-call lookup below.
+        const protoFn = dataMember(
+          (cls as { prototype?: unknown })?.prototype,
+          camelCase(m.member),
+        );
         const dispatch: (args: unknown[]) => unknown = (args) => {
           const [self, ...rest] = args;
           const fn = (self as Record<string, unknown>)?.[camelCase(m.member)];
@@ -1100,6 +1111,24 @@ function pick(
   for (const n of names) {
     const hit = (v as Record<string, unknown>)[n];
     if (hit !== undefined) return hit;
+  }
+  return undefined;
+}
+
+/**
+ * Read a DATA property from `obj` (walking its prototype chain, nearest own
+ * descriptor wins) without ever invoking accessors. Accessor-backed and
+ * absent members both yield `undefined`. Used by the A2 wrap-time suspending
+ * probe, which must not run platform getters against a bare prototype.
+ */
+function dataMember(obj: unknown, key: string): unknown {
+  for (
+    let o = obj;
+    o !== null && (typeof o === "object" || typeof o === "function");
+    o = Object.getPrototypeOf(o)
+  ) {
+    const d = Object.getOwnPropertyDescriptor(o, key);
+    if (d !== undefined) return "value" in d ? d.value : undefined;
   }
   return undefined;
 }

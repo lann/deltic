@@ -359,6 +359,55 @@ Ownership at the boundary, both directions:
 | host passes `own<R>` | wrapper invalidated (transferred) | instance registered; guest owns its handle |
 | host passes `borrow<R>` | wrapper stays valid | guest must not retain past the call (runtime-enforced per CABI); a never-registered instance gets a rep allocated for the call's duration (C2 amendment) |
 
+### Pattern (non-normative): binding platform classes directly
+
+A host-implemented resource does not need a hand-written class: when a WIT
+resource's shape matches a native platform class, pass the class itself —
+the pattern the draft web embedding builds its import story on
+(WebAssembly/component-model PR #686 "interface object" imports; tracked
+in deltic#115), available here today because the pieces already line up:
+method dispatch is a per-call `self[camelCase(member)]` lookup, WIT
+constructor args flow to `new Class(...)`, and the value conventions are
+the natural JS shapes (`Uint8Array` IS a `BufferSource`; a record is a
+plain camelCase object, i.e. an options bag).
+
+```ts
+const instance = await instantiate(artifacts, {
+  "test:platform/web": { params: URLSearchParams, decoder: TextDecoder },
+});
+```
+
+Executable reference: `runtime/tests/embedder/platform_class_test.ts` +
+`platform-class.wat` (kebab→camel `to-string`→`toString`, string/bool/
+`list<u8>`/record conversions, and each limit below, pinned with exact
+failure modes).
+
+The limits, and the one-line bridges (a `class X extends Native { … }`
+wrapper stays inside the pattern):
+
+1. **Getter-backed properties are not methods.** WIT has no attributes, so
+   a `size: func() -> u32` bound against an accessor (`URLSearchParams.
+   prototype.size`) finds no callable member: the call traps ("the
+   <Class> instance has no method 'size'"). The wrap-time suspending
+   probe reads only DATA properties — it never invokes accessors, so
+   merely binding such a class is safe; the limit surfaces per-call, and
+   only for guests that call the member. (Consequence: an A2 suspending
+   mark cannot ride an accessor-backed member.) Bridge: a real method
+   delegating to the property.
+2. **Platform "absent" is `null`; WIT `none` is `undefined`.** A native
+   returning `null` where WIT expects `option<T>` takes the `some` branch
+   and fails the inner conversion: the call rejects with the conversion
+   layer's `TypeError` naming the import — not a trap, never `none`.
+   Bridge: `get(k) { return super.get(k) ?? undefined; }`.
+3. **Platform exceptions are unbranded, so they trap** — even from a
+   `result`-typed import (§"Error model"): a result-typed WIT signature
+   does not convert host exceptions into `err` values. Bridge: try/catch
+   in a subclass override, rethrowing `new ComponentException(payload)`.
+
+Named types in the imported interface (a `record decoder-options` the
+constructor takes, say) need no imports-object entry — only functions and
+resource classes are read from the embedder.
+
 ## Streams and futures
 
 Handles, not raw shared objects (`SharedStreamImpl` identity stays
