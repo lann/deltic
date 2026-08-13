@@ -228,6 +228,41 @@ export class SharedStreamImpl implements SharedBase {
   pendingOnCopy: OnCopy | null = null;
   pendingOnCopyDone: OnCopyDone | null = null;
 
+  /**
+   * Observers fired once, when this stream becomes dropped — by EITHER
+   * side, including the A7 teardown walk (`dropSharedForTeardown`). The
+   * embedder's producer pump uses this to cancel a producer parked on an
+   * external event (amendment A13's cancellation companion: an
+   * accept-shaped producer holds a live platform resource while parked,
+   * and the reader dropping is its only stop signal). `null` = already
+   * fired.
+   */
+  #onDropped: (() => void)[] | null = [];
+
+  /** Register `fn` for the drop notification (fires now if already dropped). */
+  whenDropped(fn: () => void): void {
+    if (this.#onDropped === null) {
+      fn();
+      return;
+    }
+    this.#onDropped.push(fn);
+  }
+
+  /** @internal — fire the drop observers (idempotent; never throws). */
+  notifyDropped(): void {
+    const fns = this.#onDropped;
+    if (fns === null) return;
+    this.#onDropped = null;
+    for (const fn of fns) {
+      try {
+        fn();
+      } catch {
+        // An observer bug must not derail the drop path; the observer's
+        // own machinery is responsible for surfacing its failures.
+      }
+    }
+  }
+
   constructor(readonly t: ValType | null) {}
 
   resetPending(): void {
@@ -261,6 +296,7 @@ export class SharedStreamImpl implements SharedBase {
     if (!this.dropped) {
       this.dropped = true;
       if (this.pendingBuffer) this.resetAndNotifyPending(CopyResult.DROPPED);
+      this.notifyDropped();
     }
   }
 
@@ -692,6 +728,10 @@ export function dropSharedForTeardown(
     if (parkedInDeadGuest) shared.resetPending();
     else shared.resetAndNotifyPending(CopyResult.DROPPED);
   }
+  // The A13 cancellation companion also fires on the teardown path: a
+  // producer parked behind a trap-poisoned reader must be cancelled the
+  // same as behind a cleanly-dropped one.
+  if (shared instanceof SharedStreamImpl) shared.notifyDropped();
 }
 
 /**

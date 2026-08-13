@@ -51,6 +51,14 @@ export interface ValueBridge {
   lowerOwn(v: unknown, t: ValType & { kind: "own" }): number;
   /** The host is passing a `borrow<R>` (no transfer). */
   lowerBorrow(v: unknown, t: ValType & { kind: "borrow" }): number;
+  /**
+   * Destroy a LOWERED `own<R>` the guest will never receive (amendment
+   * A13: a stream element the producer lowered but the reader never took).
+   * Runs the resource's destructor — for a host-implemented R the
+   * instance's `[Symbol.dispose]`, for a guest-implemented R the guest
+   * dtor — exactly as if the guest had taken the handle and dropped it.
+   */
+  dropOwn(rep: number, t: ValType & { kind: "own" }): void;
 }
 
 /**
@@ -532,6 +540,15 @@ function elemCodec(
     where: o.where,
     toHost: (v) => element === null ? undefined : toHost(v, element, o),
     fromHost: (v) => element === null ? null : fromHost(v, element, o),
+    // A13: `own` elements a producer lowered but the reader never took
+    // must be destroyed, not leaked — an un-taken element may hold a live
+    // platform resource (the tcp `listen` shape: an accepted connection).
+    // Top-level `own` is the supported element shape; nested owns inside
+    // composite stream elements remain out of scope until a consumer
+    // links one.
+    release: element !== null && element.kind === "own"
+      ? (v) => o.bridge.dropOwn(v as number, element)
+      : undefined,
   };
 }
 

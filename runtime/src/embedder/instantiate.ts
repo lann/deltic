@@ -29,6 +29,7 @@ import { Translator } from "../shim/mod.ts";
 import { copyCensus, isTrap, isComponentException } from "@deltic/protocol";
 import { NameCollisionError, ComponentException } from "./errors.ts";
 import { type ImportLeaf, requiredImports } from "./imports.ts";
+import { callDtorGated } from "../cabi/handles.ts";
 import {
   buildGuestResourceClass,
   type GuestResourceSpec,
@@ -440,6 +441,19 @@ class Facade {
         }
         return rep;
       },
+      dropOwn(rep, t) {
+        // A13: a lowered `own` the guest will never take (an un-taken
+        // stream element). Destroy it exactly as a guest-side drop would:
+        // host-implemented R runs the instance's [Symbol.dispose] through
+        // the registry; guest-implemented R runs the guest dtor via the
+        // gated path (a host-initiated drop, `caller = None`).
+        const b = self.#binding(t.rt);
+        if (b.kind === "host") {
+          b.registry.dtor(rep);
+          return;
+        }
+        callDtorGated(t.rt, rep, null, true);
+      },
     };
   }
 
@@ -474,6 +488,25 @@ class Facade {
 
   /** Resolve the container object a leaf's implementation is read from. */
   #provider(leaf: ImportLeaf): unknown {
+    // A world-level MEMBER leaf (`[method]ticket.value` with no containing
+    // interface) dispatches on the resource's class, which is registered
+    // under the resource's own name — the mangled leaf name is never a
+    // record key. Interface-level members find their class inside the
+    // interface record via the normal path walk below.
+    if (leaf.path.length === 0 && leaf.member.form !== "plain") {
+      const r = leaf.member.resource;
+      const hit = this.#resolver.resolve(r) ??
+        this.#resolver.resolve(camelCase(r));
+      if (hit === undefined) {
+        throw new PlanError(
+          `host import '${label(leaf)}' not provided: the component ` +
+            `imports the world-level resource '${r}'; provide its class ` +
+            `under the key '${camelCase(r)}' (registered: ` +
+            `${this.#resolver.keys().join(", ") || "<none>"})`,
+        );
+      }
+      return hit.value;
+    }
     const hit = this.#resolver.resolve(leaf.interfaceId) ??
       (leaf.path.length === 0
         ? this.#resolver.resolve(camelCase(leaf.interfaceId))
@@ -606,7 +639,11 @@ class Facade {
       return isSuspending(fn) ? suspending(dispatch) : dispatch;
     }
     const clsName = pascalCase(m.resource);
-    const cls = pick(provider, [], [clsName, m.resource]);
+    // World-level member leaves resolved the class itself (`#provider`);
+    // interface members read it out of the interface record.
+    const cls = leaf.path.length === 0
+      ? provider
+      : pick(provider, [], [clsName, m.resource]);
     if (cls === undefined) {
       throw new PlanError(
         `host import '${label(leaf)}': no class '${clsName}' provided`,

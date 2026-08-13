@@ -414,6 +414,13 @@ export interface HostWritableEnd<T> {
   cancelWrite(): void;
   /** definitions.py `SharedStreamImpl.drop`: notifies a parked reader. */
   drop(): void;
+  /**
+   * Fire `fn` once the stream becomes dropped — by either end, including
+   * the A7 teardown walk (immediately, if it already is). The embedder's
+   * producer pump uses it to cancel a producer parked on an external
+   * event (amendment A13's cancellation companion).
+   */
+  onDropped(fn: () => void): void;
 }
 
 /** Host end the embedder READS; the guest writes. */
@@ -578,6 +585,9 @@ function mkStreamEnds<T>(
         shared.drop();
         activity.close();
         activity.pump();
+      },
+      onDropped(fn: () => void) {
+        shared.whenDropped(fn);
       },
     },
     readable: {
