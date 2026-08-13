@@ -226,17 +226,9 @@ async function main(): Promise<void> {
   {
     const socket = TcpSocket.create("ipv4");
     socket.bind(v4([127, 0, 0, 1], 0));
-    const stream = socket.listen();
-    // The recorded node divergence: an ephemeral local address is briefly
-    // unknowable (branded `other`), then real one tick later.
-    let early = "";
-    try {
-      socket.getLocalAddress();
-    } catch (e) {
-      early = errKindOf(e);
-    }
-    assertEq(early, "other", "tcp listen: deferred-bind divergence");
-    await new Promise((r) => setTimeout(r, 10));
+    // listen awaits the deferred-bind settle (the suspending park under
+    // real dispatch), so the local address is real immediately after.
+    const stream = await socket.listen();
     const addr = socket.getLocalAddress();
     assert(addr.kind === "ipv4" && addr.value.port !== 0, "tcp listen: ephemeral port");
     assert(socket.getIsListening(), "tcp listen: get-is-listening");

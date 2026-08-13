@@ -1,32 +1,39 @@
-// The platform seam under `sockets.ts`: the two connection shapes the
-// providers drive (`DatagramConn`, `TcpConn`), typed structurally, plus
-// the per-call backend detection that picks who serves them.
+// The platform seam under `sockets.ts`: the connection shapes the
+// providers drive (`DatagramConn`, `TcpConn`, `TcpListener`), served by
+// ONE backend — the node builtins (`node:dgram` / `node:net`), resolved
+// through `process.getBuiltinModule` (synchronous, Node >= 20.16 / 22.3;
+// no static `node:` imports, so the module graph stays bundler- and
+// browser-safe).
 //
-// Two backends:
+// Why node builtins EVERYWHERE, including on Deno (a deliberate reversal
+// of the earlier native-first split, with better reasoning):
 //
-//   * **Deno native** — `Deno.listenDatagram` (unstable: `--unstable-net`)
-//     and `Deno.connect` (stable). Used whenever a `Deno` global exists.
-//     Deliberately the ONLY path on Deno: Deno gates datagram support
-//     behind its unstable flag, and routing around that gate through
-//     Deno's own node-compat layer would betray the honest capability
-//     answer (`create` -> `not-supported` without the flag).
-//   * **Node builtins** — `node:dgram` / `node:net`, resolved through
-//     `process.getBuiltinModule` (synchronous, Node >= 20.16 / 22.3; no
-//     static `node:` imports, so the module graph stays bundler- and
-//     browser-safe). Used when there is no `Deno` global: real Node, and
-//     Bun via its node-builtin compat (findings-only, as everywhere).
+//   * Deno ships these builtins as STABLE node-compat surface. Its own
+//     `Deno.listenDatagram` sits behind `--unstable-net`, but that flag
+//     gates the native API's SHAPE stability, not the capability — so
+//     the old backend told stock-Deno consumers "UDP not-supported"
+//     while the platform's stable surface could serve it. One backend
+//     drops the `--unstable-net` requirement entirely.
+//   * One behavior on every runtime: one divergence table, one test
+//     matrix (the whole provider suite exercises this path under Deno's
+//     compat; `just test-sockets-node` re-runs it on genuine Node).
+//   * `net.connect` exposes `localAddress`/`localPort`, so
+//     connect-from-bound works — the native `Deno.connect` never could.
+//   * The engines where node builtins do not exist and JSPI is absent
+//     (JSC, and Bun atop it) cannot run deltic guests anyway: JSC lacks
+//     multi-memory. Browsers have no sockets of any flavor.
 //
-// Everything is looked up through `globalThis` at call time — the module
-// never assumes a platform at evaluation, and `create` can answer
-// `not-supported` truthfully on hosts with neither backend (browsers).
-//
-// The adapters throw RAW platform errors (Deno error classes, Node
-// `code`-carrying errors); mapping onto the WIT `error-code` vocabulary
-// stays with the providers (`sockets.ts` `mapPlatformError`), so this
-// module has no imports at all.
+// Costs, measured and accepted:
+//   * ~2x per-operation overhead on a UDP loopback ping-pong microbench
+//     vs the native API (~105k vs ~158k pkt/s round-trips under Deno) —
+//     far above what the QUIC consumers draw, and the CM boundary
+//     dominates real flows.
+//   * Permission denials arrive as genuine `Deno.errors.NotCapable`
+//     instances through the compat layer (verified) — the provider's
+//     error mapper keeps its Deno-class checks for exactly this.
 //
 // Node adapter notes (each verified empirically on pinned node 26.7.0,
-// system node 24, and Deno's node-compat — the fake-node test lane):
+// system node 24, and Deno's node-compat):
 //
 //   * dgram bind is made SYNCHRONOUS by giving `createSocket` a custom
 //     `lookup` whose callback fires synchronously (addresses here are
@@ -35,6 +42,14 @@
 //     `address()` right after `bind()` throws EBADF and bind errors only
 //     surface on a later tick. With the sync lookup, `address()` is valid
 //     on return and EADDRINUSE throws at the bind call site.
+//   * `net.Server.listen` has NO such escape hatch: with a specific host
+//     the OS bind is DEFERRED one event-loop turn (`'listening'` /
+//     `'error'` arrive later). The seam exposes that settle as
+//     `TcpListener.settled()`; the provider awaits it inside a
+//     `suspending`-marked `listen`, parking the calling guest frame for
+//     the one tick (embedder-api A1/A2 — the same kernel that serves
+//     wasi:io's sync `block`). Full listener fidelity follows: real
+//     ephemeral addresses, real bind error codes.
 //   * dgram receive is push-shaped (`'message'` events); the adapter
 //     bridges to the seam's pull shape with a BOUNDED queue
 //     (tail-drop past `MAX_QUEUED_DATAGRAMS` — kernel-buffer semantics:
@@ -44,22 +59,30 @@
 //     the write side on peer FIN, which would break the WIT's
 //     shared-ownership/half-close contract (the send stream must remain
 //     usable after the receive side ends).
-//   * TCP reads pull via `'readable'` + `read()`, with `unshift()` for
-//     the excess past the caller's buffer (one copy into the caller's
-//     buffer; the Deno path keeps its zero-extra-copy reads).
+//   * TCP reads pull via `'readable'` + `read()`, handing node's own
+//     buffers through (zero extra copy); the excess past the caller's
+//     `max` is `unshift()`ed back.
+//
+// The adapters throw RAW platform errors (node `code`-carrying errors,
+// and `Deno.errors.NotCapable` where the compat layer raises it); mapping
+// onto the WIT `error-code` vocabulary stays with the providers
+// (`sockets.ts` `mapPlatformError`), so this module has no imports at
+// all. Everything is looked up through `globalThis` at call time — the
+// module never assumes a platform at evaluation, and `create` can answer
+// `not-supported` truthfully on hosts with no node builtins (browsers).
 
-/** The address shape the socket backends speak (structural `Deno.NetAddr`). */
+/** The address shape the socket backends speak. */
 export interface NetAddr {
   transport?: string;
   hostname: string;
   port: number;
 }
 
-/** The bound-datagram-socket seam (structural `Deno.DatagramConn`). */
+/** The bound-datagram-socket seam. */
 export interface DatagramConn {
   readonly addr: NetAddr;
   send(p: Uint8Array, addr: NetAddr): Promise<number>;
-  receive(p?: Uint8Array): Promise<[Uint8Array, NetAddr]>;
+  receive(): Promise<[Uint8Array, NetAddr]>;
   close(): void;
 }
 
@@ -69,11 +92,12 @@ export type ListenDatagram = (options: {
   port: number;
 }) => DatagramConn;
 
-/** The connected-TCP-socket seam (structural `Deno.TcpConn` slice). */
+/** The connected-TCP-socket seam. */
 export interface TcpConn {
   readonly localAddr: NetAddr;
   readonly remoteAddr: NetAddr;
-  read(p: Uint8Array): Promise<number | null>;
+  /** Up to `max` bytes (node's own buffer, no copy); `null` = peer FIN. */
+  read(max: number): Promise<Uint8Array | null>;
   write(p: Uint8Array): Promise<number>;
   closeWrite(): Promise<void>;
   close(): void;
@@ -83,18 +107,19 @@ export type TcpConnect = (options: {
   transport: "tcp";
   hostname: string;
   port: number;
+  /** Source binding (connect-from-bound); both or neither. */
+  localHostname?: string;
+  localPort?: number;
 }) => Promise<TcpConn>;
 
 /**
- * The listening-TCP-socket seam. `addr` is `null` while the OS bind is
- * still pending — the node backend's `server.listen` defers the bind for
- * any specific host (there is no synchronous-lookup escape hatch on
- * `net.Server`, unlike dgram), so the local address is unknowable until
- * the `'listening'` event; the Deno backend binds synchronously and never
- * reports `null`.
+ * The listening-TCP-socket seam. The OS bind is deferred (module header):
+ * `settled()` resolves once the listener is live (rejects with the bind
+ * failure), after which `addr` is non-null.
  */
 export interface TcpListener {
   readonly addr: NetAddr | null;
+  settled(): Promise<void>;
   accept(): Promise<TcpConn>;
   close(): void;
 }
@@ -107,29 +132,7 @@ export type TcpListen = (options: {
 
 // --- detection ----------------------------------------------------------------
 
-/**
- * @internal Test seam: route detection to the node backends even when a
- * `Deno` global exists. The fake-node test lane
- * (tests/sockets_node_test.ts) exercises the node adapters under Deno's
- * node-compat; hiding the `Deno` global instead would break that compat
- * layer itself (its internals reference the global — verified: udp_wrap
- * throws `ReferenceError: Deno is not defined`). Real no-`Deno`-global
- * detection is covered by the pinned-Node smoke (`just
- * test-sockets-node`). Never set outside tests.
- */
-export function forceNodeBackendForTests(force: boolean): void {
-  forcedNodeBackend = force;
-}
-let forcedNodeBackend = false;
-
-function denoNamespace(): Record<string, unknown> | undefined {
-  const deno = (globalThis as { Deno?: unknown }).Deno;
-  return typeof deno === "object" && deno !== null
-    ? (deno as Record<string, unknown>)
-    : undefined;
-}
-
-/** `process.getBuiltinModule(name)`, if this host has it (Node, Bun). */
+/** `process.getBuiltinModule(name)`, if this host has it (Node, Deno, Bun). */
 function nodeBuiltin(name: string): unknown {
   const proc = (globalThis as {
     process?: { getBuiltinModule?: (name: string) => unknown };
@@ -143,44 +146,18 @@ function nodeBuiltin(name: string): unknown {
   }
 }
 
-/** The active datagram backend, re-detected per call. */
+/** The datagram backend, re-detected per call. */
 export function listenDatagram(): ListenDatagram | undefined {
-  if (!forcedNodeBackend) {
-    const deno = denoNamespace();
-    if (deno !== undefined) {
-      const fn = deno.listenDatagram;
-      return typeof fn === "function" ? (fn as ListenDatagram) : undefined;
-    }
-  }
   return nodeListenDatagram();
 }
 
-/** The active TCP-connect backend, re-detected per call. */
+/** The TCP-connect backend, re-detected per call. */
 export function tcpConnect(): TcpConnect | undefined {
-  if (!forcedNodeBackend) {
-    const deno = denoNamespace();
-    if (deno !== undefined) {
-      const fn = deno.connect;
-      return typeof fn === "function" ? (fn as TcpConnect) : undefined;
-    }
-  }
   return nodeTcpConnect();
 }
 
-/** The active TCP-listen backend, re-detected per call. */
+/** The TCP-listen backend, re-detected per call. */
 export function tcpListen(): TcpListen | undefined {
-  if (!forcedNodeBackend) {
-    const deno = denoNamespace();
-    if (deno !== undefined) {
-      const fn = deno.listen;
-      if (typeof fn !== "function") return undefined;
-      // `Deno.listen` returns a `Deno.Listener` whose `addr`/`accept`/
-      // `close` already satisfy the seam; the accepted conns satisfy
-      // `TcpConn` the same way `Deno.connect`'s do.
-      return (options) =>
-        (fn as (o: typeof options) => TcpListener)(options);
-    }
-  }
   return nodeTcpListen();
 }
 
@@ -224,7 +201,13 @@ interface NodeNetModule {
     host: string;
     port: number;
     allowHalfOpen: boolean;
+    localAddress?: string;
+    localPort?: number;
   }): NodeTcpSocket;
+  createServer(
+    options: { allowHalfOpen: boolean },
+    handler: (socket: NodeTcpSocket) => void,
+  ): NodeTcpServer;
 }
 
 function nodeListenDatagram(): ListenDatagram | undefined {
@@ -285,7 +268,7 @@ class NodeDatagramConn implements DatagramConn {
         waiter.resolve([msg, from]);
         return;
       }
-      if (this.#queue.length >= MAX_QUEUED_DATAGRAMS) return; // tail-drop
+      if (this.#closed || this.#queue.length >= MAX_QUEUED_DATAGRAMS) return; // tail-drop
       this.#queue.push([msg, from]);
     });
     socket.on("error", (...args: unknown[]) => {
@@ -315,9 +298,9 @@ class NodeDatagramConn implements DatagramConn {
     });
   }
 
-  receive(_p?: Uint8Array): Promise<[Uint8Array, NetAddr]> {
-    // The seam's optional buffer is a Deno affordance; node hands each
-    // datagram as its own exactly-sized Buffer, passed through directly.
+  receive(): Promise<[Uint8Array, NetAddr]> {
+    // Node hands each datagram as its own exactly-sized buffer, passed
+    // through directly.
     if (this.#failure !== undefined) return Promise.reject(this.#failure);
     if (this.#closed) {
       return Promise.reject(
@@ -334,8 +317,7 @@ class NodeDatagramConn implements DatagramConn {
   close(): void {
     if (this.#closed) return;
     this.#closed = true;
-    // A parked receive settles as an error, mirroring Deno's BadResource
-    // (the provider maps both onto `invalid-state`).
+    // A parked receive settles as an error mapping onto `invalid-state`.
     this.#failWaiters(
       codedError("ERR_SOCKET_DGRAM_NOT_RUNNING", "socket closed under a pending receive"),
     );
@@ -369,10 +351,18 @@ interface NodeTcpSocket {
 function nodeTcpConnect(): TcpConnect | undefined {
   const net = nodeBuiltin("node:net") as NodeNetModule | undefined;
   if (net === undefined) return undefined;
-  return async ({ hostname, port }) => {
+  return async ({ hostname, port, localHostname, localPort }) => {
     // allowHalfOpen is load-bearing (module header): the WIT half-close
     // contract needs the write side to survive the peer's FIN.
-    const socket = net.connect({ host: hostname, port, allowHalfOpen: true });
+    const socket = net.connect({
+      host: hostname,
+      port,
+      allowHalfOpen: true,
+      ...(localHostname === undefined ? {} : {
+        localAddress: localHostname,
+        localPort: localPort ?? 0,
+      }),
+    });
     await new Promise<void>((resolve, reject) => {
       const onError = (...args: unknown[]) => reject(args[0]);
       socket.once("error", onError);
@@ -415,23 +405,21 @@ class NodeTcpConn implements TcpConn {
     });
   }
 
-  async read(p: Uint8Array): Promise<number | null> {
+  async read(max: number): Promise<Uint8Array | null> {
     for (;;) {
       if (this.#failure !== undefined) throw this.#failure;
       const chunk = this.#socket.read();
       if (chunk !== null) {
-        if (chunk.length > p.length) {
-          this.#socket.unshift(chunk.subarray(p.length));
-          p.set(chunk.subarray(0, p.length));
-          return p.length;
+        if (chunk.length > max) {
+          this.#socket.unshift(chunk.subarray(max));
+          return chunk.subarray(0, max);
         }
-        p.set(chunk);
-        return chunk.length;
+        return chunk;
       }
       if (this.#ended || this.#socket.readableEnded) return null; // peer FIN
       if (this.#socket.destroyed) {
-        // Locally destroyed under a pending read: never a fake EOS — the
-        // Deno path throws BadResource here; both map to invalid-state.
+        // Locally destroyed under a pending read: never a fake EOS — maps
+        // onto invalid-state.
         throw codedError("ERR_STREAM_DESTROYED", "socket closed under a pending read");
       }
       await new Promise<void>((resolve) => {
@@ -495,15 +483,8 @@ interface NodeTcpServer {
   on(event: string, listener: (...args: unknown[]) => void): unknown;
 }
 
-interface NodeNetServerModule {
-  createServer(
-    options: { allowHalfOpen: boolean },
-    handler: (socket: NodeTcpSocket) => void,
-  ): NodeTcpServer;
-}
-
 function nodeTcpListen(): TcpListen | undefined {
-  const net = nodeBuiltin("node:net") as NodeNetServerModule | undefined;
+  const net = nodeBuiltin("node:net") as NodeNetModule | undefined;
   if (net === undefined) return undefined;
   return ({ hostname, port }) => {
     const queue: NodeTcpSocket[] = [];
@@ -531,11 +512,24 @@ function nodeTcpListen(): TcpListen | undefined {
       }
       queue.push(socket);
     });
+    // The deferred OS bind (module header): 'listening' or 'error' arrive
+    // one tick after listen(). `settled` is created eagerly (with a no-op
+    // catch so an unobserved rejection cannot escape) and the provider
+    // awaits it inside its suspending `listen`.
+    let settle!: () => void;
+    let fail!: (e: unknown) => void;
+    const settledOnce = new Promise<void>((resolve, reject) => {
+      settle = resolve;
+      fail = reject;
+    });
+    settledOnce.catch(() => {
+      // Observed via settled(); this guard only prevents an unhandled
+      // rejection if the provider never gets the chance.
+    });
+    server.on("listening", () => settle());
     server.on("error", (...args: unknown[]) => {
-      // Server-level errors are fatal: with a specific host the bind is
-      // DEFERRED on node (module header), so this is also where a
-      // deferred EADDRINUSE lands.
       failure = args[0];
+      fail(args[0]);
       failWaiters(args[0]);
     });
     server.listen({ port, host: hostname });
@@ -546,6 +540,9 @@ function nodeTcpListen(): TcpListen | undefined {
         return a === null
           ? null
           : { transport: "tcp", hostname: a.address, port: a.port };
+      },
+      settled(): Promise<void> {
+        return settledOnce;
       },
       accept(): Promise<TcpConn> {
         if (failure !== undefined) return Promise.reject(failure);

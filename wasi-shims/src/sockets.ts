@@ -1,12 +1,16 @@
-// `wasi:sockets/types@0.3` — UDP and client TCP, served over the native
-// socket APIs of Deno (`Deno.listenDatagram` / `Deno.connect`) or Node
-// (`node:dgram` / `node:net` — real Node, and Bun via its node compat;
-// backend selection in sockets_platform.ts). À la carte (issue #4): this
-// module is a separate export (`@deltic/wasi-shims/sockets`), never
-// merged into `wasiShims()` — the baseline package stays host-agnostic
-// web-platform code, while this fragment is server-JS-native by nature
-// (browsers have no sockets; wasmtime owns the native story). Consumers
-// that want it spread it in:
+// `wasi:sockets/types@0.3` — UDP and TCP (client + listener), served
+// over ONE backend: the node builtins (`node:dgram` / `node:net`), which
+// real Node provides natively, Deno serves as STABLE node-compat (no
+// `--unstable-net` needed — that flag gates only the native API's shape,
+// not the capability), and Bun reaches through its compat (findings-only;
+// JSC lacks multi-memory, so deltic guests cannot run there regardless).
+// Backend rationale, adapters, and measured costs: sockets_platform.ts.
+//
+// À la carte (issue #4): this module is a separate export
+// (`@deltic/wasi-shims/sockets`), never merged into `wasiShims()` — the
+// baseline package stays host-agnostic web-platform code, while this
+// fragment is server-JS-native by nature (browsers have no sockets;
+// wasmtime owns the native story). Consumers that want it spread it in:
 //
 //   instantiate(artifacts, { ...wasiShims(), ...sockets().imports })
 //
@@ -16,10 +20,10 @@
 // one provider serves every 0.3.x), the fragment-scoped `onCall` hook
 // replacing a module-global call log (a published provider must not grow a
 // string per datagram by default), and `globalThis`-based feature detection
-// (the module evaluates and answers honestly on hosts with no `Deno` at
-// all). The TCP provider serves the client surface the wosh listener
-// bridges through (its `listener-core/src/tcp.rs` — issue #4's prospective
-// consumer) and the smoke-c0 leg-4 composed-websocket shopping list.
+// (the module evaluates and answers honestly on any host). The TCP client
+// surface is what the wosh listener bridges through (its
+// `listener-core/src/tcp.rs` — issue #4's prospective consumer) and the
+// smoke-c0 leg-4 composed-websocket shopping list names.
 //
 // The implemented resource shapes (0.3.x WIT; the surfaces the known
 // consumers actually link):
@@ -59,18 +63,18 @@
 // wildcard address; an omitted `send` remote is `invalid-argument` on this
 // connectionless surface), and the same address-family validation (an
 // IPv4-mapped or deprecated IPv4-compatible IPv6 address never crosses a
-// family boundary). Recorded divergences, rooted in the JS platforms
-// exposing no socket options:
+// family boundary). Recorded divergences, rooted in the platform exposing
+// no socket options:
 //
-//   * scope-id: a non-zero IPv6 `scope-id` fails `not-supported` (the
-//     backends' hostnames cannot carry a zone; wasmtime binds it).
-//   * v6-only: wasmtime sets IPV6_V6ONLY on IPv6 sockets; both backends
-//     leave the OS default, so an `::` wildcard bind on Linux is
-//     dual-stack and may receive IPv4 traffic, surfaced as IPv4-mapped
-//     sender addresses — which is also why the address codec parses the
-//     `::ffff:a.b.c.d` spelling.
-//   * node only: unread datagrams queue in the adapter (node's receive
-//     path is push-shaped) and tail-drop past a bound — the kernel-buffer
+//   * scope-id: a non-zero IPv6 `scope-id` fails `not-supported` (node
+//     hostnames cannot carry a zone; wasmtime binds it).
+//   * v6-only: wasmtime sets IPV6_V6ONLY on IPv6 sockets; node leaves the
+//     OS default, so an `::` wildcard bind on Linux is dual-stack and may
+//     receive IPv4 traffic, surfaced as IPv4-mapped sender addresses —
+//     which is also why the address codec parses the `::ffff:a.b.c.d`
+//     spelling.
+//   * unread datagrams queue in the adapter (node's receive path is
+//     push-shaped) and tail-drop past a bound — the kernel-buffer
 //     analogue; see sockets_platform.ts `MAX_QUEUED_DATAGRAMS`.
 //
 // TCP (the TcpSocketOperationalSemantics-0.3.0 state machine): `connect`
@@ -93,28 +97,28 @@
 // failures while consuming `send`'s stream (a peer trap) are NOT socket
 // errors: they propagate as producer failures on the host-failure channel.
 //
+// `listen` is SUSPENDING (embedder-api A1/A2 — the wasi:io `block`
+// kernel): node defers the OS bind one event-loop turn, so `listen` parks
+// the calling guest frame for that tick and returns fully settled — real
+// ephemeral addresses from `get-local-address`, real error codes
+// (`address-in-use`) from a failed bind. Guests that link `listen`
+// auto-select jspi mode on JSPI engines (V8: Deno, Node, Chromium);
+// client-shaped guests are untouched.
+//
 // Recorded TCP divergences:
 //
-//   * `bind` records the address; the OS bind is DEFERRED to `listen`
-//     (neither backend can bind an unconnected socket), so
-//     `address-in-use` surfaces at `listen`, not `bind`.
-//   * `connect` from a `bound` socket is `not-supported` (`Deno.connect`
-//     has no local-address option; kept on node too, for backend parity).
-//   * node backend only: `server.listen` defers the OS bind for specific
-//     hosts, so right after `listen` the local address of an
-//     EPHEMERAL-port listener is briefly unknowable (`get-local-address`
-//     fails `other` until the bind completes; fixed-port requests answer
-//     immediately), and a deferred bind failure closes the accept stream
-//     instead of failing `listen` with its `error-code`.
+//   * `bind` records the address; the OS bind is DEFERRED to `listen` or
+//     `connect` (node cannot bind an unconnected socket), so bind errors
+//     (`address-in-use`, `address-not-bindable`) surface at those calls —
+//     with their real codes — not at `bind`.
 //
-// When no backend serves an API (no `Deno` global and no node builtins;
-// on Deno additionally the `net` unstable feature off for UDP —
-// `Deno.listenDatagram` needs `--unstable-net`, while `Deno.connect` is
-// stable), `create` fails `error-code.not-supported` — the honest
-// capability answer. On Deno both providers need `--allow-net`; a denied
-// permission maps to `access-denied`.
+// When the node builtins are absent (`process.getBuiltinModule` missing —
+// a browser), `create` fails `error-code.not-supported` — the honest
+// capability answer. On Deno the providers need `--allow-net`; a denied
+// permission arrives as `Deno.errors.NotCapable` through the compat layer
+// and maps to `access-denied`.
 
-import { ComponentException, Stream } from "@deltic/runtime/embedder";
+import { ComponentException, Stream, suspending } from "@deltic/runtime/embedder";
 
 /** `wasi:sockets/types@0.3`'s `ip-address-family` enum. */
 export type IpAddressFamily = "ipv4" | "ipv6";
@@ -534,7 +538,7 @@ export type TcpAcceptStream = AsyncIterable<TcpSocket> & { cancel(): void };
 export interface TcpSocket {
   bind(localAddress: IpSocketAddress): void;
   connect(remoteAddress: IpSocketAddress): Promise<void>;
-  listen(): TcpAcceptStream;
+  listen(): Promise<TcpAcceptStream>;
   send(data: TcpSendSource): Promise<SocketResult>;
   receive(): [TcpByteStream, Promise<SocketResult>];
   getLocalAddress(): IpSocketAddress;
@@ -580,8 +584,7 @@ export function sockets(options: SocketsOptions = {}): SocketsShim {
       if (listenDatagram() === undefined) {
         throw componentError(
           { kind: "not-supported" },
-          "udp-socket.create: this host provides no datagram sockets " +
-            "(no Deno.listenDatagram — it needs the `net` unstable feature — and no node:dgram)",
+          "udp-socket.create: this host provides no datagram sockets (no node:dgram)",
         );
       }
       return new UdpSocket(addressFamily);
@@ -688,11 +691,10 @@ export function sockets(options: SocketsOptions = {}): SocketsShim {
           "udp-socket.receive: the socket is not bound",
         );
       }
-      // A fresh buffer per call: concurrent receives on one socket are legal,
-      // and Deno's default buffer size is not contractual.
-      const buffer = new Uint8Array(MAX_UDP_DATAGRAM_SIZE);
       try {
-        const [payload, from] = await this.#conn.receive(buffer);
+        // Each datagram arrives as its own exactly-sized buffer; nothing
+        // the OS delivers is ever truncated (whole-datagram semantics).
+        const [payload, from] = await this.#conn.receive();
         return [payload, parseNetAddr(from)];
       } catch (e) {
         throw mapPlatformError(e, "udp-socket.receive");
@@ -771,18 +773,17 @@ export function sockets(options: SocketsOptions = {}): SocketsShim {
       if (tcpConnect() === undefined) {
         throw componentError(
           { kind: "not-supported" },
-          "tcp-socket.create: this host provides no TCP sockets " +
-            "(no Deno.connect and no node:net)",
+          "tcp-socket.create: this host provides no TCP sockets (no node:net)",
         );
       }
       return new TcpSocket(addressFamily);
     }
 
     /**
-     * Records the local address; the OS bind is DEFERRED to `listen`
-     * (recorded divergence: neither backend can bind a socket it has not
-     * yet connected or listened — so `address-in-use` surfaces at
-     * `listen`, and `connect` from a bound socket is `not-supported`).
+     * Records the local address; the OS bind is DEFERRED to `listen` or
+     * `connect` (recorded divergence: node cannot bind a socket it has
+     * not yet connected or listened — so `address-in-use` and friends
+     * surface at those calls, with their real codes).
      */
     bind(localAddress: IpSocketAddress): void {
       onCall("tcp-socket.bind");
@@ -801,7 +802,7 @@ export function sockets(options: SocketsOptions = {}): SocketsShim {
       if (localAddress.kind === "ipv6" && localAddress.value.scopeId !== 0) {
         throw componentError(
           { kind: "not-supported" },
-          "tcp-socket.bind: non-zero scope-id (not expressible through the backends)",
+          "tcp-socket.bind: non-zero scope-id (not expressible through node addresses)",
         );
       }
       this.#localRequest = localAddress;
@@ -810,19 +811,7 @@ export function sockets(options: SocketsOptions = {}): SocketsShim {
 
     async connect(remoteAddress: IpSocketAddress): Promise<void> {
       onCall("tcp-socket.connect");
-      if (this.#state === "bound") {
-        // Neither backend can dial from a chosen local address
-        // (`Deno.connect` has no local-address option; kept on node too,
-        // for backend parity) — recorded divergence: the WIT allows
-        // connect-from-bound.
-        throw componentError(
-          { kind: "not-supported" },
-          "tcp-socket.connect: connecting from a bound socket (a " +
-            "local-address binding) is not supported by this provider; " +
-            "connect from an unbound socket",
-        );
-      }
-      if (this.#state !== "unbound") {
+      if (this.#state !== "unbound" && this.#state !== "bound") {
         // Includes `closed` after a failed attempt: "A single socket can
         // not be used to connect more than once."
         throw componentError(
@@ -844,7 +833,7 @@ export function sockets(options: SocketsOptions = {}): SocketsShim {
       if (remoteAddress.kind === "ipv6" && remoteAddress.value.scopeId !== 0) {
         throw componentError(
           { kind: "not-supported" },
-          "tcp-socket.connect: non-zero scope-id (not expressible through Deno addresses)",
+          "tcp-socket.connect: non-zero scope-id (not expressible through node addresses)",
         );
       }
       const connect = tcpConnect();
@@ -854,6 +843,12 @@ export function sockets(options: SocketsOptions = {}): SocketsShim {
           "tcp-socket: the TCP backend disappeared after create",
         );
       }
+      // Connect-from-bound: `bind` recorded the local address; the OS
+      // bind happens here, as part of the dial (`net.connect`'s
+      // localAddress/localPort) — so bind errors (address-in-use,
+      // address-not-bindable) surface at connect, the deferred-bind
+      // divergence the module header records.
+      const local = this.#localRequest;
       this.#state = "connecting";
       let conn: TcpConn;
       try {
@@ -861,6 +856,10 @@ export function sockets(options: SocketsOptions = {}): SocketsShim {
           transport: "tcp",
           hostname: ipHostname(remoteAddress),
           port: remoteAddress.value.port,
+          ...(local === undefined ? {} : {
+            localHostname: ipHostname(local),
+            localPort: local.value.port,
+          }),
         });
       } catch (e) {
         // "After a failed connection attempt, the socket will be in the
@@ -891,14 +890,25 @@ export function sockets(options: SocketsOptions = {}): SocketsShim {
      * whose elements are connected `TcpSocket` resources (lowered as
      * `own<tcp-socket>` — amendment A13 destroys any element the guest
      * never takes, closing that accepted connection). An unbound socket
-     * implicitly binds to the family wildcard with an ephemeral port. The
-     * stream only ends on fatal errors — the listener dying (including
-     * the node backend's DEFERRED bind failing; on that backend the
-     * `error-code` of a bad bind is lost to the closure, a recorded
-     * divergence) — while per-connection accept failures are skipped, per
-     * the WIT's implementors note.
+     * implicitly binds to the family wildcard with an ephemeral port.
+     *
+     * SUSPENDING (embedder-api A1/A2, the wasi:io `block` kernel): the OS
+     * bind is deferred one event-loop turn by `net.Server.listen` (module
+     * header), so this async method awaits the settle and the runtime
+     * parks the calling guest frame for that one tick. Full listener
+     * fidelity follows: `get-local-address` is real immediately after,
+     * and a failed bind is a branded err with its real code
+     * (address-in-use, …). Guests that link `listen` auto-select jspi
+     * mode on JSPI engines; engines without JSPI would raise `NeedsJspi`
+     * here — currently moot everywhere deltic guests run (JSC lacks
+     * multi-memory, and browsers have no sockets).
+     *
+     * The stream only ends on fatal errors — the listener dying — while
+     * per-connection accept failures are skipped, per the WIT's
+     * implementors note.
      */
-    listen(): TcpAcceptStream {
+    @suspending
+    async listen(): Promise<TcpAcceptStream> {
       onCall("tcp-socket.listen");
       if (this.#state !== "unbound" && this.#state !== "bound") {
         throw componentError(
@@ -910,21 +920,19 @@ export function sockets(options: SocketsOptions = {}): SocketsShim {
       if (listen === undefined) {
         throw componentError(
           { kind: "not-supported" },
-          "tcp-socket.listen: this host provides no TCP listeners " +
-            "(no Deno.listen and no node:net)",
+          "tcp-socket.listen: this host provides no TCP listeners (no node:net)",
         );
       }
       const local = this.#localRequest ?? wildcardAddress(this.#family);
-      let listener: TcpListener;
+      const listener = listen({
+        transport: "tcp",
+        hostname: ipHostname(local),
+        port: local.value.port,
+      });
       try {
-        listener = listen({
-          transport: "tcp",
-          hostname: ipHostname(local),
-          port: local.value.port,
-        });
+        await listener.settled(); // the one-tick park (doc comment above)
       } catch (e) {
-        // The Deno backend binds synchronously, so address-in-use and
-        // friends surface right here with their real codes.
+        listener.close();
         this.#state = "closed";
         throw mapPlatformError(e, "tcp-socket.listen");
       }
@@ -1046,22 +1054,21 @@ export function sockets(options: SocketsOptions = {}): SocketsShim {
       const source = (async function* (): AsyncGenerator<Uint8Array> {
         try {
           for (;;) {
-            // A fresh buffer per read: the yielded chunk is borrowed by
-            // the rendezvous until the peer takes it (A5), so it must not
-            // be reused underneath.
-            const buf = new Uint8Array(TCP_RECEIVE_CHUNK);
-            let n: number | null;
+            // The chunk is node's own buffer (no copy); it is borrowed by
+            // the rendezvous until the peer takes it (A5), which is safe —
+            // each read hands back a distinct buffer.
+            let chunk: Uint8Array | null;
             try {
-              n = await conn.read(buf);
+              chunk = await conn.read(TCP_RECEIVE_CHUNK);
             } catch (e) {
               settle(resultErrOf(e, "tcp-socket.receive"));
               return;
             }
-            if (n === null) {
+            if (chunk === null) {
               settle(RESULT_OK); // graceful FIN from the peer
               return;
             }
-            if (n > 0) yield buf.subarray(0, n);
+            if (chunk.length > 0) yield chunk;
           }
         } finally {
           settle(RESULT_OK); // no-op if already settled (resolve is once)
@@ -1076,17 +1083,12 @@ export function sockets(options: SocketsOptions = {}): SocketsShim {
       if (this.#state === "listening" && this.#listener !== undefined) {
         const addr = this.#listener.addr;
         if (addr !== null) return parseNetAddr(addr);
-        // The node backend defers the OS bind (sockets_platform.ts): a
-        // fixed-port request is answerable already (it will be exactly
-        // that, or the accept stream closes); an ephemeral request is
-        // genuinely unknown until the bind completes — a recorded
-        // node-backend divergence.
-        const req = this.#localRequest;
-        if (req !== undefined && req.value.port !== 0) return req;
+        // Unreachable in practice: `listen` awaited the settle, after
+        // which the listener reports its address. Kept as an honest err
+        // rather than a non-null assertion.
         throw componentError(
-          { kind: "other", value: "the local address is not available yet (this backend defers binds)" },
-          "tcp-socket.get-local-address: the node backend has not completed " +
-            "the deferred bind; retry after the first accept, or bind a fixed port",
+          { kind: "invalid-state" },
+          "tcp-socket.get-local-address: the listener reported no address",
         );
       }
       if (this.#conn === undefined) {

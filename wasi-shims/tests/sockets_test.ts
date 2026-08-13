@@ -294,30 +294,34 @@ Deno.test("errors: a non-zero scope-id is not-supported (recorded divergence)", 
   }
 });
 
-Deno.test("errors: create without Deno.listenDatagram is not-supported", () => {
-  // The capability answer a UDP-less deployment gives (a browser host, or
-  // Deno without --unstable-net).
-  const ns = Deno as { listenDatagram?: unknown };
-  const saved = ns.listenDatagram;
-  ns.listenDatagram = undefined;
+/** Hide the node builtins from detection (the only backend), restore after. */
+function withoutBuiltins<T>(fn: () => T): T {
+  const proc = (globalThis as { process?: { getBuiltinModule?: unknown } }).process!;
+  const saved = proc.getBuiltinModule;
+  proc.getBuiltinModule = undefined;
   try {
-    assertEq(errKind(() => UdpSocket.create("ipv4")), "not-supported");
+    return fn();
   } finally {
-    ns.listenDatagram = saved;
+    proc.getBuiltinModule = saved;
   }
+}
+
+Deno.test("errors: create without node:dgram is not-supported", () => {
+  // The capability answer a socketless deployment (a browser) gives.
+  withoutBuiltins(() => {
+    assertEq(errKind(() => UdpSocket.create("ipv4")), "not-supported");
+  });
 });
 
 Deno.test("errors: capability re-detection at bind survives the error mapper", () => {
   // The branded not-supported from the disappeared-after-create path must
   // pass through mapPlatformError unchanged, not demote to `other`.
   const socket = UdpSocket.create("ipv4");
-  const ns = Deno as { listenDatagram?: unknown };
-  const saved = ns.listenDatagram;
-  ns.listenDatagram = undefined;
   try {
-    assertEq(errKind(() => socket.bind(v4([127, 0, 0, 1], 0))), "not-supported");
+    withoutBuiltins(() => {
+      assertEq(errKind(() => socket.bind(v4([127, 0, 0, 1], 0))), "not-supported");
+    });
   } finally {
-    ns.listenDatagram = saved;
     dispose(socket);
   }
 });
