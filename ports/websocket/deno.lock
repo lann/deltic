@@ -18,7 +18,7 @@
   "workspace": {
     "links": {
       "jsr:@deltic/ct-runner@0.1.0": {},
-      "jsr:@deltic/protocol@0.1.0": {},
+      "jsr:@deltic/protocol@0.2.0": {},
       "jsr:@deltic/runtime@0.1.0": {},
       "jsr:@deltic/translator@0.1.0": {},
       "jsr:@deltic/wasi-shims@0.1.0": {}

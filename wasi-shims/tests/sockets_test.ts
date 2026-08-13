@@ -347,8 +347,12 @@ Deno.test("fragment: registered under the track key; onCall observes the driving
   const calls: string[] = [];
   const fragment = sockets({ onCall: (c) => calls.push(c) });
   assertEq(SOCKETS_TYPES_INTERFACE, "wasi:sockets/types@0.3");
-  const iface = fragment.imports[SOCKETS_TYPES_INTERFACE] as { UdpSocket: typeof UdpSocket };
+  const iface = fragment.imports[SOCKETS_TYPES_INTERFACE] as {
+    UdpSocket: typeof UdpSocket;
+    TcpSocket: unknown;
+  };
   assertEq(iface.UdpSocket, fragment.UdpSocket);
+  assertEq(iface.TcpSocket, fragment.TcpSocket);
   const socket = fragment.UdpSocket.create("ipv4");
   try {
     socket.bind(v4([127, 0, 0, 1], 0));

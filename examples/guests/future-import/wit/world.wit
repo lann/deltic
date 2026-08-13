@@ -1,0 +1,33 @@
+package deltic:future-import;
+
+/// Probes for host IMPORTS whose results carry `future`s — the
+/// `wasi:sockets@0.3` TCP shapes (`send: func(stream<u8>) -> future<…>`,
+/// `receive: func() -> tuple<stream<u8>, future<…>>`), reduced to plain
+/// `u32` payloads. The load-bearing property: these are SYNC WIT functions
+/// whose returned future settles LATER — possibly only after further guest
+/// action — so the host's import must return the future immediately, not
+/// park the call on it (contracts/embedder-api.md amendment A12).
+world future-import {
+  /// The bare shape: a sync import returning a future the host resolves on
+  /// its own schedule.
+  import next-value: func() -> future<u32>;
+
+  /// The `tcp-socket.send` shape: the host consumes the stream and settles
+  /// the returned future only after the stream ends. The guest writes the
+  /// stream AFTER this import returns — the livelock probe: it can only
+  /// make progress if the import completed without parking the task.
+  import send-sink: func(data: stream<u8>) -> future<u32>;
+
+  /// The `tcp-socket.receive` shape: a sync import returning a stream and
+  /// a future the host settles when the stream's producer finishes.
+  import recv-pair: func() -> tuple<stream<u8>, future<u32>>;
+
+  /// `next-value()`, awaited.
+  export run-next: async func() -> u32;
+  /// Streams `n` bytes of value 1 into `send-sink` (written after the
+  /// import call returns), then awaits the returned future.
+  export run-send: async func(n: u32) -> u32;
+  /// Drains `recv-pair`'s stream (summing the bytes), awaits the future;
+  /// returns (sum, future-value).
+  export run-recv: async func() -> tuple<u32, u32>;
+}

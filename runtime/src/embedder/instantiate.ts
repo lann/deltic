@@ -758,6 +758,22 @@ class Facade {
         return fail(e, args);
       }
       if (isThenable(out)) {
+        // Amendment A12: when the WIT result type is `future<T>`, a thenable
+        // return IS the future source ("for `future<T>`, a `Promise<T>` or
+        // `Future<T>`" — §"Streams and futures"), not the call's async
+        // completion. The import completes immediately with the lowered
+        // future; the producer settles it on its own schedule. Without this,
+        // the natural spelling of the wasi:sockets 0.3 TCP `send` shape —
+        // `func(data: stream<u8>) -> future<result>`, an async method whose
+        // promise resolves when transmission completes — would park the
+        // call, and a future whose settlement depends on post-return guest
+        // action (the guest writes `data` AFTER `send` returns) livelocks.
+        // This branch also covers a returned `Future` handle, which is a
+        // PromiseLike and would otherwise be adopted and mis-lowered.
+        if (resultType !== null && resultType.kind === "future") {
+          scope.end();
+          return ok(out);
+        }
         return (out as PromiseLike<unknown>).then(
           (v) => {
             scope.end();
