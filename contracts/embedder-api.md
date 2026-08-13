@@ -47,7 +47,11 @@ host-import settlements are serviced by a settlement pump while no export
 call is in flight, so background tasks parked on host-call wakeups (clocks,
 fetches) progress without embedder traffic — embedder-never-acts operations
 still hang (never trap) and failures still surface on the next driving
-call.**
+call; amendment A12 (2026-08-12) makes result-position future sources
+normative for imports: an import whose WIT result type is `future<T>`
+treats a thenable return as the FUTURE SOURCE (the import completes
+immediately; the future settles on the producer's schedule) — see
+§"Streams and futures".**
 This document supersedes `descriptor-ir.md`'s interim
 "host value mapping" table as the destination for host-facing value shapes.
 The runtime's *raw* boundary (`instance.exports`, `HostImports`) keeps the
@@ -469,6 +473,26 @@ class DroppedError extends Error { … }    // awaiting a dropped future rejects
   deadlock-masking activity-lifetime footgun — R-fix review note 2), and
   cross-store reuse is a runtime-asserted error, not silent misbehavior
   (note 3).
+- **An import whose WIT result type is `future<T>` returns the future
+  source** (amendment A12, 2026-08-12). A thenable returned by the host
+  method — a `Promise<T>` or a `Future<T>` handle — is lowered as the
+  future itself: the import call completes immediately, and the future
+  settles on the producer's schedule. It is **not** adopted as the call's
+  async completion (the pre-A12 dispatch behavior, under which a sync-typed
+  import returning a Promise was a JSPI park request — and under which a
+  `Future` handle, being `PromiseLike`, was silently awaited and
+  re-lowered). The natural spelling of the `wasi:sockets@0.3` TCP `send`
+  shape — `send: func(data: stream<u8>) -> future<result<_, error-code>>`
+  as an `async` JS method whose promise resolves when transmission
+  completes — depends on this: the future settles only after post-return
+  guest action (the guest writes `data` after `send` returns), so adopting
+  the thenable is a livelock, not a semantics choice. A **rejected**
+  future-source promise stays a producer failure on the host-failure
+  channel (site-named, surfacing on the consuming call — same as every
+  producer), never a guest-visible err value: a fallible payload rides
+  *inside* the future (`future<result<…>>`), resolved as a result value.
+  Executable spec: `examples/guests/future-import` +
+  `runtime/tests/embedder/future_result_test.ts`.
 - **Stream values survive round trips** (amendment A5). A `stream`/`future`
   is an identity: lifting one that the host already handled — a
   host-created stream a guest passed back (result or import position), or
