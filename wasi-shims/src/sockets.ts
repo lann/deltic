@@ -1,23 +1,25 @@
-// `wasi:sockets/types@0.3` — the UDP direct path, served for real over
-// `Deno.listenDatagram`. À la carte (issue #4): this module is a separate
+// `wasi:sockets/types@0.3` — UDP over `Deno.listenDatagram` and client TCP
+// over `Deno.connect`. À la carte (issue #4): this module is a separate
 // export (`@deltic/wasi-shims/sockets`), never merged into `wasiShims()` —
 // the baseline package stays host-agnostic web-platform code, while this
-// fragment is Deno-native by nature (browsers have no UDP; wasmtime owns
-// the native story). Consumers that want the direct path spread it in:
+// fragment is Deno-native by nature (browsers have no sockets; wasmtime
+// owns the native story). Consumers that want it spread it in:
 //
 //   instantiate(artifacts, { ...wasiShims(), ...sockets().imports })
 //
-// Adopted from polymorph-components/polymorph-iroh#69 (that host's exam
-// drives it over loopback QUIC); divergences from the adopted code are
-// the track key (`@0.3`, per this package's conventions — one provider
-// serves every 0.3.x), the fragment-scoped `onCall` hook replacing a
-// module-global call log (a published provider must not grow a string per
-// datagram by default), and `globalThis`-based feature detection (the
-// module evaluates and answers honestly on hosts with no `Deno` at all).
+// The UDP provider is adopted from polymorph-components/polymorph-iroh#69
+// (that host's exam drives it over loopback QUIC); divergences from the
+// adopted code are the track key (`@0.3`, per this package's conventions —
+// one provider serves every 0.3.x), the fragment-scoped `onCall` hook
+// replacing a module-global call log (a published provider must not grow a
+// string per datagram by default), and `globalThis`-based feature detection
+// (the module evaluates and answers honestly on hosts with no `Deno` at
+// all). The TCP provider serves the client surface the wosh listener
+// bridges through (its `listener-core/src/tcp.rs` — issue #4's prospective
+// consumer) and the smoke-c0 leg-4 composed-websocket shopping list.
 //
-// The resource shape below is the one the iroh endpoint component actually
-// links (transcribed from the artifact's own embedded WIT, which agrees
-// with upstream `wit/deps/wasi-sockets`):
+// The implemented resource shapes (0.3.x WIT; the surfaces the known
+// consumers actually link):
 //
 //   resource udp-socket {
 //     create: static func(address-family: ip-address-family) -> result<udp-socket, error-code>;
@@ -26,24 +28,38 @@
 //     receive: async func() -> result<tuple<list<u8>, ip-socket-address>, error-code>;
 //     get-local-address: func() -> result<ip-socket-address, error-code>;
 //   }
+//   resource tcp-socket {
+//     create: static func(address-family: ip-address-family) -> result<tcp-socket, error-code>;
+//     connect: async func(remote-address: ip-socket-address) -> result<_, error-code>;
+//     send: func(data: stream<u8>) -> future<result<_, error-code>>;
+//     receive: func() -> tuple<stream<u8>, future<result<_, error-code>>>;
+//     get-local-address: func() -> result<ip-socket-address, error-code>;
+//     get-remote-address: func() -> result<ip-socket-address, error-code>;
+//     get-address-family: func() -> ip-address-family;
+//     get-is-listening: func() -> bool;
+//   }
 //
-// That five-function surface is also exactly what this module implements:
-// the runtime dispatches only the functions a component's plan imports, so
-// the unlinked remainder of the WIT resource (connect/disconnect, socket
+// That is also exactly what this module implements: the runtime dispatches
+// only the functions a component's plan imports, so the unlinked remainder
+// of the WIT resources (udp connect/disconnect, tcp bind/listen, socket
 // options) stays absent, and a future guest that links more fails loudly
 // with a trap naming the missing method rather than riding an untested
-// emulation.
+// emulation. In particular tcp `bind` and `listen` are deliberately absent
+// rather than partial: `Deno.connect` cannot bind a local address, and the
+// accept path (`listen: func() -> result<stream<tcp-socket>, error-code>`,
+// a stream of resources) stays with issue #4 until a consumer links it.
 //
 // The behavioral yardstick is wasmtime-wasi's p3 provider (the consumers'
-// wasmtime hosts serve the same guests through it): the same 64 KiB
-// datagram ceiling, the same state machine (`bind` once from unbound;
-// `receive` and `get-local-address` demand a bound socket; `send` to a
-// remote implicitly binds an unbound socket to a wildcard address; an
-// omitted `send` remote is `invalid-argument` on this connectionless
-// surface), and the same address-family validation (an IPv4-mapped or
-// deprecated IPv4-compatible IPv6 address never crosses a family
-// boundary). Recorded divergences, both rooted in `Deno.listenDatagram`
-// exposing no socket options:
+// wasmtime hosts serve the same guests through it).
+//
+// UDP: the same 64 KiB datagram ceiling, the same state machine (`bind`
+// once from unbound; `receive` and `get-local-address` demand a bound
+// socket; `send` to a remote implicitly binds an unbound socket to a
+// wildcard address; an omitted `send` remote is `invalid-argument` on this
+// connectionless surface), and the same address-family validation (an
+// IPv4-mapped or deprecated IPv4-compatible IPv6 address never crosses a
+// family boundary). Recorded divergences, both rooted in
+// `Deno.listenDatagram` exposing no socket options:
 //
 //   * scope-id: a non-zero IPv6 `scope-id` fails `not-supported` (Deno
 //     hostnames cannot carry a zone; wasmtime binds it).
@@ -53,12 +69,29 @@
 //     which is also why the address codec parses the `::ffff:a.b.c.d`
 //     spelling.
 //
-// When `Deno.listenDatagram` is absent (no `Deno` global, or the `net`
-// unstable feature off — it needs `--unstable-net` or deno.json
-// `"unstable": ["net"]`), `create` fails `error-code.not-supported` — the
-// honest capability answer a UDP-less deployment gives.
+// TCP (the TcpSocketOperationalSemantics-0.3.0 state machine, client
+// half): `connect` once from `unbound` (a failed attempt closes the
+// socket); `send`/`receive` once each, only when `connected`, and their
+// failures NEVER throw — `send`'s error channel is its returned future
+// (amendment A12: the async method's promise IS the future source) and
+// `receive`'s is the future half of its tuple, resolved as result values.
+// Stream teardown follows the WIT's shared-ownership note: the OS socket
+// closes only when the resource handle AND both pumps are done, so
+// send/receive streams remain functional after the guest drops the
+// `tcp-socket` handle. The receive stream ends (cleanly, no fake data) on
+// BOTH graceful FIN and abnormal close; the two are distinguished by the
+// future (`ok` vs `err`), exactly as the WIT documents. Guest-side
+// failures while consuming `send`'s stream (a peer trap) are NOT socket
+// errors: they propagate as producer failures on the host-failure channel.
+//
+// When the needed API is absent (no `Deno` global; for UDP additionally
+// the `net` unstable feature off — `Deno.listenDatagram` needs
+// `--unstable-net`, while `Deno.connect` is stable), `create` fails
+// `error-code.not-supported` — the honest capability answer. Both
+// providers need `--allow-net`; a denied permission maps to
+// `access-denied`.
 
-import { ComponentException } from "@deltic/runtime/embedder";
+import { ComponentException, Stream } from "@deltic/runtime/embedder";
 
 /** `wasi:sockets/types@0.3`'s `ip-address-family` enum. */
 export type IpAddressFamily = "ipv4" | "ipv6";
@@ -139,16 +172,17 @@ function componentError(
   );
 }
 
-// --- the unstable Deno surface, typed structurally ---------------------------
+// --- the Deno surface, typed structurally -------------------------------------
 //
 // `Deno.listenDatagram` is unstable, so its declarations are absent from
 // the stable type surface this package checks against; and on a non-Deno
-// host the `Deno` global is absent entirely. Both are handled the same
-// way: the surface is typed structurally here and looked up through
-// `globalThis` at call time, so the module never assumes the API at
-// evaluation and `create` can answer `not-supported` truthfully.
+// host the `Deno` global is absent entirely (`Deno.connect` is stable, but
+// the global still is not). Both are handled the same way: the surface is
+// typed structurally here and looked up through `globalThis` at call time,
+// so the module never assumes the API at evaluation and `create` can
+// answer `not-supported` truthfully.
 
-/** The address shape `Deno.listenDatagram` speaks (structural `Deno.NetAddr`). */
+/** The address shape Deno's socket APIs speak (structural `Deno.NetAddr`). */
 export interface NetAddr {
   transport?: string;
   hostname: string;
@@ -168,6 +202,22 @@ type ListenDatagram = (options: {
   port: number;
 }) => DatagramConn;
 
+/** Structural `Deno.TcpConn` — the slice this provider drives. */
+interface TcpConn {
+  readonly localAddr: NetAddr;
+  readonly remoteAddr: NetAddr;
+  read(p: Uint8Array): Promise<number | null>;
+  write(p: Uint8Array): Promise<number>;
+  closeWrite(): Promise<void>;
+  close(): void;
+}
+
+type TcpConnect = (options: {
+  transport: "tcp";
+  hostname: string;
+  port: number;
+}) => Promise<TcpConn>;
+
 function denoNamespace(): Record<string, unknown> | undefined {
   const deno = (globalThis as { Deno?: unknown }).Deno;
   return typeof deno === "object" && deno !== null
@@ -178,6 +228,11 @@ function denoNamespace(): Record<string, unknown> | undefined {
 function listenDatagram(): ListenDatagram | undefined {
   const fn = denoNamespace()?.listenDatagram;
   return typeof fn === "function" ? (fn as ListenDatagram) : undefined;
+}
+
+function tcpConnect(): TcpConnect | undefined {
+  const fn = denoNamespace()?.connect;
+  return typeof fn === "function" ? (fn as TcpConnect) : undefined;
 }
 
 // --- address codec ------------------------------------------------------------
@@ -355,8 +410,36 @@ export function mapPlatformError(e: unknown, what: string): ComponentException<S
   if (isDenoError(e, "NotSupported")) return err({ kind: "not-supported" });
   // EMSGSIZE surfaces as a plain Error, not a Deno.errors class.
   if (/message too long/i.test(message)) return err({ kind: "datagram-too-large" });
+  // EPIPE (a write on a peer-closed connection) also surfaces as a plain
+  // Error in Deno.
+  if (/broken pipe/i.test(message)) return err({ kind: "connection-broken" });
   if (e instanceof TypeError) return err({ kind: "invalid-argument" });
   return err({ kind: "other", value: message });
+}
+
+// --- result values -------------------------------------------------------------
+//
+// TCP `send`/`receive` report failures through `future<result<_,
+// error-code>>` — a result AS A VALUE (contracts/embedder-api.md §"Type
+// mapping"), not a throw: the functions themselves are infallible in WIT,
+// so a branded throw would be a trap, and an UNRESOLVED future would be a
+// hang. These helpers build the `{ kind, value }` result family.
+
+/** `result<_, error-code>` as a value (the payload of tcp send/receive futures). */
+export type SocketResult =
+  | { kind: "ok" }
+  | { kind: "err"; value: SocketErrorCode };
+
+const RESULT_OK: SocketResult = { kind: "ok" };
+
+const RESULT_INVALID_STATE: SocketResult = {
+  kind: "err",
+  value: { kind: "invalid-state" },
+};
+
+/** The err side of a `SocketResult`, mapped from a platform failure. */
+function resultErrOf(e: unknown, what: string): SocketResult {
+  return { kind: "err", value: mapPlatformError(e, what).payload };
 }
 
 // --- the fragment --------------------------------------------------------------
@@ -364,7 +447,7 @@ export function mapPlatformError(e: unknown, what: string): ComponentException<S
 export interface SocketsOptions {
   /**
    * Observe every `wasi:sockets` entry point the guest reaches, in call
-   * order (`"udp-socket.create"`, `"udp-socket.bind"`, …). For host-side
+   * order (`"udp-socket.create"`, `"tcp-socket.connect"`, …). For host-side
    * test assertions — a relay-only scenario can assert zero calls, an exam
    * can read back the guest's exact driving sequence. No default cost: when
    * absent, nothing is recorded.
@@ -392,13 +475,54 @@ export interface UdpSocketClass {
   create(addressFamily: IpAddressFamily): UdpSocket;
 }
 
+/**
+ * What tcp `send` accepts: the lifted `Stream<u8>` handle the runtime
+ * dispatches (its async iterator yields `Uint8Array` chunks), or any
+ * natural byte-chunk producer for direct/test use.
+ */
+export type TcpSendSource =
+  | Stream<number>
+  | AsyncIterable<Uint8Array | number[]>
+  | Iterable<Uint8Array | number[]>;
+
+/** What tcp `receive` returns in stream position: chunks of bytes. */
+export type TcpByteStream = AsyncIterable<Uint8Array> | Iterable<Uint8Array>;
+
+/**
+ * The host-implemented `tcp-socket` resource surface (the client half —
+ * module header). `send` is a WIT sync func returning `future<result>`:
+ * the async method's promise is lowered as the future source (amendment
+ * A12), so the guest's call returns immediately and the future settles
+ * when transmission completes. `receive`'s tuple carries the byte stream
+ * and the future that reports FIN (`ok`) vs abnormal close (`err`).
+ * Dropping the guest handle does NOT close a socket with live pumps
+ * (the WIT's shared-ownership note); the OS socket closes when the handle
+ * and both pumps are all retired.
+ */
+export interface TcpSocket {
+  connect(remoteAddress: IpSocketAddress): Promise<void>;
+  send(data: TcpSendSource): Promise<SocketResult>;
+  receive(): [TcpByteStream, Promise<SocketResult>];
+  getLocalAddress(): IpSocketAddress;
+  getRemoteAddress(): IpSocketAddress;
+  getAddressFamily(): IpAddressFamily;
+  getIsListening(): boolean;
+  [Symbol.dispose](): void;
+}
+
+/** The `tcp-socket` resource class a fragment carries. */
+export interface TcpSocketClass {
+  create(addressFamily: IpAddressFamily): TcpSocket;
+}
+
 export const SOCKETS_TYPES_INTERFACE = "wasi:sockets/types@0.3";
 
-/** What `sockets()` returns: the imports fragment plus the fragment's class. */
+/** What `sockets()` returns: the imports fragment plus the fragment's classes. */
 export interface SocketsShim {
   imports: Record<string, unknown>;
-  /** This fragment's resource class (exposed for direct/test use). */
+  /** This fragment's resource classes (exposed for direct/test use). */
   UdpSocket: UdpSocketClass;
+  TcpSocket: TcpSocketClass;
 }
 
 /**
@@ -577,8 +701,279 @@ export function sockets(options: SocketsOptions = {}): SocketsShim {
     }
   }
 
+  class TcpSocket {
+    #family: IpAddressFamily;
+    #state: "unbound" | "connecting" | "connected" | "closed" = "unbound";
+    #conn: TcpConn | undefined;
+    #sendCalled = false;
+    #receiveCalled = false;
+    /**
+     * Shared-ownership references (WIT: "The OS socket is closed only
+     * after the last handle is dropped"): the resource handle plus each
+     * live pump. The conn closes at zero — so a live send or receive
+     * stream keeps the socket open past the guest dropping the handle.
+     */
+    #refs = 1;
+    #handleDropped = false;
+
+    private constructor(family: IpAddressFamily) {
+      this.#family = family;
+    }
+
+    static create(addressFamily: IpAddressFamily): TcpSocket {
+      onCall("tcp-socket.create");
+      if (tcpConnect() === undefined) {
+        throw componentError(
+          { kind: "not-supported" },
+          "tcp-socket.create: this host provides no TCP sockets " +
+            "(Deno.connect is unavailable)",
+        );
+      }
+      return new TcpSocket(addressFamily);
+    }
+
+    async connect(remoteAddress: IpSocketAddress): Promise<void> {
+      onCall("tcp-socket.connect");
+      if (this.#state !== "unbound") {
+        // Includes `closed` after a failed attempt: "A single socket can
+        // not be used to connect more than once."
+        throw componentError(
+          { kind: "invalid-state" },
+          `tcp-socket.connect: not connectable from the '${this.#state}' state`,
+        );
+      }
+      if (
+        !isValidAddressFamily(this.#family, remoteAddress) ||
+        isUnspecified(remoteAddress) ||
+        remoteAddress.value.port === 0
+      ) {
+        throw componentError(
+          { kind: "invalid-argument" },
+          "tcp-socket.connect: the remote address must be a specific unicast " +
+            `address and non-zero port in the socket's family (${this.#family})`,
+        );
+      }
+      if (remoteAddress.kind === "ipv6" && remoteAddress.value.scopeId !== 0) {
+        throw componentError(
+          { kind: "not-supported" },
+          "tcp-socket.connect: non-zero scope-id (not expressible through Deno addresses)",
+        );
+      }
+      const connect = tcpConnect();
+      if (connect === undefined) {
+        throw componentError(
+          { kind: "not-supported" },
+          "tcp-socket: Deno.connect disappeared after create",
+        );
+      }
+      this.#state = "connecting";
+      let conn: TcpConn;
+      try {
+        conn = await connect({
+          transport: "tcp",
+          hostname: ipHostname(remoteAddress),
+          port: remoteAddress.value.port,
+        });
+      } catch (e) {
+        // "After a failed connection attempt, the socket will be in the
+        // `closed` state and the only valid action left is to `drop`".
+        this.#state = "closed";
+        throw mapPlatformError(e, "tcp-socket.connect");
+      }
+      if (this.#state !== "connecting") {
+        // Disposed while the dial was in flight: nothing owns the fresh
+        // conn — close it rather than leak it.
+        try {
+          conn.close();
+        } catch {
+          // Already closed.
+        }
+        throw componentError(
+          { kind: "invalid-state" },
+          "tcp-socket.connect: the socket was dropped during connect",
+        );
+      }
+      this.#conn = conn;
+      this.#state = "connected";
+    }
+
+    /**
+     * WIT: `send: func(data: stream<u8>) -> future<result<_, error-code>>`
+     * — a sync func; the returned promise is the future source (A12).
+     * NEVER throws: the function has no error channel of its own, so every
+     * failure — including the state-machine ones — resolves the future as
+     * an err value. The argument stream is dropped on failure so its
+     * guest-side writer settles instead of parking forever.
+     */
+    send(data: TcpSendSource): Promise<SocketResult> {
+      onCall("tcp-socket.send");
+      if (this.#state !== "connected" || this.#sendCalled || this.#conn === undefined) {
+        dropSendSource(data);
+        return Promise.resolve(RESULT_INVALID_STATE);
+      }
+      this.#sendCalled = true;
+      return this.#sendPump(this.#conn, data);
+    }
+
+    async #sendPump(conn: TcpConn, data: TcpSendSource): Promise<SocketResult> {
+      this.#refs++;
+      try {
+        // Guest-side iteration failures (a peer trap while reading the
+        // lifted stream) are deliberately NOT caught: they are not socket
+        // errors, and the rejection rides the producer-failure channel.
+        for await (const chunk of data as AsyncIterable<Uint8Array | number[]>) {
+          const bytes = chunk instanceof Uint8Array ? chunk : Uint8Array.from(chunk);
+          let at = 0;
+          while (at < bytes.length) {
+            let n: number;
+            try {
+              n = await conn.write(bytes.subarray(at));
+            } catch (e) {
+              dropSendSource(data);
+              return resultErrOf(e, "tcp-socket.send");
+            }
+            at += n;
+          }
+        }
+        // End of the guest's stream ("the caller should close the stream
+        // when it has no more data"): shutdown(SHUT_WR) — the FIN. The
+        // future resolves ok only once the full contents are transmitted.
+        try {
+          await conn.closeWrite();
+        } catch (e) {
+          return resultErrOf(e, "tcp-socket.send");
+        }
+        return RESULT_OK;
+      } finally {
+        this.#release();
+      }
+    }
+
+    /**
+     * WIT: `receive: func() -> tuple<stream<u8>, future<result<_,
+     * error-code>>>`. NEVER throws; a not-connected or repeat call returns
+     * a closed stream and an already-err future, per the WIT. The stream
+     * ends cleanly (never fake data) on BOTH graceful FIN and abnormal
+     * close — the future distinguishes them (`ok` vs `err`). Dropping the
+     * stream's reader (guest SHUT_RD) stops the pump, discards queued
+     * data, and settles the future ok — the canceller is the observer
+     * (the same logic as embedder-api A8's cancelRead ruling).
+     */
+    receive(): [TcpByteStream, Promise<SocketResult>] {
+      onCall("tcp-socket.receive");
+      if (this.#state !== "connected" || this.#receiveCalled || this.#conn === undefined) {
+        return [[], Promise.resolve(RESULT_INVALID_STATE)];
+      }
+      this.#receiveCalled = true;
+      const conn = this.#conn;
+      this.#refs++;
+      let settle!: (v: SocketResult) => void;
+      const done = new Promise<SocketResult>((r) => (settle = r));
+      const release = (): void => this.#release();
+      const source = (async function* (): AsyncGenerator<Uint8Array> {
+        try {
+          for (;;) {
+            // A fresh buffer per read: the yielded chunk is borrowed by
+            // the rendezvous until the peer takes it (A5), so it must not
+            // be reused underneath.
+            const buf = new Uint8Array(TCP_RECEIVE_CHUNK);
+            let n: number | null;
+            try {
+              n = await conn.read(buf);
+            } catch (e) {
+              settle(resultErrOf(e, "tcp-socket.receive"));
+              return;
+            }
+            if (n === null) {
+              settle(RESULT_OK); // graceful FIN from the peer
+              return;
+            }
+            if (n > 0) yield buf.subarray(0, n);
+          }
+        } finally {
+          settle(RESULT_OK); // no-op if already settled (resolve is once)
+          release();
+        }
+      })();
+      return [source, done];
+    }
+
+    getLocalAddress(): IpSocketAddress {
+      onCall("tcp-socket.get-local-address");
+      if (this.#conn === undefined) {
+        throw componentError(
+          { kind: "invalid-state" },
+          "tcp-socket.get-local-address: the socket is not bound",
+        );
+      }
+      return parseNetAddr(this.#conn.localAddr);
+    }
+
+    getRemoteAddress(): IpSocketAddress {
+      onCall("tcp-socket.get-remote-address");
+      if (this.#state !== "connected" || this.#conn === undefined) {
+        throw componentError(
+          { kind: "invalid-state" },
+          "tcp-socket.get-remote-address: the socket is not connected",
+        );
+      }
+      return parseNetAddr(this.#conn.remoteAddr);
+    }
+
+    getAddressFamily(): IpAddressFamily {
+      onCall("tcp-socket.get-address-family");
+      return this.#family;
+    }
+
+    getIsListening(): boolean {
+      onCall("tcp-socket.get-is-listening");
+      // `listen` is deliberately not implemented (module header), so no
+      // socket this provider mints is ever in the `listening` state.
+      return false;
+    }
+
+    [Symbol.dispose](): void {
+      if (this.#handleDropped) return;
+      this.#handleDropped = true;
+      if (this.#state === "unbound" || this.#state === "connecting") {
+        // An in-flight dial observes this and closes its fresh conn.
+        this.#state = "closed";
+      }
+      this.#release();
+    }
+
+    #release(): void {
+      this.#refs--;
+      if (this.#refs === 0) {
+        const conn = this.#conn;
+        this.#conn = undefined;
+        if (conn !== undefined) {
+          try {
+            conn.close();
+          } catch {
+            // Already closed.
+          }
+        }
+      }
+    }
+  }
+
   return {
-    imports: { [SOCKETS_TYPES_INTERFACE]: { UdpSocket } },
+    imports: { [SOCKETS_TYPES_INTERFACE]: { UdpSocket, TcpSocket } },
     UdpSocket,
+    TcpSocket,
   };
+}
+
+/** How many bytes one tcp receive read asks the OS for. */
+const TCP_RECEIVE_CHUNK = 16384;
+
+/**
+ * Abandon tcp send's input when the operation fails: a lifted `Stream`
+ * handle is dropped so the guest's writer settles ("reader went away")
+ * instead of parking forever; other producer shapes are cleaned up by the
+ * iteration protocol itself (`for await`'s abrupt-exit `return()`).
+ */
+function dropSendSource(data: TcpSendSource): void {
+  if (data instanceof Stream) data.drop();
 }
