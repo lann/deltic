@@ -23,6 +23,7 @@ import {
   type SocketErrorCode,
   type SocketResult,
   sockets,
+  type TcpSocket as TcpSocketType,
 } from "../src/sockets.ts";
 import { forceNodeBackendForTests } from "../src/sockets_platform.ts";
 import { assertEq, assertRejects, assertThrows, assertTrue } from "./asserts.ts";
@@ -301,4 +302,127 @@ Deno.test("node tcp: a write on a peer-closed connection settles the send future
   } finally {
     await new Promise<void>((r) => closer.close(() => r()));
   }
+});
+
+// --- tcp listen over node:net ----------------------------------------------------
+
+interface NodeClientModule {
+  connect(options: { host: string; port: number; allowHalfOpen: boolean }): NodeTestSocket & {
+    once(event: string, listener: (...args: unknown[]) => void): unknown;
+  };
+}
+const nodeNetClient = (process as unknown as {
+  getBuiltinModule: (name: string) => unknown;
+}).getBuiltinModule("node:net") as NodeClientModule;
+
+/** One settle tick: node's server.listen defers the OS bind (recorded divergence). */
+function settled(): Promise<void> {
+  return new Promise((r) => setTimeout(r, 10));
+}
+
+Deno.test("node tcp listen: deferred bind — ephemeral local address is briefly unknowable", async () => {
+  await onNodeBackend(async () => {
+    const socket = TcpSocket.create("ipv4");
+    socket.bind(v4([127, 0, 0, 1], 0));
+    const stream = socket.listen();
+    // THE recorded divergence: immediately after listen, an ephemeral
+    // request has no answer yet — a branded `other`, not a wrong address.
+    assertEq(errKind(() => socket.getLocalAddress()), "other");
+    await settled();
+    const addr = socket.getLocalAddress(); // the OS answer, one tick later
+    assertTrue(addr.kind === "ipv4" && addr.value.port !== 0, "ephemeral port assigned");
+    stream.cancel();
+    for await (const s of stream) s[Symbol.dispose]();
+    socket[Symbol.dispose]();
+  });
+});
+
+Deno.test("node tcp listen: a fixed-port request answers get-local-address immediately", async () => {
+  await onNodeBackend(async () => {
+    // Find a free port first (bind ephemeral, read it back, retire).
+    const probe = TcpSocket.create("ipv4");
+    probe.bind(v4([127, 0, 0, 1], 0));
+    const probeStream = probe.listen();
+    await settled();
+    const free = probe.getLocalAddress();
+    probeStream.cancel();
+    for await (const s of probeStream) s[Symbol.dispose]();
+    probe[Symbol.dispose]();
+
+    const socket = TcpSocket.create("ipv4");
+    socket.bind(free);
+    const stream = socket.listen();
+    // No tick needed: the request is the answer (or the stream closes).
+    assertEq(JSON.stringify(socket.getLocalAddress()), JSON.stringify(free));
+    stream.cancel();
+    for await (const s of stream) s[Symbol.dispose]();
+    socket[Symbol.dispose]();
+  });
+});
+
+Deno.test("node tcp listen: accept + echo through an accepted socket", async () => {
+  await onNodeBackend(async () => {
+    const socket = TcpSocket.create("ipv4");
+    const stream = socket.listen(); // implicit wildcard-ephemeral bind
+    await settled();
+    const addr = socket.getLocalAddress();
+    const port = addr.kind === "ipv4" ? addr.value.port : 0;
+
+    // Raw node client dials in.
+    const client = nodeNetClient.connect({ host: "127.0.0.1", port, allowHalfOpen: true });
+    const clientDone = new Promise<number[]>((resolve) => {
+      const got: number[] = [];
+      client.on("data", (...args) => got.push(...(args[0] as Uint8Array)));
+      client.on("end", () => resolve(got));
+    });
+    client.once("connect", () => {
+      client.write(Uint8Array.from([1, 2, 3]));
+      client.end(); // FIN: the accepted socket sees EOS
+    });
+
+    const it = stream[Symbol.asyncIterator]();
+    const first = await it.next();
+    assertEq(first.done, false);
+    const accepted = first.value as TcpSocketType;
+    const [rx, rxDone] = accepted.receive();
+    const got: number[] = [];
+    for await (const chunk of rx as AsyncIterable<Uint8Array>) got.push(...chunk);
+    assertEq(JSON.stringify(got), JSON.stringify([1, 2, 3]));
+    assertEq((await rxDone).kind, "ok");
+    const txDone = accepted.send((async function* () {
+      yield Uint8Array.from([4, 5]);
+    })());
+    assertEq((await txDone).kind, "ok");
+    assertEq(JSON.stringify(await clientDone), JSON.stringify([4, 5]));
+
+    accepted[Symbol.dispose]();
+    stream.cancel();
+    for await (const s of stream) s[Symbol.dispose]();
+    socket[Symbol.dispose]();
+  });
+});
+
+Deno.test("node tcp listen: a deferred bind failure closes the accept stream (recorded divergence)", async () => {
+  await onNodeBackend(async () => {
+    const first = TcpSocket.create("ipv4");
+    first.bind(v4([127, 0, 0, 1], 0));
+    const firstStream = first.listen();
+    await settled();
+    const taken = first.getLocalAddress();
+
+    const second = TcpSocket.create("ipv4");
+    second.bind(taken);
+    // On the deferred-bind backend listen() cannot fail synchronously; the
+    // EADDRINUSE arrives as the accept stream closing (the error-code is
+    // lost to the closure — the divergence this test pins).
+    const stream = second.listen();
+    const accepted: unknown[] = [];
+    for await (const s of stream) accepted.push(s);
+    assertEq(accepted.length, 0, "the stream closed without ever accepting");
+    second[Symbol.dispose]();
+
+    firstStream.cancel();
+    for await (const s of firstStream) s[Symbol.dispose]();
+    first[Symbol.dispose]();
+  });
 });

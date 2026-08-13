@@ -222,7 +222,66 @@ async function main(): Promise<void> {
   }
 
   const version = (globalThis as unknown as { process: { version: string } }).process.version;
-  console.log(`sockets node smoke: OK (udp + tcp on ${version})`);
+  // --- tcp listen: deferred bind, accept, echo, cancellation -------------------
+  {
+    const socket = TcpSocket.create("ipv4");
+    socket.bind(v4([127, 0, 0, 1], 0));
+    const stream = socket.listen();
+    // The recorded node divergence: an ephemeral local address is briefly
+    // unknowable (branded `other`), then real one tick later.
+    let early = "";
+    try {
+      socket.getLocalAddress();
+    } catch (e) {
+      early = errKindOf(e);
+    }
+    assertEq(early, "other", "tcp listen: deferred-bind divergence");
+    await new Promise((r) => setTimeout(r, 10));
+    const addr = socket.getLocalAddress();
+    assert(addr.kind === "ipv4" && addr.value.port !== 0, "tcp listen: ephemeral port");
+    assert(socket.getIsListening(), "tcp listen: get-is-listening");
+
+    const client = (nodeNet as unknown as {
+      connect(o: { host: string; port: number; allowHalfOpen: boolean }): NodeTestSocket & {
+        once(event: string, listener: (...args: unknown[]) => void): unknown;
+      };
+    }).connect({
+      host: "127.0.0.1",
+      port: addr.kind === "ipv4" ? addr.value.port : 0,
+      allowHalfOpen: true,
+    });
+    const clientGot = new Promise<number[]>((resolve) => {
+      const got: number[] = [];
+      client.on("data", (...args) => got.push(...(args[0] as Uint8Array)));
+      client.on("end", () => resolve(got));
+    });
+    client.once("connect", () => {
+      client.write(Uint8Array.from([1, 2, 3]));
+      client.end();
+    });
+
+    const it = stream[Symbol.asyncIterator]();
+    const first = await it.next();
+    assert(first.done === false, "tcp listen: an accept arrived");
+    const accepted = first.value!;
+    const [rx, rxDone] = accepted.receive();
+    assertEq(await collect(rx), [1, 2, 3], "tcp listen: accepted receive");
+    assertEq((await rxDone).kind, "ok", "tcp listen: accepted receive future");
+    assertEq(
+      (await accepted.send(chunksOf([4, 5]))).kind,
+      "ok",
+      "tcp listen: accepted send future",
+    );
+    assertEq(await clientGot, [4, 5], "tcp listen: echo reached the client");
+    accepted[Symbol.dispose]();
+
+    // A13 producer cancellation: retire the parked accept loop.
+    stream.cancel();
+    for await (const s of stream) s[Symbol.dispose]();
+    socket[Symbol.dispose]();
+  }
+
+  console.log(`sockets node smoke: OK (udp + tcp + listen on ${version})`);
 }
 
 main().catch((e) => {

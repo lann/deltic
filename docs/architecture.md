@@ -90,8 +90,9 @@ contracts throughout the repo. Related documents:
   separate deliverable; consumer-driven scope: p2 cli/io/clocks/random
   baseline + p3 clocks, plus an à la carte p3 `wasi:sockets` fragment
   (`@deltic/wasi-shims/sockets` — UDP adopted from polymorph-iroh's Deno
-  host, client TCP for the wosh consumer; native backends for Deno and
-  Node, [#4](https://github.com/lann/deltic/issues/4)) that server-JS
+  host, TCP client + listener (the wosh consumer / the A13
+  resource-stream accept path); native backends for Deno and Node,
+  [#4](https://github.com/lann/deltic/issues/4)) that server-JS
   hosts opt into and the default `wasiShims()` never carries).
 - **Componentizing JS/TS.** Guests are components built by external toolchains
   (Rust + wit-bindgen is the reference). No embedded-JS-engine work.
