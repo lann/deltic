@@ -16,7 +16,7 @@ ci: (gha::core) (gha::browser)
 # Includes the consumer smokes CI cannot run (they need the polymorph
 # checkouts; docs/consumers.md).
 # The full pre-commit pass (AGENTS.md "Gates"): everything.
-gates: build test-rust test-protocol test-runtime test-wasi-shims test-ct-runner test-bundle publish-check examples test-translate conformance sched-seeds test-ports test-webrtc shells browsers websocket-conformance smoke-tls smoke-c0
+gates: build test-rust test-protocol test-runtime test-wasi-shims test-sockets-node test-ct-runner test-bundle publish-check examples test-translate conformance sched-seeds test-ports test-webrtc shells browsers websocket-conformance smoke-tls smoke-c0
 
 # Fast sanity: builds + native tests + type-checks, no suites.
 check: build test-rust
@@ -87,6 +87,16 @@ test-protocol:
 
 test-wasi-shims:
     cd wasi-shims && deno task test
+
+# The sockets fragment's node backend on REAL pinned Node (the fake-node
+# tests inside test-wasi-shims cover the same logic under Deno's
+# node-compat; this lane covers the genuine platform and the real
+# no-`Deno`-global detection path). `deno bundle` resolves the workspace
+# imports into one self-contained ESM file; tests/dist/ is gitignored.
+test-sockets-node:
+    deno run -A tools/shell/fetch.ts node-pinned
+    deno bundle --platform browser --format esm -o wasi-shims/tests/dist/node_smoke.mjs wasi-shims/tests/node_smoke.ts
+    .shell-cache/node-pinned/bin/node wasi-shims/tests/dist/node_smoke.mjs
 
 test-ct-runner: shim fixtures
     cd ct-runner && deno task test

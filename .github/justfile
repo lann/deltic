@@ -54,6 +54,7 @@ core:
     @just gha::_step test-runtime
     @just gha::_step test-protocol
     @just gha::_step test-wasi-shims
+    @just gha::_step test-sockets-node
     @just gha::_step test-ct-runner
     @just gha::_step test-bundle
     @just gha::_step publish-check

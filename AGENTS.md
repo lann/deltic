@@ -37,6 +37,7 @@ just build test-rust      # cargo build --workspace; translator-shim/bindgen/tes
 just test-runtime         # runtime check + tests (deps: shim, fixtures, corpus)
 just test-protocol
 just test-wasi-shims test-ct-runner
+just test-sockets-node    # sockets fragment's node backend on pinned Node
 just test-bundle          # embedder-bundle release asset
 just publish-check        # deno publish --dry-run: the JSR publish checks, no upload
 just examples test-translate  # embedder examples; build-time translation CLI
