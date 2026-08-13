@@ -1,0 +1,24 @@
+[package]
+name = "guest-tcp-echo"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# `async` (default) provides the guest-side task executor and
+# stream/future support; `async-spawn` backs the detached echo-server task
+# (it must keep serving between export calls).
+wit-bindgen = { version = "=0.60.0", features = ["async-spawn"] }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = "debuginfo"
+
+# Opt out of the repository's root cargo workspace.
+[workspace]
