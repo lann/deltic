@@ -2,10 +2,11 @@
 // C2 checklist item 7): the executable check that the embedder conventions
 // (`@deltic/runtime/embedder`) serve WASI. Scope: p2 baseline +
 // p3 clocks (mission scope; wasi:http deferred). p3 sockets (UDP + client
-// TCP) is à la carte at `@deltic/wasi-shims/sockets` (issue #4;
-// Deno-native hosts only) — deliberately not merged here: this root
-// module stays host-agnostic web-platform code, and `wasiShims()` never
-// grows a fragment whose honest answer on most hosts is `not-supported`.
+// TCP, native Deno and Node backends) is à la carte at
+// `@deltic/wasi-shims/sockets` (issue #4; server-JS hosts only) —
+// deliberately not merged here: this root module stays host-agnostic
+// web-platform code, and `wasiShims()` never grows a fragment whose
+// honest answer on most hosts is `not-supported`.
 //
 // `wasiShims(options)` returns one flat imports-record fragment, keyed by
 // compatibility-**track** keys per contracts/embedder-api.md §"Version

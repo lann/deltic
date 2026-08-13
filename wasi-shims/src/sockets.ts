@@ -1,9 +1,12 @@
-// `wasi:sockets/types@0.3` — UDP over `Deno.listenDatagram` and client TCP
-// over `Deno.connect`. À la carte (issue #4): this module is a separate
-// export (`@deltic/wasi-shims/sockets`), never merged into `wasiShims()` —
-// the baseline package stays host-agnostic web-platform code, while this
-// fragment is Deno-native by nature (browsers have no sockets; wasmtime
-// owns the native story). Consumers that want it spread it in:
+// `wasi:sockets/types@0.3` — UDP and client TCP, served over the native
+// socket APIs of Deno (`Deno.listenDatagram` / `Deno.connect`) or Node
+// (`node:dgram` / `node:net` — real Node, and Bun via its node compat;
+// backend selection in sockets_platform.ts). À la carte (issue #4): this
+// module is a separate export (`@deltic/wasi-shims/sockets`), never
+// merged into `wasiShims()` — the baseline package stays host-agnostic
+// web-platform code, while this fragment is server-JS-native by nature
+// (browsers have no sockets; wasmtime owns the native story). Consumers
+// that want it spread it in:
 //
 //   instantiate(artifacts, { ...wasiShims(), ...sockets().imports })
 //
@@ -47,7 +50,10 @@
 // emulation. In particular tcp `bind` and `listen` are deliberately absent
 // rather than partial: `Deno.connect` cannot bind a local address, and the
 // accept path (`listen: func() -> result<stream<tcp-socket>, error-code>`,
-// a stream of resources) stays with issue #4 until a consumer links it.
+// a stream of resources) stays with issue #4 until a consumer links it —
+// both remain absent on the node backend too, for provider parity across
+// backends (node:net could express them; a consumer linking them reopens
+// that on #4).
 //
 // The behavioral yardstick is wasmtime-wasi's p3 provider (the consumers'
 // wasmtime hosts serve the same guests through it).
@@ -58,16 +64,19 @@
 // wildcard address; an omitted `send` remote is `invalid-argument` on this
 // connectionless surface), and the same address-family validation (an
 // IPv4-mapped or deprecated IPv4-compatible IPv6 address never crosses a
-// family boundary). Recorded divergences, both rooted in
-// `Deno.listenDatagram` exposing no socket options:
+// family boundary). Recorded divergences, rooted in the JS platforms
+// exposing no socket options:
 //
-//   * scope-id: a non-zero IPv6 `scope-id` fails `not-supported` (Deno
-//     hostnames cannot carry a zone; wasmtime binds it).
-//   * v6-only: wasmtime sets IPV6_V6ONLY on IPv6 sockets; Deno leaves the
-//     OS default, so an `::` wildcard bind on Linux is dual-stack and may
-//     receive IPv4 traffic, surfaced as IPv4-mapped sender addresses —
-//     which is also why the address codec parses the `::ffff:a.b.c.d`
-//     spelling.
+//   * scope-id: a non-zero IPv6 `scope-id` fails `not-supported` (the
+//     backends' hostnames cannot carry a zone; wasmtime binds it).
+//   * v6-only: wasmtime sets IPV6_V6ONLY on IPv6 sockets; both backends
+//     leave the OS default, so an `::` wildcard bind on Linux is
+//     dual-stack and may receive IPv4 traffic, surfaced as IPv4-mapped
+//     sender addresses — which is also why the address codec parses the
+//     `::ffff:a.b.c.d` spelling.
+//   * node only: unread datagrams queue in the adapter (node's receive
+//     path is push-shaped) and tail-drop past a bound — the kernel-buffer
+//     analogue; see sockets_platform.ts `MAX_QUEUED_DATAGRAMS`.
 //
 // TCP (the TcpSocketOperationalSemantics-0.3.0 state machine, client
 // half): `connect` once from `unbound` (a failed attempt closes the
@@ -84,12 +93,12 @@
 // failures while consuming `send`'s stream (a peer trap) are NOT socket
 // errors: they propagate as producer failures on the host-failure channel.
 //
-// When the needed API is absent (no `Deno` global; for UDP additionally
-// the `net` unstable feature off — `Deno.listenDatagram` needs
-// `--unstable-net`, while `Deno.connect` is stable), `create` fails
-// `error-code.not-supported` — the honest capability answer. Both
-// providers need `--allow-net`; a denied permission maps to
-// `access-denied`.
+// When no backend serves an API (no `Deno` global and no node builtins;
+// on Deno additionally the `net` unstable feature off for UDP —
+// `Deno.listenDatagram` needs `--unstable-net`, while `Deno.connect` is
+// stable), `create` fails `error-code.not-supported` — the honest
+// capability answer. On Deno both providers need `--allow-net`; a denied
+// permission maps to `access-denied`.
 
 import { ComponentException, Stream } from "@deltic/runtime/embedder";
 
@@ -172,68 +181,26 @@ function componentError(
   );
 }
 
-// --- the Deno surface, typed structurally -------------------------------------
+// --- the platform seam ----------------------------------------------------------
 //
-// `Deno.listenDatagram` is unstable, so its declarations are absent from
-// the stable type surface this package checks against; and on a non-Deno
-// host the `Deno` global is absent entirely (`Deno.connect` is stable, but
-// the global still is not). Both are handled the same way: the surface is
-// typed structurally here and looked up through `globalThis` at call time,
-// so the module never assumes the API at evaluation and `create` can
-// answer `not-supported` truthfully.
+// Backends and detection live in sockets_platform.ts: Deno-native APIs
+// whenever a `Deno` global exists (`Deno.listenDatagram` needs
+// `--unstable-net`; `Deno.connect` is stable), node builtins
+// (`node:dgram`/`node:net` via `process.getBuiltinModule`) otherwise —
+// real Node, and Bun through its node compat. Everything is looked up
+// through `globalThis` at call time, so the module never assumes a
+// platform at evaluation and `create` answers `not-supported` truthfully
+// on hosts with neither backend.
 
-/** The address shape Deno's socket APIs speak (structural `Deno.NetAddr`). */
-export interface NetAddr {
-  transport?: string;
-  hostname: string;
-  port: number;
-}
+import {
+  type DatagramConn,
+  listenDatagram,
+  type NetAddr,
+  type TcpConn,
+  tcpConnect,
+} from "./sockets_platform.ts";
 
-interface DatagramConn {
-  readonly addr: NetAddr;
-  send(p: Uint8Array, addr: NetAddr): Promise<number>;
-  receive(p?: Uint8Array): Promise<[Uint8Array, NetAddr]>;
-  close(): void;
-}
-
-type ListenDatagram = (options: {
-  transport: "udp";
-  hostname: string;
-  port: number;
-}) => DatagramConn;
-
-/** Structural `Deno.TcpConn` — the slice this provider drives. */
-interface TcpConn {
-  readonly localAddr: NetAddr;
-  readonly remoteAddr: NetAddr;
-  read(p: Uint8Array): Promise<number | null>;
-  write(p: Uint8Array): Promise<number>;
-  closeWrite(): Promise<void>;
-  close(): void;
-}
-
-type TcpConnect = (options: {
-  transport: "tcp";
-  hostname: string;
-  port: number;
-}) => Promise<TcpConn>;
-
-function denoNamespace(): Record<string, unknown> | undefined {
-  const deno = (globalThis as { Deno?: unknown }).Deno;
-  return typeof deno === "object" && deno !== null
-    ? (deno as Record<string, unknown>)
-    : undefined;
-}
-
-function listenDatagram(): ListenDatagram | undefined {
-  const fn = denoNamespace()?.listenDatagram;
-  return typeof fn === "function" ? (fn as ListenDatagram) : undefined;
-}
-
-function tcpConnect(): TcpConnect | undefined {
-  const fn = denoNamespace()?.connect;
-  return typeof fn === "function" ? (fn as TcpConnect) : undefined;
-}
+export type { NetAddr };
 
 // --- address codec ------------------------------------------------------------
 
@@ -370,7 +337,9 @@ function isUnspecified(addr: IpSocketAddress): boolean {
 
 /** `e instanceof Deno.errors[name]`, tolerating hosts/versions lacking the class. */
 function isDenoError(e: unknown, name: string): boolean {
-  const errors = denoNamespace()?.errors;
+  const deno = (globalThis as { Deno?: unknown }).Deno;
+  if (typeof deno !== "object" || deno === null) return false;
+  const errors = (deno as Record<string, unknown>).errors;
   if (typeof errors !== "object" || errors === null) return false;
   const cls = (errors as Record<string, unknown>)[name];
   return typeof cls === "function" &&
@@ -378,8 +347,40 @@ function isDenoError(e: unknown, name: string): boolean {
 }
 
 /**
+ * Node-style `err.code` -> WIT `error-code` (the node backend's whole
+ * error vocabulary, and a sharper channel than Deno's classes where both
+ * exist). The `ERR_*` rows are the adapters' closed-under-a-pending-op
+ * signals, mirroring what Deno's BadResource maps to.
+ */
+const CODE_ERRORS: Record<string, SocketErrorCode> = {
+  EADDRINUSE: { kind: "address-in-use" },
+  EADDRNOTAVAIL: { kind: "address-not-bindable" },
+  ECONNREFUSED: { kind: "connection-refused" },
+  ECONNRESET: { kind: "connection-reset" },
+  ECONNABORTED: { kind: "connection-aborted" },
+  EHOSTUNREACH: { kind: "remote-unreachable" },
+  EHOSTDOWN: { kind: "remote-unreachable" },
+  ENETUNREACH: { kind: "remote-unreachable" },
+  ENETDOWN: { kind: "remote-unreachable" },
+  ENONET: { kind: "remote-unreachable" },
+  EACCES: { kind: "access-denied" },
+  EPERM: { kind: "access-denied" },
+  ETIMEDOUT: { kind: "timeout" },
+  EMSGSIZE: { kind: "datagram-too-large" },
+  EPIPE: { kind: "connection-broken" },
+  EINVAL: { kind: "invalid-argument" },
+  ENOTSUP: { kind: "not-supported" },
+  EOPNOTSUPP: { kind: "not-supported" },
+  ERR_SOCKET_DGRAM_NOT_RUNNING: { kind: "invalid-state" },
+  ERR_STREAM_DESTROYED: { kind: "invalid-state" },
+  ERR_STREAM_WRITE_AFTER_END: { kind: "invalid-state" },
+};
+
+/**
  * Map a platform failure onto the WIT `error-code` vocabulary, mirroring
- * wasmtime-wasi's io-error table where Deno exposes the distinction. An
+ * wasmtime-wasi's io-error table where the platform exposes the
+ * distinction — Deno's error classes first, then Node-style `code`
+ * strings, then the plain-`Error` spellings Deno leaves unclassified. An
  * already-branded error passes through unchanged — the codec and the
  * capability re-detection throw branded errors from inside the same try
  * blocks that guard the platform calls, and re-wrapping one would demote
@@ -408,6 +409,8 @@ export function mapPlatformError(e: unknown, what: string): ComponentException<S
     return err({ kind: "invalid-state" });
   }
   if (isDenoError(e, "NotSupported")) return err({ kind: "not-supported" });
+  const code = (e as { code?: unknown } | null)?.code;
+  if (typeof code === "string" && code in CODE_ERRORS) return err(CODE_ERRORS[code]);
   // EMSGSIZE surfaces as a plain Error, not a Deno.errors class.
   if (/message too long/i.test(message)) return err({ kind: "datagram-too-large" });
   // EPIPE (a write on a peer-closed connection) also surfaces as a plain
@@ -547,7 +550,7 @@ export function sockets(options: SocketsOptions = {}): SocketsShim {
         throw componentError(
           { kind: "not-supported" },
           "udp-socket.create: this host provides no datagram sockets " +
-            "(Deno.listenDatagram is unavailable; it needs the `net` unstable feature)",
+            "(no Deno.listenDatagram — it needs the `net` unstable feature — and no node:dgram)",
         );
       }
       return new UdpSocket(addressFamily);
@@ -694,7 +697,7 @@ export function sockets(options: SocketsOptions = {}): SocketsShim {
       if (listen === undefined) {
         throw componentError(
           { kind: "not-supported" },
-          "udp-socket: Deno.listenDatagram disappeared after create",
+          "udp-socket: the datagram backend disappeared after create",
         );
       }
       return listen(opts);
@@ -726,7 +729,7 @@ export function sockets(options: SocketsOptions = {}): SocketsShim {
         throw componentError(
           { kind: "not-supported" },
           "tcp-socket.create: this host provides no TCP sockets " +
-            "(Deno.connect is unavailable)",
+            "(no Deno.connect and no node:net)",
         );
       }
       return new TcpSocket(addressFamily);
@@ -763,7 +766,7 @@ export function sockets(options: SocketsOptions = {}): SocketsShim {
       if (connect === undefined) {
         throw componentError(
           { kind: "not-supported" },
-          "tcp-socket: Deno.connect disappeared after create",
+          "tcp-socket: the TCP backend disappeared after create",
         );
       }
       this.#state = "connecting";
