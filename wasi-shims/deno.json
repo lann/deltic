@@ -6,7 +6,7 @@
     "./sockets": "./src/sockets.ts"
   },
   "tasks": {
-    "test": "deno test --allow-read --allow-net --unstable-net tests/",
+    "test": "deno test --allow-read --allow-net tests/",
     "check": "deno check src tests"
   },
   "publish": {

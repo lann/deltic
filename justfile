@@ -88,11 +88,11 @@ test-protocol:
 test-wasi-shims:
     cd wasi-shims && deno task test
 
-# The sockets fragment's node backend on REAL pinned Node (the fake-node
-# tests inside test-wasi-shims cover the same logic under Deno's
-# node-compat; this lane covers the genuine platform and the real
-# no-`Deno`-global detection path). `deno bundle` resolves the workspace
-# imports into one self-contained ESM file; tests/dist/ is gitignored.
+# The sockets fragment on REAL pinned Node (the whole test-wasi-shims
+# suite exercises the same node-builtins backend under Deno's node-compat;
+# this lane covers the genuine platform). `deno bundle` resolves the
+# workspace imports into one self-contained ESM file; tests/dist/ is
+# gitignored.
 test-sockets-node:
     deno run -A tools/shell/fetch.ts node-pinned
     deno bundle --platform browser --format esm -o wasi-shims/tests/dist/node_smoke.mjs wasi-shims/tests/node_smoke.ts
