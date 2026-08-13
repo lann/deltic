@@ -88,7 +88,10 @@ contracts throughout the repo. Related documents:
   they are the ecosystem's most important interfaces and the conventions must
   serve them well — and a minimal WASI shim *package* (`wasi-shims/`, a
   separate deliverable; consumer-driven scope: p2 cli/io/clocks/random
-  baseline + p3 clocks).
+  baseline + p3 clocks, plus an à la carte p3 `wasi:sockets` UDP fragment
+  (`@deltic/wasi-shims/sockets`, adopted from polymorph-iroh's Deno host —
+  [#4](https://github.com/lann/deltic/issues/4)) that Deno-native hosts
+  opt into and the default `wasiShims()` never carries).
 - **Componentizing JS/TS.** Guests are components built by external toolchains
   (Rust + wit-bindgen is the reference). No embedded-JS-engine work.
 - **jco compatibility or reuse.** Ignored entirely — including at the
