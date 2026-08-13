@@ -51,7 +51,12 @@ call; amendment A12 (2026-08-12) makes result-position future sources
 normative for imports: an import whose WIT result type is `future<T>`
 treats a thenable return as the FUTURE SOURCE (the import completes
 immediately; the future settles on the producer's schedule) — see
-§"Streams and futures".**
+§"Streams and futures"; amendment A13 (2026-08-13) makes resource-element
+streams first-class: `stream<own<R>>` elements lower as live handles, a
+world-level host resource's class registers under the resource's own
+(camelCase) name with its member leaves dispatching on it, and elements a
+producer lowered that the reader never takes are DESTROYED (dtors run),
+never leaked — see §"Streams and futures".**
 This document supersedes `descriptor-ir.md`'s interim
 "host value mapping" table as the destination for host-facing value shapes.
 The runtime's *raw* boundary (`instance.exports`, `HostImports`) keeps the
@@ -493,6 +498,40 @@ class DroppedError extends Error { … }    // awaiting a dropped future rejects
   *inside* the future (`future<result<…>>`), resolved as a result value.
   Executable spec: `examples/guests/future-import` +
   `runtime/tests/embedder/future_result_test.ts`.
+- **Streams of resources are first-class** (amendment A13, 2026-08-13 —
+  the `wasi:sockets@0.3` TCP `listen` shape,
+  `func() -> result<stream<tcp-socket>, error-code>`). A host producer
+  for `stream<own<R>>` yields resource-class instances; each element
+  lowers through the normal `own` transfer (host-implemented R: the
+  instance registers, the guest's drop runs `[Symbol.dispose]`;
+  guest-implemented R: the wrapper transfers). Two obligations come with
+  the shape:
+  - **Un-taken elements are destroyed, never leaked.** An element the
+    producer lowered that the reader never takes — the reader dropped
+    mid-stream, or the peer instance trapped (`PeerTrappedError.progress`
+    marks the delivered prefix) — has its destructor run at the pump's
+    teardown, exactly as if the guest had taken and dropped the handle.
+    This is what makes a `listen` provider safe: an un-taken element is a
+    live accepted connection. Top-level `own` is the supported element
+    shape; composite elements carrying nested owns stay out of scope
+    until a consumer links one.
+  - **Producers are cancellable.** When the stream dies (reader drop, or
+    the A7 teardown walk) while the producer is PARKED — an accept-shaped
+    source awaiting an external event, with no write in flight for the
+    pump to observe — the pump cancels it: a `ReadableStream` source via
+    `reader.cancel()`, an (async-)iterable source via its optional
+    `cancel(): void` method (close your listener there; the pump then
+    drains the pending pull, so a straggler element still reaches the
+    un-taken release path). A source with no cancel hook keeps the
+    pre-A13 behavior: parked until its next element, the documented
+    embedder-negligence hang class.
+  - **World-level host resources register under the resource's own
+    (camelCase) name**, and their mangled member leaves
+    (`[method]r.m`, `[static]r.m`, `[constructor]r`) dispatch on that
+    class — the world-level analogue of "the resource CLASS sits at the
+    resource's position" for interface imports.
+  Executable spec: `examples/guests/resource-stream` +
+  `runtime/tests/embedder/resource_stream_test.ts`.
 - **Stream values survive round trips** (amendment A5). A `stream`/`future`
   is an identity: lifting one that the host already handled — a
   host-created stream a guest passed back (result or import position), or

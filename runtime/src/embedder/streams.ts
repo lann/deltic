@@ -47,6 +47,12 @@ export interface ElemCodec<T> {
   toHost(v: ComponentValue): T;
   /** conventions value -> internal component value */
   fromHost(v: T): ComponentValue;
+  /**
+   * Destroy a LOWERED element the reader will never take (amendment A13);
+   * present only for element types that hold resources (`own<R>`), where
+   * abandonment without destruction is a leak.
+   */
+  readonly release?: (lowered: ComponentValue) => void;
   /** Optional site name (`import 'x'.f`, `export 'i#f'`) for diagnostics. */
   readonly where?: string;
 }
@@ -681,6 +687,9 @@ function packChunk<T>(
     : (lowered as ComponentValue[]);
 }
 
+/** Race sentinel: the reader's end dropped while the producer was parked. */
+const READER_GONE: unique symbol = Symbol("deltic reader gone");
+
 async function pump<T>(
   src: Exclude<StreamSource<T>, Stream<T>>,
   host: HostStream<T>,
@@ -689,14 +698,42 @@ async function pump<T>(
   const where = codec.where ?? "stream producer";
   let failure: unknown;
   let produced = 0;
+  // A13 cancellation companion: the pump learns of the reader dropping
+  // through short writes, but a producer PARKED on an external event (an
+  // accept-shaped source holding a live platform resource) offers no write
+  // to shorten — this notification is its only stop signal. It also fires
+  // on the A7 teardown walk and on our own end-of-pump drop (harmless: the
+  // loop has exited by then).
+  const gone = new Promise<typeof READER_GONE>((resolve) =>
+    host.writable.onDropped(() => resolve(READER_GONE))
+  );
   try {
-    for await (const batch of batches<T>(src)) {
+    for await (const batch of batches<T>(src, gone)) {
       // Lowering is the likeliest failure (a value of the wrong shape) and it
       // must be attributed to the site, not swallowed into a short stream.
       const lowered = packChunk(batch, codec) as unknown as T[];
-      const n = await host.writable.writeAll(lowered);
+      let n: number;
+      try {
+        n = await host.writable.writeAll(lowered);
+      } catch (e) {
+        // A13: elements past the fault's progress point were lowered but
+        // will never be taken — destroy them (an `own` element may hold a
+        // live platform resource). `PeerTrappedError.progress` reports
+        // delivered-before-the-fault; anything else delivered nothing.
+        releaseUntaken(
+          lowered as unknown as ComponentValue[],
+          e instanceof PeerTrappedError ? e.progress ?? 0 : 0,
+          codec,
+        );
+        throw e;
+      }
       produced += n;
-      if (n < lowered.length) break; // the reader went away: a clean end
+      if (n < lowered.length) {
+        // The reader went away: a clean end — but the un-taken tail of this
+        // chunk was already lowered and must be destroyed, not leaked (A13).
+        releaseUntaken(lowered as unknown as ComponentValue[], n, codec);
+        break;
+      }
     }
   } catch (e) {
     failure = e;
@@ -719,25 +756,77 @@ async function pump<T>(
   host.writable.drop();
 }
 
-/** Normalize every accepted producer shape to an async iterator of batches. */
+/** A13: destroy `lowered[taken..]` when a codec's elements hold resources. */
+function releaseUntaken<T>(
+  lowered: ComponentValue[] | Uint8Array,
+  taken: number,
+  codec: ElemCodec<T>,
+): void {
+  const release = codec.release;
+  if (release === undefined || lowered instanceof Uint8Array) return;
+  for (let i = taken; i < lowered.length; i++) release(lowered[i]);
+}
+
+/**
+ * Normalize every accepted producer shape to an async iterator of batches,
+ * racing each pull against `gone` (A13 cancellation): when the stream dies
+ * with the producer parked, a `ReadableStream` source is `cancel()`ed
+ * through its reader, and an (async-)iterable source gets its optional
+ * `cancel()` method invoked — the documented producer-cancellation hook —
+ * then its pending pull is drained so a straggler element the producer
+ * already minted still reaches the caller's release path. A source with no
+ * cancel hook keeps the pre-A13 behavior: the pump stays parked until the
+ * producer's next element (or forever — the documented embedder-negligence
+ * hang class).
+ */
 async function* batches<T>(
   src: Exclude<StreamSource<T>, Stream<T>>,
+  gone: Promise<typeof READER_GONE>,
 ): AsyncGenerator<T[] | Uint8Array> {
   if (isReadableStream(src)) {
     const reader = src.getReader();
     try {
       for (;;) {
-        const { done, value } = await reader.read();
-        if (done) return;
-        yield asBatch<T>(value);
+        const r = await Promise.race([reader.read(), gone]);
+        if (r === READER_GONE) {
+          // `cancel` settles the pending read and runs the source's own
+          // cancel() — releasing whatever platform resource backed it.
+          await reader.cancel().catch(() => {});
+          return;
+        }
+        if (r.done) return;
+        yield asBatch<T>(r.value);
       }
     } finally {
       reader.releaseLock();
     }
   }
   if (Symbol.asyncIterator in (src as object)) {
-    for await (const v of src as AsyncIterable<unknown>) yield asBatch<T>(v);
-    return;
+    const it = (src as AsyncIterable<unknown>)[Symbol.asyncIterator]();
+    try {
+      for (;;) {
+        const pending = it.next();
+        const r = await Promise.race([pending, gone]);
+        if (r === READER_GONE) {
+          (src as { cancel?: () => void }).cancel?.();
+          try {
+            const last = await pending;
+            if (!last.done) yield asBatch<T>(last.value);
+          } catch {
+            // A cancelled pull rejecting is its natural shape; the
+            // producer's own failure reporting has nothing to add here —
+            // the stream is already dead.
+          }
+          return;
+        }
+        if (r.done) return;
+        yield asBatch<T>(r.value);
+      }
+    } finally {
+      // Runs the source generator's own finally blocks. Queued behind any
+      // still-pending pull, which the GONE arm above has already drained.
+      await it.return?.();
+    }
   }
   for (const v of src as Iterable<T>) yield asBatch<T>(v);
 }

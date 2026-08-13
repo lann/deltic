@@ -85,6 +85,26 @@ export type TcpConnect = (options: {
   port: number;
 }) => Promise<TcpConn>;
 
+/**
+ * The listening-TCP-socket seam. `addr` is `null` while the OS bind is
+ * still pending — the node backend's `server.listen` defers the bind for
+ * any specific host (there is no synchronous-lookup escape hatch on
+ * `net.Server`, unlike dgram), so the local address is unknowable until
+ * the `'listening'` event; the Deno backend binds synchronously and never
+ * reports `null`.
+ */
+export interface TcpListener {
+  readonly addr: NetAddr | null;
+  accept(): Promise<TcpConn>;
+  close(): void;
+}
+
+export type TcpListen = (options: {
+  transport: "tcp";
+  hostname: string;
+  port: number;
+}) => TcpListener;
+
 // --- detection ----------------------------------------------------------------
 
 /**
@@ -145,6 +165,23 @@ export function tcpConnect(): TcpConnect | undefined {
     }
   }
   return nodeTcpConnect();
+}
+
+/** The active TCP-listen backend, re-detected per call. */
+export function tcpListen(): TcpListen | undefined {
+  if (!forcedNodeBackend) {
+    const deno = denoNamespace();
+    if (deno !== undefined) {
+      const fn = deno.listen;
+      if (typeof fn !== "function") return undefined;
+      // `Deno.listen` returns a `Deno.Listener` whose `addr`/`accept`/
+      // `close` already satisfy the seam; the accepted conns satisfy
+      // `TcpConn` the same way `Deno.connect`'s do.
+      return (options) =>
+        (fn as (o: typeof options) => TcpListener)(options);
+    }
+  }
+  return nodeTcpListen();
 }
 
 // --- the node:dgram backend -----------------------------------------------------
@@ -438,4 +475,108 @@ class NodeTcpConn implements TcpConn {
   close(): void {
     this.#socket.destroy();
   }
+}
+
+// --- the node:net listener --------------------------------------------------------
+
+/**
+ * Accepted-but-unread connections past this bound are REFUSED (destroyed)
+ * — node's `'connection'` push keeps accepting whether or not the guest
+ * reads the accept stream, and unlike datagrams an accepted connection is
+ * a live socket, so tail-drop here means an active refusal rather than a
+ * silent discard (the polymorph-iroh#56 stance).
+ */
+export const MAX_QUEUED_CONNECTIONS = 64;
+
+interface NodeTcpServer {
+  listen(options: { port: number; host: string }): unknown;
+  address(): { address: string; port: number } | null;
+  close(cb?: () => void): unknown;
+  on(event: string, listener: (...args: unknown[]) => void): unknown;
+}
+
+interface NodeNetServerModule {
+  createServer(
+    options: { allowHalfOpen: boolean },
+    handler: (socket: NodeTcpSocket) => void,
+  ): NodeTcpServer;
+}
+
+function nodeTcpListen(): TcpListen | undefined {
+  const net = nodeBuiltin("node:net") as NodeNetServerModule | undefined;
+  if (net === undefined) return undefined;
+  return ({ hostname, port }) => {
+    const queue: NodeTcpSocket[] = [];
+    const waiters: {
+      resolve: (c: TcpConn) => void;
+      reject: (e: unknown) => void;
+    }[] = [];
+    let failure: unknown;
+    let closed = false;
+
+    const failWaiters = (e: unknown): void => {
+      const w = waiters.splice(0, waiters.length);
+      for (const waiter of w) waiter.reject(e);
+    };
+
+    const server = net.createServer({ allowHalfOpen: true }, (socket) => {
+      const waiter = waiters.shift();
+      if (waiter !== undefined) {
+        waiter.resolve(new NodeTcpConn(socket));
+        return;
+      }
+      if (closed || queue.length >= MAX_QUEUED_CONNECTIONS) {
+        socket.destroy(); // refuse: nobody is going to take it
+        return;
+      }
+      queue.push(socket);
+    });
+    server.on("error", (...args: unknown[]) => {
+      // Server-level errors are fatal: with a specific host the bind is
+      // DEFERRED on node (module header), so this is also where a
+      // deferred EADDRINUSE lands.
+      failure = args[0];
+      failWaiters(args[0]);
+    });
+    server.listen({ port, host: hostname });
+
+    return {
+      get addr(): NetAddr | null {
+        const a = server.address();
+        return a === null
+          ? null
+          : { transport: "tcp", hostname: a.address, port: a.port };
+      },
+      accept(): Promise<TcpConn> {
+        if (failure !== undefined) return Promise.reject(failure);
+        if (closed) {
+          return Promise.reject(
+            codedError("ERR_SERVER_NOT_RUNNING", "listener is closed"),
+          );
+        }
+        const queued = queue.shift();
+        if (queued !== undefined) {
+          return Promise.resolve(new NodeTcpConn(queued));
+        }
+        return new Promise((resolve, reject) => {
+          waiters.push({ resolve, reject });
+        });
+      },
+      close(): void {
+        if (closed) return;
+        closed = true;
+        failWaiters(
+          codedError("ERR_SERVER_NOT_RUNNING", "listener closed under a pending accept"),
+        );
+        for (const socket of queue.splice(0, queue.length)) {
+          socket.destroy(); // refuse queued-but-untaken connections
+        }
+        try {
+          server.close();
+        } catch {
+          // Never listening.
+        }
+      },
+    };
+  };
 }

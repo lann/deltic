@@ -33,7 +33,9 @@
 //   }
 //   resource tcp-socket {
 //     create: static func(address-family: ip-address-family) -> result<tcp-socket, error-code>;
+//     bind: func(local-address: ip-socket-address) -> result<_, error-code>;
 //     connect: async func(remote-address: ip-socket-address) -> result<_, error-code>;
+//     listen: func() -> result<stream<tcp-socket>, error-code>;
 //     send: func(data: stream<u8>) -> future<result<_, error-code>>;
 //     receive: func() -> tuple<stream<u8>, future<result<_, error-code>>>;
 //     get-local-address: func() -> result<ip-socket-address, error-code>;
@@ -44,16 +46,9 @@
 //
 // That is also exactly what this module implements: the runtime dispatches
 // only the functions a component's plan imports, so the unlinked remainder
-// of the WIT resources (udp connect/disconnect, tcp bind/listen, socket
-// options) stays absent, and a future guest that links more fails loudly
-// with a trap naming the missing method rather than riding an untested
-// emulation. In particular tcp `bind` and `listen` are deliberately absent
-// rather than partial: `Deno.connect` cannot bind a local address, and the
-// accept path (`listen: func() -> result<stream<tcp-socket>, error-code>`,
-// a stream of resources) stays with issue #4 until a consumer links it —
-// both remain absent on the node backend too, for provider parity across
-// backends (node:net could express them; a consumer linking them reopens
-// that on #4).
+// of the WIT resources (udp connect/disconnect, socket options) stays
+// absent, and a future guest that links more fails loudly with a trap
+// naming the missing method rather than riding an untested emulation.
 //
 // The behavioral yardstick is wasmtime-wasi's p3 provider (the consumers'
 // wasmtime hosts serve the same guests through it).
@@ -78,20 +73,39 @@
 //     path is push-shaped) and tail-drop past a bound — the kernel-buffer
 //     analogue; see sockets_platform.ts `MAX_QUEUED_DATAGRAMS`.
 //
-// TCP (the TcpSocketOperationalSemantics-0.3.0 state machine, client
-// half): `connect` once from `unbound` (a failed attempt closes the
-// socket); `send`/`receive` once each, only when `connected`, and their
-// failures NEVER throw — `send`'s error channel is its returned future
-// (amendment A12: the async method's promise IS the future source) and
-// `receive`'s is the future half of its tuple, resolved as result values.
-// Stream teardown follows the WIT's shared-ownership note: the OS socket
-// closes only when the resource handle AND both pumps are done, so
-// send/receive streams remain functional after the guest drops the
+// TCP (the TcpSocketOperationalSemantics-0.3.0 state machine): `connect`
+// once from `unbound` (a failed attempt closes the socket); `listen` once
+// from `unbound` (implicit wildcard-ephemeral bind) or `bound`;
+// `send`/`receive` once each, only when `connected`, and their failures
+// NEVER throw — `send`'s error channel is its returned future (amendment
+// A12: the async method's promise IS the future source) and `receive`'s
+// is the future half of its tuple, resolved as result values. `listen`
+// returns the perpetual accept stream, whose elements are connected
+// `tcp-socket` resources (amendment A13: un-taken elements are destroyed
+// at teardown, closing their connections); per-connection accept failures
+// are skipped, listener-fatal ones end the stream. Stream teardown
+// follows the WIT's shared-ownership note: the OS socket closes only when
+// the resource handle AND every derived stream (pumps, accept stream) are
+// done, so they all remain functional after the guest drops the
 // `tcp-socket` handle. The receive stream ends (cleanly, no fake data) on
 // BOTH graceful FIN and abnormal close; the two are distinguished by the
 // future (`ok` vs `err`), exactly as the WIT documents. Guest-side
 // failures while consuming `send`'s stream (a peer trap) are NOT socket
 // errors: they propagate as producer failures on the host-failure channel.
+//
+// Recorded TCP divergences:
+//
+//   * `bind` records the address; the OS bind is DEFERRED to `listen`
+//     (neither backend can bind an unconnected socket), so
+//     `address-in-use` surfaces at `listen`, not `bind`.
+//   * `connect` from a `bound` socket is `not-supported` (`Deno.connect`
+//     has no local-address option; kept on node too, for backend parity).
+//   * node backend only: `server.listen` defers the OS bind for specific
+//     hosts, so right after `listen` the local address of an
+//     EPHEMERAL-port listener is briefly unknowable (`get-local-address`
+//     fails `other` until the bind completes; fixed-port requests answer
+//     immediately), and a deferred bind failure closes the accept stream
+//     instead of failing `listen` with its `error-code`.
 //
 // When no backend serves an API (no `Deno` global and no node builtins;
 // on Deno additionally the `net` unstable feature off for UDP —
@@ -198,6 +212,8 @@ import {
   type NetAddr,
   type TcpConn,
   tcpConnect,
+  tcpListen,
+  type TcpListener,
 } from "./sockets_platform.ts";
 
 export type { NetAddr };
@@ -372,6 +388,7 @@ const CODE_ERRORS: Record<string, SocketErrorCode> = {
   ENOTSUP: { kind: "not-supported" },
   EOPNOTSUPP: { kind: "not-supported" },
   ERR_SOCKET_DGRAM_NOT_RUNNING: { kind: "invalid-state" },
+  ERR_SERVER_NOT_RUNNING: { kind: "invalid-state" },
   ERR_STREAM_DESTROYED: { kind: "invalid-state" },
   ERR_STREAM_WRITE_AFTER_END: { kind: "invalid-state" },
 };
@@ -492,18 +509,32 @@ export type TcpSendSource =
 export type TcpByteStream = AsyncIterable<Uint8Array> | Iterable<Uint8Array>;
 
 /**
- * The host-implemented `tcp-socket` resource surface (the client half —
- * module header). `send` is a WIT sync func returning `future<result>`:
- * the async method's promise is lowered as the future source (amendment
- * A12), so the guest's call returns immediately and the future settles
- * when transmission completes. `receive`'s tuple carries the byte stream
- * and the future that reports FIN (`ok`) vs abnormal close (`err`).
- * Dropping the guest handle does NOT close a socket with live pumps
- * (the WIT's shared-ownership note); the OS socket closes when the handle
- * and both pumps are all retired.
+ * What tcp `listen` returns: the perpetual accept stream. `cancel` is the
+ * A13 producer-cancellation hook the runtime's pump invokes when the
+ * guest drops the stream while the loop is parked in accept(); direct
+ * (non-runtime) consumers may call it themselves to stop accepting.
+ */
+export type TcpAcceptStream = AsyncIterable<TcpSocket> & { cancel(): void };
+
+/**
+ * The host-implemented `tcp-socket` resource surface (client + listener
+ * halves — module header). `send` is a WIT sync func returning
+ * `future<result>`: the async method's promise is lowered as the future
+ * source (amendment A12), so the guest's call returns immediately and the
+ * future settles when transmission completes. `receive`'s tuple carries
+ * the byte stream and the future that reports FIN (`ok`) vs abnormal
+ * close (`err`). `listen` returns the perpetual accept stream — an
+ * async iterable of connected `TcpSocket` resources, lowered as
+ * `stream<own<tcp-socket>>` (amendment A13: elements the guest never
+ * takes are destroyed, closing their connections). Dropping the guest
+ * handle does NOT close a socket with live pumps or a live accept stream
+ * (the WIT's shared-ownership note); the OS socket closes when the
+ * handle and every derived stream are all retired.
  */
 export interface TcpSocket {
+  bind(localAddress: IpSocketAddress): void;
   connect(remoteAddress: IpSocketAddress): Promise<void>;
+  listen(): TcpAcceptStream;
   send(data: TcpSendSource): Promise<SocketResult>;
   receive(): [TcpByteStream, Promise<SocketResult>];
   getLocalAddress(): IpSocketAddress;
@@ -706,21 +737,33 @@ export function sockets(options: SocketsOptions = {}): SocketsShim {
 
   class TcpSocket {
     #family: IpAddressFamily;
-    #state: "unbound" | "connecting" | "connected" | "closed" = "unbound";
+    #state: "unbound" | "bound" | "connecting" | "connected" | "listening" | "closed" = "unbound";
     #conn: TcpConn | undefined;
+    #listener: TcpListener | undefined;
+    /** The address `bind` recorded; the OS bind happens at `listen` (header). */
+    #localRequest: IpSocketAddress | undefined;
     #sendCalled = false;
     #receiveCalled = false;
     /**
      * Shared-ownership references (WIT: "The OS socket is closed only
      * after the last handle is dropped"): the resource handle plus each
-     * live pump. The conn closes at zero — so a live send or receive
-     * stream keeps the socket open past the guest dropping the handle.
+     * live pump and the accept stream. The conn/listener close at zero —
+     * so a live send, receive, or accept stream keeps the socket open
+     * past the guest dropping the handle.
      */
     #refs = 1;
     #handleDropped = false;
 
     private constructor(family: IpAddressFamily) {
       this.#family = family;
+    }
+
+    /** An accepted connection, already in the `connected` state. */
+    static #accepted(family: IpAddressFamily, conn: TcpConn): TcpSocket {
+      const socket = new TcpSocket(family);
+      socket.#conn = conn;
+      socket.#state = "connected";
+      return socket;
     }
 
     static create(addressFamily: IpAddressFamily): TcpSocket {
@@ -735,8 +778,50 @@ export function sockets(options: SocketsOptions = {}): SocketsShim {
       return new TcpSocket(addressFamily);
     }
 
+    /**
+     * Records the local address; the OS bind is DEFERRED to `listen`
+     * (recorded divergence: neither backend can bind a socket it has not
+     * yet connected or listened — so `address-in-use` surfaces at
+     * `listen`, and `connect` from a bound socket is `not-supported`).
+     */
+    bind(localAddress: IpSocketAddress): void {
+      onCall("tcp-socket.bind");
+      if (this.#state !== "unbound") {
+        throw componentError(
+          { kind: "invalid-state" },
+          `tcp-socket.bind: not bindable from the '${this.#state}' state`,
+        );
+      }
+      if (!isValidAddressFamily(this.#family, localAddress)) {
+        throw componentError(
+          { kind: "invalid-argument" },
+          `tcp-socket.bind: address family mismatch (an ${this.#family} socket)`,
+        );
+      }
+      if (localAddress.kind === "ipv6" && localAddress.value.scopeId !== 0) {
+        throw componentError(
+          { kind: "not-supported" },
+          "tcp-socket.bind: non-zero scope-id (not expressible through the backends)",
+        );
+      }
+      this.#localRequest = localAddress;
+      this.#state = "bound";
+    }
+
     async connect(remoteAddress: IpSocketAddress): Promise<void> {
       onCall("tcp-socket.connect");
+      if (this.#state === "bound") {
+        // Neither backend can dial from a chosen local address
+        // (`Deno.connect` has no local-address option; kept on node too,
+        // for backend parity) — recorded divergence: the WIT allows
+        // connect-from-bound.
+        throw componentError(
+          { kind: "not-supported" },
+          "tcp-socket.connect: connecting from a bound socket (a " +
+            "local-address binding) is not supported by this provider; " +
+            "connect from an unbound socket",
+        );
+      }
       if (this.#state !== "unbound") {
         // Includes `closed` after a failed attempt: "A single socket can
         // not be used to connect more than once."
@@ -798,6 +883,91 @@ export function sockets(options: SocketsOptions = {}): SocketsShim {
       }
       this.#conn = conn;
       this.#state = "connected";
+    }
+
+    /**
+     * WIT: `listen: func() -> result<stream<tcp-socket>, error-code>` —
+     * transitions to `listening` and returns the perpetual accept stream,
+     * whose elements are connected `TcpSocket` resources (lowered as
+     * `own<tcp-socket>` — amendment A13 destroys any element the guest
+     * never takes, closing that accepted connection). An unbound socket
+     * implicitly binds to the family wildcard with an ephemeral port. The
+     * stream only ends on fatal errors — the listener dying (including
+     * the node backend's DEFERRED bind failing; on that backend the
+     * `error-code` of a bad bind is lost to the closure, a recorded
+     * divergence) — while per-connection accept failures are skipped, per
+     * the WIT's implementors note.
+     */
+    listen(): TcpAcceptStream {
+      onCall("tcp-socket.listen");
+      if (this.#state !== "unbound" && this.#state !== "bound") {
+        throw componentError(
+          { kind: "invalid-state" },
+          `tcp-socket.listen: not listenable from the '${this.#state}' state`,
+        );
+      }
+      const listen = tcpListen();
+      if (listen === undefined) {
+        throw componentError(
+          { kind: "not-supported" },
+          "tcp-socket.listen: this host provides no TCP listeners " +
+            "(no Deno.listen and no node:net)",
+        );
+      }
+      const local = this.#localRequest ?? wildcardAddress(this.#family);
+      let listener: TcpListener;
+      try {
+        listener = listen({
+          transport: "tcp",
+          hostname: ipHostname(local),
+          port: local.value.port,
+        });
+      } catch (e) {
+        // The Deno backend binds synchronously, so address-in-use and
+        // friends surface right here with their real codes.
+        this.#state = "closed";
+        throw mapPlatformError(e, "tcp-socket.listen");
+      }
+      this.#listener = listener;
+      this.#state = "listening";
+      this.#refs++; // the accept stream keeps the listener alive
+      const family = this.#family;
+      const release = (): void => this.#release();
+      const source = (async function* (): AsyncGenerator<TcpSocket> {
+        try {
+          for (;;) {
+            let conn: TcpConn;
+            try {
+              conn = await listener.accept();
+            } catch (e) {
+              const kind = mapPlatformError(e, "tcp-socket.listen (accept)")
+                .payload.kind;
+              // Per-connection failures are skipped (the WIT implementors
+              // note: "log it and then skip over non-fatal errors");
+              // anything else means the LISTENER is dead — closed under
+              // us, or never came up — and ends the perpetual stream.
+              if (TRANSIENT_ACCEPT_FAILURES.has(kind)) continue;
+              return;
+            }
+            yield TcpSocket.#accepted(family, conn);
+          }
+        } finally {
+          release();
+        }
+      })();
+      // The A13 producer-cancellation hook: when the guest drops the
+      // stream while the loop above is PARKED in accept(), the runtime's
+      // pump invokes this — closing the listener is what unparks the
+      // accept (it rejects; classified fatal; the generator retires).
+      return Object.assign(source, {
+        cancel: (): void => {
+          try {
+            listener.close();
+          } catch {
+            // Already closed.
+          }
+        },
+      });
     }
 
     /**
@@ -903,6 +1073,22 @@ export function sockets(options: SocketsOptions = {}): SocketsShim {
 
     getLocalAddress(): IpSocketAddress {
       onCall("tcp-socket.get-local-address");
+      if (this.#state === "listening" && this.#listener !== undefined) {
+        const addr = this.#listener.addr;
+        if (addr !== null) return parseNetAddr(addr);
+        // The node backend defers the OS bind (sockets_platform.ts): a
+        // fixed-port request is answerable already (it will be exactly
+        // that, or the accept stream closes); an ephemeral request is
+        // genuinely unknown until the bind completes — a recorded
+        // node-backend divergence.
+        const req = this.#localRequest;
+        if (req !== undefined && req.value.port !== 0) return req;
+        throw componentError(
+          { kind: "other", value: "the local address is not available yet (this backend defers binds)" },
+          "tcp-socket.get-local-address: the node backend has not completed " +
+            "the deferred bind; retry after the first accept, or bind a fixed port",
+        );
+      }
       if (this.#conn === undefined) {
         throw componentError(
           { kind: "invalid-state" },
@@ -930,15 +1116,16 @@ export function sockets(options: SocketsOptions = {}): SocketsShim {
 
     getIsListening(): boolean {
       onCall("tcp-socket.get-is-listening");
-      // `listen` is deliberately not implemented (module header), so no
-      // socket this provider mints is ever in the `listening` state.
-      return false;
+      return this.#state === "listening";
     }
 
     [Symbol.dispose](): void {
       if (this.#handleDropped) return;
       this.#handleDropped = true;
-      if (this.#state === "unbound" || this.#state === "connecting") {
+      if (
+        this.#state === "unbound" || this.#state === "bound" ||
+        this.#state === "connecting"
+      ) {
         // An in-flight dial observes this and closes its fresh conn.
         this.#state = "closed";
       }
@@ -957,6 +1144,15 @@ export function sockets(options: SocketsOptions = {}): SocketsShim {
             // Already closed.
           }
         }
+        const listener = this.#listener;
+        this.#listener = undefined;
+        if (listener !== undefined) {
+          try {
+            listener.close();
+          } catch {
+            // Already closed (e.g. by the accept stream's cancel hook).
+          }
+        }
       }
     }
   }
@@ -970,6 +1166,30 @@ export function sockets(options: SocketsOptions = {}): SocketsShim {
 
 /** How many bytes one tcp receive read asks the OS for. */
 const TCP_RECEIVE_CHUNK = 16384;
+
+/**
+ * Accept failures that are per-connection, not per-listener: the WIT
+ * implementors note says to skip them ("Guest code never gets to see
+ * these failures"); everything else ends the perpetual stream.
+ */
+const TRANSIENT_ACCEPT_FAILURES: ReadonlySet<SocketErrorCode["kind"]> = new Set([
+  "connection-aborted",
+  "connection-reset",
+  "connection-refused",
+  "connection-broken",
+  "remote-unreachable",
+  "timeout",
+]);
+
+/** The family's wildcard address, port 0 (tcp listen's implicit bind). */
+function wildcardAddress(family: IpAddressFamily): IpSocketAddress {
+  return family === "ipv4"
+    ? { kind: "ipv4", value: { port: 0, address: [0, 0, 0, 0] } }
+    : {
+      kind: "ipv6",
+      value: { port: 0, flowInfo: 0, address: [0, 0, 0, 0, 0, 0, 0, 0], scopeId: 0 },
+    };
+}
 
 /**
  * Abandon tcp send's input when the operation fails: a lifted `Stream`

@@ -16,6 +16,7 @@ import {
   type SocketErrorCode,
   type SocketResult,
   sockets,
+  type TcpAcceptStream,
   type TcpSocket,
 } from "../src/sockets.ts";
 import { assertEq, assertThrows, assertTrue } from "./asserts.ts";
@@ -412,4 +413,202 @@ Deno.test("tcp: onCall records the driving sequence", async () => {
   } finally {
     dispose(socket);
   }
+});
+
+// --- listen: the accept stream --------------------------------------------------
+
+/**
+ * Retire a listener: cancel (closes the listener, unparking any accept),
+ * drain the generator to completion (its finally releases the stream's
+ * ref), and drop the handle. Uniform across generator states — never
+ * started, parked in accept, or suspended at a yield.
+ */
+async function retire(socket: TcpSocket, stream: TcpAcceptStream): Promise<void> {
+  stream.cancel();
+  for await (const straggler of stream) dispose(straggler);
+  dispose(socket);
+}
+
+/** Collect `n` accepted sockets from an accept stream's iterator. */
+async function acceptN(
+  stream: AsyncIterable<TcpSocket>,
+  n: number,
+): Promise<{ taken: TcpSocket[]; it: AsyncIterator<TcpSocket> }> {
+  const it = stream[Symbol.asyncIterator]();
+  const taken: TcpSocket[] = [];
+  for (let i = 0; i < n; i++) {
+    const r = await it.next();
+    if (r.done) break;
+    taken.push(r.value);
+  }
+  return { taken, it };
+}
+
+Deno.test("tcp listen: implicit ephemeral bind; an accepted socket serves a full echo", async () => {
+  const socket = TcpSocket.create("ipv4");
+  const stream = socket.listen();
+  assertEq(socket.getIsListening(), true);
+  const addr = socket.getLocalAddress();
+  assertTrue(addr.kind === "ipv4" && addr.value.port !== 0, "ephemeral port assigned");
+
+  // Dial in from a raw client and speak both directions.
+  const client = await Deno.connect({
+    transport: "tcp",
+    hostname: "127.0.0.1",
+    port: addr.kind === "ipv4" ? addr.value.port : 0,
+  });
+  const { taken, it } = await acceptN(stream, 1);
+  assertEq(taken.length, 1);
+  const accepted = taken[0];
+  try {
+    assertEq(accepted.getIsListening(), false);
+    assertEq(accepted.getAddressFamily(), "ipv4");
+    const remote = accepted.getRemoteAddress();
+    const clientLocal = client.localAddr as Deno.NetAddr;
+    assertTrue(
+      remote.kind === "ipv4" && remote.value.port === clientLocal.port,
+      "the accepted socket reports the dialer's address",
+    );
+
+    // Client -> accepted socket.
+    const [rx, rxDone] = accepted.receive();
+    await client.write(Uint8Array.from([1, 2, 3]));
+    await client.closeWrite(); // FIN
+    assertEq(JSON.stringify(await collect(rx)), JSON.stringify([1, 2, 3]));
+    assertEq((await rxDone).kind, "ok");
+
+    // Accepted socket -> client.
+    const txDone = accepted.send(chunksOf([4, 5]));
+    const buf = new Uint8Array(16);
+    const got: number[] = [];
+    for (;;) {
+      const n = await client.read(buf);
+      if (n === null) break;
+      got.push(...buf.subarray(0, n));
+    }
+    assertEq(JSON.stringify(got), JSON.stringify([4, 5]));
+    assertEq((await txDone).kind, "ok");
+  } finally {
+    client.close();
+    dispose(accepted);
+    void it; // the generator is retired below, through the stream itself
+    await retire(socket, stream);
+  }
+});
+
+Deno.test("tcp listen: bind picks the address; address-in-use surfaces at listen", async () => {
+  const first = TcpSocket.create("ipv4");
+  first.bind(v4([127, 0, 0, 1], 0));
+  const stream = first.listen();
+  const addr = first.getLocalAddress();
+  assertTrue(addr.kind === "ipv4" && addr.value.address[0] === 127, "bound to loopback");
+
+  const second = TcpSocket.create("ipv4");
+  second.bind(addr);
+  assertEq(errKind(() => second.listen()), "address-in-use");
+  // A failed listen closes the socket.
+  assertEq(errKind(() => second.listen()), "invalid-state");
+  dispose(second);
+
+  await retire(first, stream);
+});
+
+Deno.test("tcp listen: state machine (branded)", async () => {
+  const socket = TcpSocket.create("ipv4");
+  socket.bind(v4([127, 0, 0, 1], 0));
+  assertEq(errKind(() => socket.bind(v4([127, 0, 0, 1], 0))), "invalid-state");
+  // connect-after-bind: the recorded divergence.
+  assertEq(await errKindAsync(socket.connect(v4([127, 0, 0, 1], 9))), "not-supported");
+  const stream = socket.listen();
+  assertEq(errKind(() => socket.listen()), "invalid-state");
+  assertEq(await errKindAsync(socket.connect(v4([127, 0, 0, 1], 9))), "invalid-state");
+  assertEq(errKind(() => socket.bind(v4([127, 0, 0, 1], 0))), "invalid-state");
+  // send/receive on a listener: err futures, never throws.
+  assertEq(resultErrKind(await socket.send(chunksOf([1]))), "invalid-state");
+  const [rx, rxDone] = socket.receive();
+  assertEq(JSON.stringify(await collect(rx)), "[]");
+  assertEq(resultErrKind(await rxDone), "invalid-state");
+  await retire(socket, stream);
+});
+
+Deno.test("tcp listen: bind validation (branded)", () => {
+  const socket = TcpSocket.create("ipv4");
+  assertEq(errKind(() => socket.bind(v6([0, 0, 0, 0, 0, 0, 0, 1], 0))), "invalid-argument");
+  const v6Socket = TcpSocket.create("ipv6");
+  assertEq(
+    errKind(() => v6Socket.bind(v6([0xfe80, 0, 0, 0, 0, 0, 0, 1], 0, 3))),
+    "not-supported",
+  );
+  dispose(socket);
+  dispose(v6Socket);
+});
+
+Deno.test("tcp listen: the accept stream survives the dropped handle (shared ownership)", async () => {
+  const socket = TcpSocket.create("ipv4");
+  const stream = socket.listen();
+  const addr = socket.getLocalAddress();
+  const port = addr.kind === "ipv4" ? addr.value.port : 0;
+  // Drop the guest handle FIRST: the listener must stay open for the
+  // stream (WIT: "The stream returned by listen behaves similarly").
+  dispose(socket);
+  const client = await Deno.connect({ transport: "tcp", hostname: "127.0.0.1", port });
+  const { taken, it } = await acceptN(stream, 1);
+  assertEq(taken.length, 1, "still accepting after the handle drop");
+  client.close();
+  dispose(taken[0]);
+  void it;
+  await retire(socket, stream); // now the last reference: the listener closes
+});
+
+Deno.test("tcp listen: accepted sockets are independent of the listener", async () => {
+  const socket = TcpSocket.create("ipv4");
+  const stream = socket.listen();
+  const addr = socket.getLocalAddress();
+  const port = addr.kind === "ipv4" ? addr.value.port : 0;
+  const client = await Deno.connect({ transport: "tcp", hostname: "127.0.0.1", port });
+  const { taken, it } = await acceptN(stream, 1);
+  const accepted = taken[0];
+  void it;
+  // Retire the listener entirely: stream cancelled + drained + handle dropped.
+  await retire(socket, stream);
+  // The accepted connection still works end to end.
+  const [rx, rxDone] = accepted.receive();
+  await client.write(Uint8Array.from([9]));
+  await client.closeWrite();
+  assertEq(JSON.stringify(await collect(rx)), JSON.stringify([9]));
+  assertEq((await rxDone).kind, "ok");
+  const txDone = accepted.send(chunksOf());
+  assertEq((await txDone).kind, "ok");
+  client.close();
+  dispose(accepted);
+});
+
+Deno.test("tcp listen: cancel() retires a parked accept and closes the listener", async () => {
+  // cancel is the A13 producer-cancellation hook: the runtime's pump
+  // invokes it when the guest drops the accept stream while the loop is
+  // parked in accept(); this test plays the pump's role.
+  const socket = TcpSocket.create("ipv4");
+  const stream = socket.listen();
+  const addr = socket.getLocalAddress();
+  const it = stream[Symbol.asyncIterator]();
+  const pending = it.next(); // parked accept, nobody dialing
+  await new Promise((r) => setTimeout(r, 20));
+  dispose(socket); // handle gone; the accept stream still holds a ref
+  stream.cancel(); // ...until the reader-drop cancellation closes the listener
+  const r = await pending;
+  assertEq(r.done, true, "the parked accept ends the stream cleanly");
+  // The listener really closed: the port refuses a new dial (a RAW Deno
+  // error — this dial never goes through the provider).
+  let refused = false;
+  try {
+    const conn = await Deno.connect({
+      transport: "tcp",
+      hostname: "127.0.0.1",
+      port: addr.kind === "ipv4" ? addr.value.port : 0,
+    });
+    conn.close();
+  } catch (e) {
+    refused = e instanceof Deno.errors.ConnectionRefused;
+  }
+  assertTrue(refused, "the listener's port refuses new dials");
 });

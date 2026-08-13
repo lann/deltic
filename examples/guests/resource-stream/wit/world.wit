@@ -1,0 +1,28 @@
+package deltic:resource-stream;
+
+/// Probes for streams whose ELEMENTS are owned host resources — the
+/// `wasi:sockets@0.3` TCP `listen` shape
+/// (`listen: func() -> result<stream<tcp-socket>, error-code>`), reduced
+/// to a `ticket` resource carrying one u32. The load-bearing properties:
+/// host-minted resource instances lower as `own` stream elements and
+/// arrive as live handles; each guest-side drop runs the host dtor; and
+/// elements the producer lowered but the reader never took (reader
+/// dropped mid-stream) are RELEASED, dtors run — never leaked
+/// (contracts/embedder-api.md amendment A13).
+world resource-stream {
+  /// Host-implemented; minted host-side as stream elements.
+  resource ticket {
+    value: func() -> u32;
+  }
+
+  /// A sync import returning a stream of owned host resources.
+  import tickets: func(count: u32) -> stream<ticket>;
+
+  /// Drains the stream, summing `value()` of every element; each element
+  /// drops at the end of its iteration (dtor per element).
+  export sum-tickets: async func(count: u32) -> u32;
+
+  /// Reads exactly `take` elements (summing them), then drops the reader
+  /// with the producer still live — the un-taken-elements probe.
+  export take-then-drop: async func(count: u32, take: u32) -> u32;
+}
