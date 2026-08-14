@@ -1,4 +1,4 @@
-//! `http-fetch` guest: drives the REAL `wasi:http@0.3.0-rc` outbound
+//! `http-fetch` guest: drives the REAL `wasi:http@0.3` outbound
 //! surface (see wit/world.wit) — guest-constructed requests, `client.send`,
 //! streamed response bodies, and the trailers/res future choreography the
 //! WIT mandates (every guest-created future writer MUST write: dropping

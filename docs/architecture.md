@@ -96,9 +96,9 @@ contracts throughout the repo. Related documents:
   node-builtins backend serving Deno via its stable node compat — no
   `--unstable-net` — and real Node,
   [#4](https://github.com/lann/deltic/issues/4)) and the fetch-backed
-  `wasi:http@0.3.0-rc` outbound client (`@deltic/wasi/http`; rc versions
-  resolve exact-only, so the fragment keys exact ids with a `version`
-  override)).
+  `wasi:http@0.3` outbound client (`@deltic/wasi/http`, riding the
+  `@0.3` track like the rest of the package; a `version` override keys
+  exact ids for guests pinned to pre-consolidation rc snapshots)).
 - **Componentizing JS/TS.** Guests are components built by external toolchains
   (Rust + wit-bindgen is the reference). No embedded-JS-engine work.
 - **jco compatibility or reuse.** Ignored entirely — including at the

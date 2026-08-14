@@ -1,16 +1,17 @@
-// `wasi:http@0.3.0-rc-*` — the OUTBOUND half (`types` + `client`), served
-// over `fetch`. À la carte (`@deltic/wasi/http`): fetch is universal
-// across the JS runtimes, but this fragment grants NETWORK EGRESS, and
-// the default `wasi()` merge carries only ambient, side-effect-benign
+// `wasi:http@0.3` — the OUTBOUND half (`types` + `client`), served over
+// `fetch`. À la carte (`@deltic/wasi/http`): fetch is universal across
+// the JS runtimes, but this fragment grants NETWORK EGRESS, and the
+// default `wasi()` merge carries only ambient, side-effect-benign
 // capabilities (mod.ts "COMPOSITION") — portability is not the
 // criterion, capability is.
 //
-// Interfaces served (WIT: the wasi-http 0.3.0 draft/rc series; vendored
+// Interfaces served (WIT: wasi:http 0.3.1, released with the WASI 0.3
+// consolidation — WebAssembly/WASI v0.3.1, proposals/http/wit; vendored
 // copy for the fixture guest under examples/guests/http-fetch/wit):
 //
-//   wasi:http/types@<rc>  — resources fields, request, request-options,
-//                           response (constructors and all accessors)
-//   wasi:http/client@<rc> — send: async func(request) -> result<response, error-code>
+//   wasi:http/types@0.3  — resources fields, request, request-options,
+//                          response (constructors and all accessors)
+//   wasi:http/client@0.3 — send: async func(request) -> result<response, error-code>
 //
 // `handler` (the middleware-chain interface, same shape as `client`) is
 // deliberately NOT registered: serving a middleware's upstream from fetch
@@ -18,11 +19,14 @@
 // exactly that can register this fragment's `send` under its own handler
 // key.
 //
-// VERSION KEYS: rc versions are prereleases, and the resolver matches
-// prereleases EXACTLY (contracts/embedder-api.md §"Version
-// canonicalization" — no `@0.3` track exists for them). The fragment
-// therefore registers exact ids, defaulting to the vendored rc; a guest
-// built against a different snapshot names it via `http({ version })`.
+// VERSION KEYS: 0.3.x releases fold onto the `@0.3` compatibility track
+// (contracts/embedder-api.md §"Version canonicalization"), so the
+// default registration serves every released 0.3.x with one provider —
+// the same flagship track-key pattern as the rest of this package. The
+// pre-consolidation rc SNAPSHOTS (`0.3.0-rc-*`) are prereleases, which
+// resolve exact-only: a guest pinned to one names it via
+// `http({ version: "0.3.0-rc-..." })`, which re-keys the fragment at
+// that exact id instead.
 //
 // Body/trailers plumbing is the same stream+future choreography the TCP
 // provider proved: constructors return `[resource, transmission-future]`
@@ -63,8 +67,8 @@
 
 import { ComponentException, Stream } from "@deltic/runtime/embedder";
 
-/** The rc snapshot this fragment serves by default (the vendored WIT). */
-export const DEFAULT_HTTP_VERSION = "0.3.0-rc-2025-09-16";
+/** The compatibility track the fragment registers on by default. */
+export const HTTP_TRACK = "0.3";
 
 // --- WIT value shapes -----------------------------------------------------------
 
@@ -94,11 +98,15 @@ export type Scheme =
  */
 export type ErrorCode = { kind: string; value?: unknown };
 
-/** `header-error`. */
-export type HeaderError = { kind: "invalid-syntax" | "forbidden" | "immutable" };
+/** `header-error` (0.3.1 added `size-exceeded` and `other`). */
+export type HeaderError =
+  | { kind: "invalid-syntax" | "forbidden" | "immutable" | "size-exceeded" }
+  | { kind: "other"; value?: string };
 
-/** `request-options-error`. */
-export type RequestOptionsError = { kind: "not-supported" | "immutable" };
+/** `request-options-error` (0.3.1 added `other`). */
+export type RequestOptionsError =
+  | { kind: "not-supported" | "immutable" }
+  | { kind: "other"; value?: string };
 
 /**
  * `result<option<trailers>, error-code>` AS A VALUE (trailers futures).
@@ -120,7 +128,10 @@ function httpError(payload: ErrorCode, detail: string): ComponentException<Error
   return new ComponentException<ErrorCode>(payload, `wasi:http: ${detail}`);
 }
 
-function headerError(kind: HeaderError["kind"], detail: string): ComponentException<HeaderError> {
+function headerError(
+  kind: "invalid-syntax" | "forbidden" | "immutable" | "size-exceeded",
+  detail: string,
+): ComponentException<HeaderError> {
   return new ComponentException<HeaderError>({ kind }, `wasi:http/types: ${detail}`);
 }
 
@@ -189,9 +200,10 @@ const decoder = new TextDecoder();
 
 export interface HttpOptions {
   /**
-   * The exact `wasi:http` version the guest links (rc versions are
-   * prereleases: the resolver matches them exactly, no `@0.3` track).
-   * Default: the vendored rc, `DEFAULT_HTTP_VERSION`.
+   * Override the registration keys for a guest pinned to a PRERELEASE
+   * snapshot (`0.3.0-rc-*`), which the resolver matches exactly — no
+   * track exists for prereleases. Default: the `@0.3` track, serving
+   * every released 0.3.x.
    */
   version?: string;
   /** Observe every entry point the guest reaches (see sockets' onCall). */
@@ -296,7 +308,7 @@ export interface ResponseClass {
  */
 export function http(options: HttpOptions = {}): HttpFragment {
   const onCall = options.onCall ?? ((): void => {});
-  const v = options.version ?? DEFAULT_HTTP_VERSION;
+  const v = options.version ?? HTTP_TRACK;
 
   // --- fields -----------------------------------------------------------------
 
