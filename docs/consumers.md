@@ -107,7 +107,8 @@ Node is **not a consumer requirement.** Deno functionally substitutes across
 the whole consumer capability surface — verified empirically (2026-08-08,
 Deno 2.9.5/linux-arm64, via the C0 capability probe; served and retired
 2026-08-14, history: `git log -- tools/probes/webrtc-deno` — the living
-WebRTC coverage is `just test-webrtc`, node-datachannel under Deno):
+WebRTC-under-Deno coverage is the consumers' own deltic legs, e.g. the
+webrtc driver-ct matrix under their upstreamed host module):
 
 | Capability | Deno path | Status |
 |---|---|---|
@@ -130,9 +131,7 @@ the in-repo references is
 
 | Path | What | Gate |
 |---|---|---|
-| `ports/websocket` | `polymorph:websocket/connections` host module | their conformance suite 55/55 incl. TLS (`conformance/run.ts`); their deltic-deno + deltic-browser rows run the upstreamed copy |
-| `ports/webcrypto` | `polymorph:webcrypto` host module (full surface — [#3](https://github.com/lann/deltic/issues/3) closed) | KATs vs their vectors + iroh exec-model integration |
-| `ports/webrtc` | `polymorph:webrtc-datachannels/connections` host module | their echo-demo component over real data channels; their full driver-ct loopback matrix (solo+pair, 37/37) runs under the upstreamed copy ([polymorph-webrtc-datachannels#149](https://github.com/polymorph-components/polymorph-webrtc-datachannels/pull/149)) |
+| `ports/{websocket,webcrypto,webrtc}` (retired) | the `polymorph:{websocket/connections,webcrypto,webrtc-datachannels/connections}` host modules | served and retired (2026-08-14): developed here as the reference implementations of the embedder conventions, upstreamed as the consumers' own host modules — websocket ([#40](https://github.com/polymorph-components/polymorph-websocket/pull/40)/[#41](https://github.com/polymorph-components/polymorph-websocket/pull/41)), webcrypto ([#352](https://github.com/polymorph-components/polymorph-webcrypto/pull/352)), webrtc ([#149](https://github.com/polymorph-components/polymorph-webrtc-datachannels/pull/149) — their driver-ct loopback matrix 37/37) — whose repos run their suites (incl. websocket's 55/55 conformance) under those copies as the living gates; the in-repo `test-ports`/`test-webrtc`/`websocket-conformance` recipes retired with the trees. History: `git log -- ports` |
 | `exams/iroh-endpoint` (retired) | the endpoint exit exam | served and retired (2026-08-11, in-repo through 5/5 + IROH-1): upstreamed as their `host-deltic/` + `just exam-deltic` ([polymorph-iroh#36](https://github.com/polymorph-components/polymorph-iroh/pull/36), merged), after which the in-repo copy was re-testing deltic against a staling guest snapshot — the consumer's own deltic leg is the living exam; the runtime defects it caught are pinned in deltic's suites (R-1/R-2, entry-deferral). History: `git log -- exams/iroh-endpoint` |
 | `ct-runner` | L3 runner for the polymorph-test L1 contract | golden-tested L4 JSONL; drives the websocket suite |
 | `tools/smoke-c0` | C0 smoke legs + report | legs 1–4 (`REPORT.md`) |

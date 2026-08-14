@@ -62,8 +62,6 @@ core:
     @just gha::_step test-translate
     @just gha::_step conformance
     @just gha::_step sched-seeds
-    @just gha::_step test-ports
-    @just gha::_step test-webrtc
 
 # The post-merge browser job (ci.yml `browser`; gates the prerelease).
 browser:
