@@ -13,14 +13,14 @@
 // web-platform code, and `wasi()` merges only AMBIENT, side-effect-
 // benign capabilities (time, entropy, stdio capture, an empty
 // filesystem). Anything granting network egress is opt-in regardless of
-// how portable it is — sockets today, a fetch-backed wasi:http tomorrow.
+// how portable it is — sockets and the fetch-backed http fragment today.
 //
 // COMPOSITION — three forms, coarsest to finest (virtualization scenarios
 // pinned by tests/version_resolution_test.ts):
 //
 // 1. Batteries: `instantiate(a, { ...wasi() })`.
 // 2. À la carte fragments: every IMPL is its own subpath export
-//    (`@deltic/wasi/{cli,clocks,filesystem,io,random,sockets}`) and
+//    (`@deltic/wasi/{cli,clocks,filesystem,http,io,random,sockets}`) and
 //    a plain `{ imports }` record — hand-merge exactly the set you mean:
 //    `{ ...io().imports, ...clocks().imports }`. Fragment dependencies:
 //    cli and clocks import io's Pollable/stream vocabulary; filesystem

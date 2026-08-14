@@ -9,6 +9,7 @@
 // recipe body in the justfile).
 
 import { type IpSocketAddress, type SocketResult, sockets } from "../src/sockets.ts";
+import { http, type TrailersResult } from "../src/http.ts";
 
 function assert(cond: boolean, what: string): void {
   if (!cond) throw new Error(`FAIL: ${what}`);
@@ -221,6 +222,92 @@ async function main(): Promise<void> {
     await new Promise<void>((r) => closer.close(() => r()));
   }
 
+  // --- http over fetch (undici): GET + POST against a node:http server ---------
+  {
+    interface NodeHttpModule {
+      createServer(
+        handler: (req: {
+          method?: string;
+          url?: string;
+          on(ev: string, fn: (...a: unknown[]) => void): unknown;
+        }, res: {
+          writeHead(status: number, headers?: Record<string, string>): unknown;
+          end(body?: Uint8Array | string): unknown;
+        }) => void,
+      ): {
+        listen(port: number, host: string, cb: () => void): unknown;
+        close(cb?: () => void): unknown;
+        address(): { port: number };
+      };
+    }
+    const nodeHttp = (globalThis as unknown as {
+      process: { getBuiltinModule: (n: string) => unknown };
+    }).process.getBuiltinModule("node:http") as NodeHttpModule;
+    const server = nodeHttp.createServer((req, res) => {
+      if (req.method === "GET") {
+        res.writeHead(203, { "x-answer": "97" });
+        res.end("hello from node");
+        return;
+      }
+      const chunks: number[] = [];
+      req.on("data", (...a) => chunks.push(...(a[0] as Uint8Array)));
+      req.on("end", () => {
+        res.writeHead(200);
+        res.end(Uint8Array.from(chunks));
+      });
+    });
+    const port = await new Promise<number>((r) =>
+      server.listen(0, "127.0.0.1", () => r(server.address().port))
+    );
+
+    const { Fields, Request, Response, send } = http();
+    const okTrailers = Promise.resolve<TrailersResult>({ kind: "ok", value: undefined });
+    const okRes = Promise.resolve<{ kind: "ok" }>({ kind: "ok" });
+
+    // GET
+    {
+      const [request] = Request["new"](new Fields(), undefined, okTrailers, undefined);
+      request.setScheme({ kind: "HTTP" });
+      request.setAuthority(`127.0.0.1:${port}`);
+      request.setPathWithQuery("/hello");
+      const response = await send(request);
+      assertEq(response.getStatusCode(), 203, "http GET status");
+      const [body] = Response.consumeBody(response, okRes);
+      assertEq(
+        new TextDecoder().decode(await (async () => {
+          const out: number[] = [];
+          for await (const c of body as AsyncIterable<Uint8Array>) out.push(...c);
+          return Uint8Array.from(out);
+        })()),
+        "hello from node",
+        "http GET body",
+      );
+      response[Symbol.dispose]();
+    }
+    // POST echo
+    {
+      const [request] = Request["new"](
+        new Fields(),
+        (async function* () {
+          yield Uint8Array.from([1, 2, 3, 4]);
+        })(),
+        okTrailers,
+        undefined,
+      );
+      request.setMethod({ kind: "post" });
+      request.setScheme({ kind: "HTTP" });
+      request.setAuthority(`127.0.0.1:${port}`);
+      request.setPathWithQuery("/echo");
+      const response = await send(request);
+      const [body] = Response.consumeBody(response, okRes);
+      const out: number[] = [];
+      for await (const c of body as AsyncIterable<Uint8Array>) out.push(...c);
+      assertEq(out, [1, 2, 3, 4], "http POST echo");
+      response[Symbol.dispose]();
+    }
+    await new Promise<void>((r) => server.close(() => r()));
+  }
+
   const version = (globalThis as unknown as { process: { version: string } }).process.version;
   // --- tcp listen: deferred bind, accept, echo, cancellation -------------------
   {
@@ -273,7 +360,7 @@ async function main(): Promise<void> {
     socket[Symbol.dispose]();
   }
 
-  console.log(`sockets node smoke: OK (udp + tcp + listen on ${version})`);
+  console.log(`wasi node smoke: OK (udp + tcp + listen + http on ${version})`);
 }
 
 main().catch((e) => {
