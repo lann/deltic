@@ -1,6 +1,7 @@
-package wasi:http@0.3.0-rc-2025-09-16;
+package wasi:http@0.3.1;
 
-// REDUCED vendored copy: the `service` and `middleware` worlds are
+// REDUCED vendored copy (from WebAssembly/WASI v0.3.1,
+// proposals/http/wit): the `service` and `middleware` worlds are
 // omitted (they include wasi:cli/random/clocks import sets this fixture
 // does not link); the `handler` and `client` interfaces and the types
 // interface (types.wit, verbatim) are what the http-fetch world uses.
@@ -12,6 +13,7 @@ package wasi:http@0.3.0-rc-2025-09-16;
 ///
 /// In `wasi:http/middleware` this interface is both exported and imported as
 /// the "downstream" and "upstream" directions of the middleware chain.
+@since(version = 0.3.0)
 interface handler {
   use types.{request, response, error-code};
 
@@ -32,6 +34,7 @@ interface handler {
 /// (including WIT itself) is unable to represent a component importing two
 /// instances of the same interface. A `client.send` import may be linked
 /// directly to a `handler.handle` export to bypass the network.
+@since(version = 0.3.0)
 interface client {
   use types.{request, response, error-code};
 

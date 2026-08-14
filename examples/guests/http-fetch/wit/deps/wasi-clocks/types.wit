@@ -1,7 +1,7 @@
 // REDUCED vendored dep: wasi:http's types.wit uses only `duration` from
 // wasi:clocks/types. The full rc clocks package is not needed by the
 // http-fetch fixture world, so this carries exactly the one type.
-package wasi:clocks@0.3.0-rc-2025-09-16;
+package wasi:clocks@0.3.1;
 
 interface types {
   /// A duration of time, in nanoseconds.
