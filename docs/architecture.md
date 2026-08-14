@@ -89,13 +89,16 @@ contracts throughout the repo. Related documents:
   serve them well — and a WASI provider *package* (`wasi/`, `@deltic/wasi`;
   named `wasi-shims` until 2026-08-14, when the contents outgrew "shim" —
   a separate deliverable; consumer-driven scope: p2 cli/io/clocks/random
-  baseline + p3 clocks, plus an à la carte p3 `wasi:sockets` fragment
-  (`@deltic/wasi/sockets` — UDP adopted from polymorph-iroh's Deno
-  host, TCP client + listener (the wosh consumer / the A13
-  resource-stream accept path); one node-builtins backend serving Deno
-  via its stable node compat — no `--unstable-net` — and real Node,
-  [#4](https://github.com/lann/deltic/issues/4)) that server-JS
-  hosts opt into and the default `wasi()` merge never carries).
+  baseline + p3 clocks, plus à la carte network fragments the default
+  `wasi()` merge never carries: p3 `wasi:sockets` (`@deltic/wasi/sockets`
+  — UDP adopted from polymorph-iroh's Deno host, TCP client + listener
+  (the wosh consumer / the A13 resource-stream accept path); one
+  node-builtins backend serving Deno via its stable node compat — no
+  `--unstable-net` — and real Node,
+  [#4](https://github.com/lann/deltic/issues/4)) and the fetch-backed
+  `wasi:http@0.3.0-rc` outbound client (`@deltic/wasi/http`; rc versions
+  resolve exact-only, so the fragment keys exact ids with a `version`
+  override)).
 - **Componentizing JS/TS.** Guests are components built by external toolchains
   (Rust + wit-bindgen is the reference). No embedded-JS-engine work.
 - **jco compatibility or reuse.** Ignored entirely — including at the

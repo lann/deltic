@@ -6,6 +6,7 @@
     "./cli": "./src/cli.ts",
     "./clocks": "./src/clocks.ts",
     "./filesystem": "./src/filesystem.ts",
+    "./http": "./src/http.ts",
     "./io": "./src/io.ts",
     "./random": "./src/random.ts",
     "./sockets": "./src/sockets.ts"

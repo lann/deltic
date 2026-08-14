@@ -1,0 +1,18 @@
+package deltic:http-fetch;
+
+/// End-to-end exerciser for the REAL `wasi:http@0.3.0-rc-2025-09-16`
+/// surface (wit/deps/wasi-http vendored verbatim from upstream) against
+/// wasi-shims' fetch-backed provider — the outbound `client.send` path
+/// with guest-constructed requests, response body streams, and both
+/// trailers futures.
+world http-fetch {
+  import wasi:http/types@0.3.0-rc-2025-09-16;
+  import wasi:http/client@0.3.0-rc-2025-09-16;
+
+  /// GET http://authority+path; returns (status, body bytes) or the
+  /// error-code's debug rendering.
+  export get: async func(authority: string, path: string) -> result<tuple<u16, list<u8>>, string>;
+
+  /// POST `body` to http://authority+path; returns the response body.
+  export post-echo: async func(authority: string, path: string, body: list<u8>) -> result<list<u8>, string>;
+}
