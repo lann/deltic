@@ -1,7 +1,8 @@
-// Integration gate: the REAL `wasi:http@0.3.0-rc` outbound surface end to
+// Integration gate: the REAL `wasi:http@0.3.1` outbound surface end to
 // end — the http-fetch fixture (examples/guests/http-fetch, types.wit
-// vendored verbatim) instantiated behind the runtime, with the fetch-backed
-// provider serving a live loopback `Deno.serve`. The composed path:
+// vendored verbatim from WebAssembly/WASI v0.3.1) instantiated behind the
+// runtime, with the fetch-backed provider serving a live loopback
+// `Deno.serve` through the `@0.3` track keys. The composed path:
 //
 //   guest wit-bindgen calls -> plan dispatch -> conventions adapter
 //   (host resource constructors, A12 future results in tuples, guest-
