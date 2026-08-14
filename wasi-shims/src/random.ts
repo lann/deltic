@@ -5,6 +5,15 @@
 export interface RandomOptions {
   /** Override the deterministic default `insecure-seed` value. */
   insecureSeed?: readonly [bigint, bigint];
+  /**
+   * Replace the CSPRNG (virtualization: tests selectively stubbing
+   * randomness while keeping the WIT shapes). Must return EXACTLY `len`
+   * bytes — the @0.2 contract's no-short-reads rule is enforced here, so
+   * a misbehaving source is a loud host error, not a guest corruption.
+   * Serves `random`, `insecure`, and `get-*-u64` alike; `insecure-seed`
+   * stays governed by `insecureSeed`.
+   */
+  source?: (len: number) => Uint8Array;
 }
 
 /**
@@ -30,7 +39,7 @@ export interface RandomOptions {
  */
 const GET_RANDOM_VALUES_MAX = 65536;
 
-function randomBytes(len: bigint): Uint8Array {
+function cryptoBytes(len: bigint): Uint8Array {
   const out = new Uint8Array(Number(len));
   for (let i = 0; i < out.length; i += GET_RANDOM_VALUES_MAX) {
     crypto.getRandomValues(
@@ -40,10 +49,28 @@ function randomBytes(len: bigint): Uint8Array {
   return out;
 }
 
-function randomU64(): bigint {
-  const out = new Uint8Array(8);
-  crypto.getRandomValues(out);
-  return new DataView(out.buffer).getBigUint64(0, true);
+/** The fill, honoring a virtualized `source` and its exact-length contract. */
+function makeRandomBytes(
+  source: ((len: number) => Uint8Array) | undefined,
+): (len: bigint) => Uint8Array {
+  if (source === undefined) return cryptoBytes;
+  return (len: bigint): Uint8Array => {
+    const out = source(Number(len));
+    if (out.length !== Number(len)) {
+      throw new TypeError(
+        `random source returned ${out.length} bytes, need exactly ${len} ` +
+          `(the @0.2 WIT permits no short reads)`,
+      );
+    }
+    return out;
+  };
+}
+
+function makeRandomU64(bytes: (len: bigint) => Uint8Array): () => bigint {
+  return (): bigint => {
+    const out = bytes(8n);
+    return new DataView(out.buffer, out.byteOffset, 8).getBigUint64(0, true);
+  };
 }
 
 /**
@@ -58,6 +85,8 @@ const DEFAULT_INSECURE_SEED: readonly [bigint, bigint] = [0n, 1n];
 /** `wasi:random@0.2` provider fragment (track key). */
 export function random(options: RandomOptions = {}): { imports: Record<string, unknown> } {
   const seed = options.insecureSeed ?? DEFAULT_INSECURE_SEED;
+  const randomBytes = makeRandomBytes(options.source);
+  const randomU64 = makeRandomU64(randomBytes);
   return {
     imports: {
       "wasi:random/random@0.2": {

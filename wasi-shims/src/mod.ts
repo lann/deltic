@@ -6,8 +6,35 @@
 // la carte at `@deltic/wasi-shims/sockets` (issue #4; server-JS hosts
 // only) —
 // deliberately not merged here: this root module stays host-agnostic
-// web-platform code, and `wasiShims()` never grows a fragment whose
-// honest answer on most hosts is `not-supported`.
+// web-platform code, and `wasiShims()` merges only AMBIENT, side-effect-
+// benign capabilities (time, entropy, stdio capture, an empty
+// filesystem). Anything granting network egress is opt-in regardless of
+// how portable it is — sockets today, a fetch-backed wasi:http tomorrow.
+//
+// COMPOSITION — three forms, coarsest to finest (virtualization scenarios
+// pinned by tests/version_resolution_test.ts):
+//
+// 1. Batteries: `instantiate(a, { ...wasiShims() })`.
+// 2. À la carte fragments: every IMPL is its own subpath export
+//    (`@deltic/wasi-shims/{cli,clocks,filesystem,io,random,sockets}`) and
+//    a plain `{ imports }` record — hand-merge exactly the set you mean:
+//    `{ ...io().imports, ...clocks().imports }`. Fragment dependencies:
+//    cli and clocks import io's Pollable/stream vocabulary; filesystem
+//    and random stand alone. Naming convention as impls multiply: one
+//    subpath per impl; the unqualified name is the batteries impl
+//    (`./filesystem` = empty preopens), alternatives carry their backend
+//    (a future OPFS-backed `./filesystem-web`).
+// 3. Per-interface override: the merged record is a plain object keyed by
+//    TRACK keys (`wasi:random/random@0.2`), so later spreads replace
+//    single interfaces wholesale:
+//    `{ ...wasiShims(), "wasi:random/random@0.2": myStub }`.
+//    Replace the track key, don't add an exact-versioned sibling — the
+//    resolver refuses track+exact coexistence on one track as ambiguous
+//    (contracts/embedder-api.md §"Version canonicalization"). Per-guest
+//    virtualization needs no version tricks anyway: compose a different
+//    record per `instantiate` call. Some fragments also take the finer
+//    knob directly — `random({ source })` swaps the CSPRNG while keeping
+//    the WIT shapes and the no-short-reads rule.
 //
 // `wasiShims(options)` returns one flat imports-record fragment, keyed by
 // compatibility-**track** keys per contracts/embedder-api.md §"Version

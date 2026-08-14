@@ -76,3 +76,33 @@ Deno.test("random: insecure-seed is override-able", () => {
   assertEq(a, 7n);
   assertEq(b, 9n);
 });
+
+Deno.test("random: a virtualized source replaces the CSPRNG, WIT shapes intact", () => {
+  // The mod.ts COMPOSITION form-3 scenario: tests selectively stubbing
+  // randomness while every WIT shape and rule stays enforced.
+  let counter = 0;
+  const { imports } = random({ source: (len) => Uint8Array.from({ length: len }, () => counter++) });
+  const r = imports["wasi:random/random@0.2"] as {
+    getRandomBytes(len: bigint): Uint8Array;
+    getRandomU64(): bigint;
+  };
+  assertEq(JSON.stringify([...r.getRandomBytes(4n)]), JSON.stringify([0, 1, 2, 3]));
+  const u64 = r.getRandomU64(); // bytes 4..11, little-endian
+  assertEq(u64, new DataView(Uint8Array.from([4, 5, 6, 7, 8, 9, 10, 11]).buffer).getBigUint64(0, true));
+  // insecure routes through the same source; insecure-seed stays governed
+  // by its own option.
+  const insecure = imports["wasi:random/insecure@0.2"] as { getInsecureRandomBytes(len: bigint): Uint8Array };
+  assertEq(insecure.getInsecureRandomBytes(2n).length, 2);
+});
+
+Deno.test("random: a short-reading source is a loud host error, not guest corruption", () => {
+  const { imports } = random({ source: () => new Uint8Array(3) });
+  const r = imports["wasi:random/random@0.2"] as { getRandomBytes(len: bigint): Uint8Array };
+  let threw: unknown;
+  try {
+    r.getRandomBytes(8n);
+  } catch (e) {
+    threw = e;
+  }
+  assertTrue(threw instanceof TypeError, `a TypeError names the contract, got ${threw}`);
+});
