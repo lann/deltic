@@ -7,8 +7,9 @@
 // Mirrors tools/smoke-c0 leg 4 (translate-only + import-surface enumeration)
 // and then goes one step further than the issue asks: the tls conformance
 // suite artifacts are fully composed (no network, no sockets — recon
-// 2026-08-09), so the same ct-runner + wasi-shims path that runs the
-// websocket suite (ports/websocket/conformance/run.ts) can execute them
+// 2026-08-09), so the same ct-runner + wasi-shims path that ran the
+// websocket suite (the retired ports/websocket conformance runner; the
+// consumer's own deltic legs carry it now) can execute them
 // directly. All consumer artifacts are referenced by absolute path and are
 // READ-ONLY; nothing here writes to the polymorph trees.
 //
