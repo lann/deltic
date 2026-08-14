@@ -105,7 +105,9 @@ honor it. webcrypto stays measurable indefinitely either way.
 
 Node is **not a consumer requirement.** Deno functionally substitutes across
 the whole consumer capability surface — verified empirically (2026-08-08,
-Deno 2.9.5/linux-arm64, `tools/probes/webrtc-deno/`):
+Deno 2.9.5/linux-arm64, via the C0 capability probe; served and retired
+2026-08-14, history: `git log -- tools/probes/webrtc-deno` — the living
+WebRTC coverage is `just test-webrtc`, node-datachannel under Deno):
 
 | Capability | Deno path | Status |
 |---|---|---|

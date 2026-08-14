@@ -1,6 +1,0 @@
-{
-  "dependencies": {
-    "node-datachannel": "0.32.3",
-    "werift": "0.22.2"
-  }
-}

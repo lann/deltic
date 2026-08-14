@@ -1,8 +1,9 @@
 // Host-module port of `polymorph:webrtc-datachannels/connections@0.1.0` to
 // the embedder conventions (contracts/embedder-api.md), backed by the
-// Deno-verified WebRTC path (tools/probes/webrtc-deno/probe.mjs proved both
-// node-datachannel's Node-API addon and pure-TS werift pass full
-// data-channel loopbacks under this exact Deno).
+// Deno-verified WebRTC path (the retired C0 probe — see docs/consumers.md
+// "Deno substitutes for Node" — proved both node-datachannel's Node-API
+// addon and pure-TS werift pass full data-channel loopbacks under this
+// exact Deno).
 //
 // Ported from the browser-first reference
 // (`polymorph/polymorph-webrtc-datachannels/jco-impl/webrtc.js`, read-only
