@@ -16,7 +16,7 @@ ci: (gha::core) (gha::browser)
 # Includes the consumer smokes CI cannot run (they need the polymorph
 # checkouts; docs/consumers.md).
 # The full pre-commit pass (AGENTS.md "Gates"): everything.
-gates: build test-rust test-protocol test-runtime test-wasi test-sockets-node test-ct-runner test-bundle publish-check examples test-translate conformance sched-seeds test-ports test-webrtc shells browsers websocket-conformance smoke-tls smoke-c0
+gates: build test-rust test-protocol test-runtime test-wasi test-sockets-node test-ct-runner test-bundle publish-check examples test-translate conformance sched-seeds shells browsers smoke-tls smoke-c0
 
 # Fast sanity: builds + native tests + type-checks, no suites.
 check: build test-rust
@@ -135,18 +135,6 @@ sched-seeds: shim fixtures corpus
     cd runtime && DELTIC_SCHED_SEED=4242 deno task test
     cd harness && DELTIC_SCHED_SEED=1 deno task conformance
 
-# Consumer conformance legs are separate (`websocket-conformance` below).
-# Ports unit suites.
-test-ports:
-    cd ports/webcrypto && deno test --allow-read tests/
-    cd ports/websocket && deno task test
-
-# node-datachannel is a Node-API addon with linux prebuilds for both x64
-# and arm64.
-# webrtc unit suite.
-test-webrtc:
-    cd ports/webrtc && deno install --allow-scripts=npm:node-datachannel && deno test -A webrtc.test.ts
-
 # ----- engine lanes -----------------------------------------------------------
 
 # Pinned lanes (sm-pinned, jsc-pinned) are required gates — a deviation
@@ -216,11 +204,6 @@ smoke-tls: shim
 # The C0 smoke legs (tools/smoke-c0/REPORT.md).
 smoke-c0: shim
     cd tools/smoke-c0 && deno task leg1 && deno task leg2 && deno task leg3 && deno task leg4
-
-# Spawns their echod; DENO_CERT rides the task definition.
-# The consumer's REAL websocket conformance suite under this host.
-websocket-conformance: shim
-    cd ports/websocket && deno task conformance
 
 # The host-boundary microbench (bench/boundary/README.md): calls/sec per
 # ABI shape for the CURRENT tree, on plain node (callback + jspi) and

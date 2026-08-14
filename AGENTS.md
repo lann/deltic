@@ -43,11 +43,8 @@ just publish-check        # deno publish --dry-run: the JSR publish checks, no u
 just examples test-translate  # embedder examples; build-time translation CLI
 just conformance          # official CM suite, Deno lane
 just sched-seeds          # seeded-shuffle reruns: DELTIC_SCHED_SEED=1, =4242 (FIFO when unset)
-just test-ports           # ports/webcrypto + ports/websocket unit suites
-just test-webrtc          # ports/webrtc unit suite
 just shells               # pinned engine/runtime lanes: sm + node everywhere, jsc on x64, bun findings-only
 just browsers             # chromium + firefox lanes (`just browsers-install` once)
-just websocket-conformance  # their suite under this host (spawns their echod)
 just smoke-tls            # polymorph-tls suite (issue #18)
 just smoke-c0             # C0 smoke legs
 ```

@@ -49,13 +49,35 @@ Docs PR deleting `$async?` from the template at CanonicalABI.md:4013.
 > may not block"). This looks like a leftover from the removal of async
 > drops; this PR removes the stale immediate from the template.
 
+### Filing notes
+
+- Removal history: #578 removed the `async` immediate from `resource.drop`
+  (Explainer grammar, Binary.md opcode `0x07`, the `option<subtask>` prose);
+  #646 then forbade async ABI options on sync-typed functions entirely —
+  current dtor text ("may not block; may spawn a cooperative thread that
+  does") dates from there.
+- The `$async?` immediates on `stream.cancel-read/write` /
+  `future.cancel-read/write` a few sections down (~L4744-4747) are still
+  correct — the fix is deleting the one token at :4013 only.
+- Still present at upstream `main` (re-checked 2026-08-14). A standalone
+  pre-tracker draft of this finding (`upstream-issue-stale-async-drop.md`)
+  was retired into this entry; see git history if the fuller prose is wanted.
+
 ---
 
 ## CM-2: `canon_backpressure_set` is dead code in definitions.py
 
-**Status:** DRAFT — proposed as a PR removing it (with a question in the
-description in case retention is intentional)
+**Status:** RESOLVED upstream, independently — no filing needed. Upstream
+commit `1c42aeb02` ("Remove TODO from tests, remove stale backpressure.set
+definition", PR [#690]) deleted the block from definitions.py; verified
+absent at `main` 2026-08-14. Our runtime's annotations referencing the dead
+code (`runtime/src/intrinsics/async_builtins.ts`, `intrinsics/mod.ts`,
+`runtime/README.md`) describe the **pinned** submodule (`73b7ad5`), where it
+still exists — they come out with the next submodule bump, per the filing
+checklist.
 **Found:** 2026-08-08, during the canonical-ABI reference-test port
+
+[#690]: https://github.com/WebAssembly/component-model/pull/690
 
 ### Evidence
 
@@ -77,24 +99,9 @@ description in case retention is intentional)
   `canon_backpressure_inc`), and exits with
   *"Error: Differences found between definitions.py and CanonicalABI.md."*
 
-### Proposed fix
-
-PR removing the `canon backpressure.set` section from definitions.py, making
-`diff.py` pass again. The PR description should ask whether the function was
-kept deliberately (e.g., transitional compat for toolchains that emitted
-`backpressure.set`) — if so, the alternative fix is documenting it in
-CanonicalABI.md and the Explainer instead.
-
-### Draft PR description
-
-> `definitions.py` still defines `canon_backpressure_set`, but the Explainer
-> grammar and CanonicalABI.md only define `backpressure.inc`/`backpressure.dec`
-> — there is no grammar production that could reach it, and
-> `canonical-abi/diff.py` currently fails with this block as its only
-> difference. This PR removes the leftover from the set→inc/dec transition.
-> If it is being kept intentionally for transitional toolchain compatibility,
-> happy to convert this into a docs PR adding it back to the grammar/prose
-> instead — but as it stands the repo's own consistency check is red.
+(The formerly-proposed removal PR is exactly what upstream #690 did,
+including making `diff.py` pass again; the draft text was dropped from this
+entry on resolution — see git history.)
 
 ---
 
