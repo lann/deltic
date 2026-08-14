@@ -3,6 +3,11 @@
   "version": "0.1.0",
   "exports": {
     ".": "./src/mod.ts",
+    "./cli": "./src/cli.ts",
+    "./clocks": "./src/clocks.ts",
+    "./filesystem": "./src/filesystem.ts",
+    "./io": "./src/io.ts",
+    "./random": "./src/random.ts",
     "./sockets": "./src/sockets.ts"
   },
   "tasks": {

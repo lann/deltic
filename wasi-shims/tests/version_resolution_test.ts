@@ -44,3 +44,46 @@ Deno.test("wasiShims(): captured is reachable and not confused for a WIT import 
   // interface-id folding hazard (runtime/src/embedder/version.ts `#register`).
   new ImportResolver(shims);
 });
+
+// --- virtualization composition (mod.ts "COMPOSITION" form 3) ------------------
+
+Deno.test("virtualization: a spread-replaced track key serves the stub; siblings stay real", () => {
+  const fixed = Uint8Array.from([7, 7, 7, 7]);
+  const composed = {
+    ...wasiShims(),
+    "wasi:random/random@0.2": {
+      getRandomBytes: (_len: bigint): Uint8Array => fixed,
+      getRandomU64: (): bigint => 7n,
+    },
+  };
+  const resolver = new ImportResolver(composed);
+  // The stubbed interface resolves to the stub — at any 0.2.x the guest asks.
+  const stubbed = resolver.resolve("wasi:random/random@0.2.9");
+  assertTrue(stubbed !== undefined);
+  const provider = stubbed!.value as { getRandomBytes(len: bigint): Uint8Array };
+  assertEq(provider.getRandomBytes(4n), fixed);
+  // Sibling interfaces from the SAME fragment are untouched.
+  const sibling = resolver.resolve("wasi:random/insecure-seed@0.2.9");
+  assertTrue(sibling !== undefined);
+  assertEq(sibling!.key, "wasi:random/insecure-seed@0.2");
+});
+
+Deno.test("virtualization: track + exact keys on one track are refused, loudly", () => {
+  // The documented boundary: override by REPLACING the track key, never by
+  // adding an exact-versioned sibling (ambiguous; refused at registration).
+  const composed = {
+    ...wasiShims(),
+    "wasi:random/random@0.2.9": { getRandomBytes: (): Uint8Array => new Uint8Array(0) },
+  };
+  let threw: unknown;
+  try {
+    new ImportResolver(composed);
+  } catch (e) {
+    threw = e;
+  }
+  assertTrue(threw !== undefined, "registration refuses the ambiguity");
+  assertTrue(
+    String(threw).includes("wasi:random/random"),
+    `the refusal names the colliding interface, got: ${threw}`,
+  );
+});
