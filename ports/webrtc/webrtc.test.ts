@@ -1,8 +1,9 @@
 // In-process loopback tests for the `ports/webrtc` host module: two
 // instantiations of the port's `PeerConnection`/`DataChannel` classes wired
 // directly to each other (no signaling server), following the
-// trickle-ICE-buffering discipline proven by
-// `tools/probes/webrtc-deno/probe.mjs`.
+// trickle-ICE-buffering discipline proven by the C0 capability probe
+// (`tools/probes/webrtc-deno/`, retired 2026-08-14 — its questions are
+// answered in docs/consumers.md; source via git history).
 //
 // Sanitizer note: `node-datachannel` keeps background native threads alive
 // across the whole process (proven by the probe, which calls `Deno.exit`
@@ -31,7 +32,7 @@ const NO_SANITIZE = { sanitizeResources: false, sanitizeOps: false };
 /**
  * Wire two freshly constructed `PeerConnection`s through a full offer/answer
  * + trickle-ICE exchange, in-process (no network signaling server) —
- * ported wiring discipline from tools/probes/webrtc-deno/probe.mjs:28-66
+ * ported wiring discipline from the retired probe's loopback
  * (buffer candidates until the peer has its remote description).
  */
 async function connectPair(): Promise<{ a: PeerConnection; b: PeerConnection }> {
