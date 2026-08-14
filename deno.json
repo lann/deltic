@@ -3,7 +3,7 @@
     "./protocol",
     "./runtime",
     "./harness",
-    "./wasi-shims",
+    "./wasi",
     "./ct-runner",
     "./examples",
     "./translator"

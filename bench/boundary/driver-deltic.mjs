@@ -40,7 +40,7 @@ const componentBytes = await readFile(
 const { plan, adapters } = translator.translate(componentBytes);
 
 const imports = {
-  ...deltic.wasiShims(),
+  ...deltic.wasi(),
   "bench:boundary/host@0.1.0": makeHost(mode),
 };
 const inst = await deltic.instantiate(

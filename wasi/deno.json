@@ -1,5 +1,5 @@
 {
-  "name": "@deltic/wasi-shims",
+  "name": "@deltic/wasi",
   "version": "0.1.0",
   "exports": {
     ".": "./src/mod.ts",

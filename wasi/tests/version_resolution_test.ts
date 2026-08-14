@@ -5,10 +5,10 @@
 
 import { assertEq, assertTrue } from "./asserts.ts";
 import { ImportResolver } from "@deltic/runtime/embedder";
-import { wasiShims } from "../src/mod.ts";
+import { wasi } from "../src/mod.ts";
 
-Deno.test("D-2: the one wasiShims() @0.2 provider serves 0.2.6 / 0.2.9 / 0.2.12", () => {
-  const shims = wasiShims();
+Deno.test("D-2: the one wasi() @0.2 provider serves 0.2.6 / 0.2.9 / 0.2.12", () => {
+  const shims = wasi();
   const resolver = new ImportResolver(shims);
   for (const v of ["0.2.6", "0.2.9", "0.2.12"]) {
     const hit = resolver.resolve(`wasi:cli/environment@${v}`);
@@ -24,8 +24,8 @@ Deno.test("D-2: the one wasiShims() @0.2 provider serves 0.2.6 / 0.2.9 / 0.2.12"
   }
 });
 
-Deno.test("D-1: the one wasiShims() @0.3 clocks provider serves both diverging drafts", () => {
-  const shims = wasiShims();
+Deno.test("D-1: the one wasi() @0.3 clocks provider serves both diverging drafts", () => {
+  const shims = wasi();
   const resolver = new ImportResolver(shims);
   const hit = resolver.resolve("wasi:clocks/monotonic-clock@0.3.0");
   assertTrue(hit !== undefined);
@@ -36,8 +36,8 @@ Deno.test("D-1: the one wasiShims() @0.3 clocks provider serves both diverging d
   assertTrue(typeof provider.waitUntil === "function");
 });
 
-Deno.test("wasiShims(): captured is reachable and not confused for a WIT import key", () => {
-  const shims = wasiShims();
+Deno.test("wasi(): captured is reachable and not confused for a WIT import key", () => {
+  const shims = wasi();
   assertTrue(typeof shims.captured.stdoutText === "function");
   // Registering the fragment must not throw — "captured" has neither `:`
   // nor `/`, so `ImportResolver` never treats it as an unversioned
@@ -50,7 +50,7 @@ Deno.test("wasiShims(): captured is reachable and not confused for a WIT import 
 Deno.test("virtualization: a spread-replaced track key serves the stub; siblings stay real", () => {
   const fixed = Uint8Array.from([7, 7, 7, 7]);
   const composed = {
-    ...wasiShims(),
+    ...wasi(),
     "wasi:random/random@0.2": {
       getRandomBytes: (_len: bigint): Uint8Array => fixed,
       getRandomU64: (): bigint => 7n,
@@ -72,7 +72,7 @@ Deno.test("virtualization: track + exact keys on one track are refused, loudly",
   // The documented boundary: override by REPLACING the track key, never by
   // adding an exact-versioned sibling (ambiguous; refused at registration).
   const composed = {
-    ...wasiShims(),
+    ...wasi(),
     "wasi:random/random@0.2.9": { getRandomBytes: (): Uint8Array => new Uint8Array(0) },
   };
   let threw: unknown;

@@ -3,7 +3,7 @@ package deltic:tcp-echo;
 /// End-to-end loopback exerciser for the REAL `wasi:sockets@0.3.0` TCP
 /// surface (wit/deps vendored verbatim from upstream — the same revision
 /// the iroh/wosh consumer family links). Driven by
-/// wasi-shims/tests/integration_sockets_test.ts against the à la carte
+/// wasi/tests/integration_sockets_test.ts against the à la carte
 /// sockets provider: the client half is the wosh listener's exact shape
 /// (create/connect/send-stream/receive-stream), and the server half runs
 /// listen/accept through amendment A13's resource-element streams —

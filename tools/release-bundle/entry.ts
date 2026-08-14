@@ -9,12 +9,18 @@
 // Surface discipline: everything here is already public — the embedder API
 // (contracts/embedder-api.md), the shim's `Translator`, `@deltic/ct-runner`
 // (runSuite + Context + import analysis + the tags inventory), and
-// `@deltic/wasi-shims`. The bundle adds no API of its own; per the #8
+// `@deltic/wasi`. The bundle adds no API of its own; per the #8
 // rescope there is no runtime code generation anywhere in this graph
 // (nothing needs CSP beyond `wasm-unsafe-eval`).
 
 export * from "@deltic/runtime/embedder";
 export { Translator } from "@deltic/runtime/shim";
 export * from "@deltic/ct-runner";
-export { wasiShims } from "@deltic/wasi-shims";
-export type { WasiShims, WasiShimsOptions } from "@deltic/wasi-shims";
+export { wasi, wasiShims } from "@deltic/wasi";
+export type {
+  WasiImports,
+  WasiOptions,
+  // deprecated aliases, kept through the rename transition
+  WasiShims,
+  WasiShimsOptions,
+} from "@deltic/wasi";

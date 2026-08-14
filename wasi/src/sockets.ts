@@ -7,12 +7,12 @@
 // Backend rationale, adapters, and measured costs: sockets_platform.ts.
 //
 // À la carte (issue #4): this module is a separate export
-// (`@deltic/wasi-shims/sockets`), never merged into `wasiShims()` — the
+// (`@deltic/wasi/sockets`), never merged into `wasi()` — the
 // baseline package stays host-agnostic web-platform code, while this
 // fragment is server-JS-native by nature (browsers have no sockets;
 // wasmtime owns the native story). Consumers that want it spread it in:
 //
-//   instantiate(artifacts, { ...wasiShims(), ...sockets().imports })
+//   instantiate(artifacts, { ...wasi(), ...sockets().imports })
 //
 // The UDP provider is adopted from polymorph-components/polymorph-iroh#69
 // (that host's exam drives it over loopback QUIC); divergences from the
