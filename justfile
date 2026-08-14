@@ -16,13 +16,13 @@ ci: (gha::core) (gha::browser)
 # Includes the consumer smokes CI cannot run (they need the polymorph
 # checkouts; docs/consumers.md).
 # The full pre-commit pass (AGENTS.md "Gates"): everything.
-gates: build test-rust test-protocol test-runtime test-wasi-shims test-sockets-node test-ct-runner test-bundle publish-check examples test-translate conformance sched-seeds test-ports test-webrtc shells browsers websocket-conformance smoke-tls smoke-c0
+gates: build test-rust test-protocol test-runtime test-wasi test-sockets-node test-ct-runner test-bundle publish-check examples test-translate conformance sched-seeds test-ports test-webrtc shells browsers websocket-conformance smoke-tls smoke-c0
 
 # Fast sanity: builds + native tests + type-checks, no suites.
 check: build test-rust
     cd protocol && deno task check
     cd runtime && deno task check
-    cd wasi-shims && deno task check
+    cd wasi && deno task check
     cd ct-runner && deno task check
 
 # ----- builders ---------------------------------------------------------------
@@ -85,18 +85,18 @@ test-runtime: shim fixtures corpus
 test-protocol:
     cd protocol && deno task test
 
-test-wasi-shims:
-    cd wasi-shims && deno task test
+test-wasi:
+    cd wasi && deno task test
 
-# The sockets fragment on REAL pinned Node (the whole test-wasi-shims
+# The sockets fragment on REAL pinned Node (the whole test-wasi
 # suite exercises the same node-builtins backend under Deno's node-compat;
 # this lane covers the genuine platform). `deno bundle` resolves the
 # workspace imports into one self-contained ESM file; tests/dist/ is
 # gitignored.
 test-sockets-node:
     deno run -A tools/shell/fetch.ts node-pinned
-    deno bundle --platform browser --format esm -o wasi-shims/tests/dist/node_smoke.mjs wasi-shims/tests/node_smoke.ts
-    .shell-cache/node-pinned/bin/node wasi-shims/tests/dist/node_smoke.mjs
+    deno bundle --platform browser --format esm -o wasi/tests/dist/node_smoke.mjs wasi/tests/node_smoke.ts
+    .shell-cache/node-pinned/bin/node wasi/tests/dist/node_smoke.mjs
 
 test-ct-runner: shim fixtures
     cd ct-runner && deno task test

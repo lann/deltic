@@ -3,7 +3,7 @@
 //
 // The iroh identity/exec-model path (mission context) exercises this family
 // directly: tools/smoke-c0/leg2_exec_model.ts and
-// wasi-shims/tests/integration_exec_model_test.ts's `webcryptoFixture()`
+// wasi/tests/integration_exec_model_test.ts's `webcryptoFixture()`
 // both hand-roll exactly `key-agreement.{AgreementKeyOptions,PublicKey,
 // SecretKey}` + `x25519.generateKey`; this module is the real port of that
 // fixture, extended to the WIT's full import/unwrap/agree surface.

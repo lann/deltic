@@ -1,6 +1,6 @@
 // Unit tests: `polymorph:webcrypto/key-agreement` + `x25519` (RFC 7748) —
-// the shape wasi-shims's `webcryptoFixture()` test-local glue hand-rolled
-// (wasi-shims/tests/integration_exec_model_test.ts:66-86); this is the real
+// the shape wasi's `webcryptoFixture()` test-local glue hand-rolled
+// (wasi/tests/integration_exec_model_test.ts:66-86); this is the real
 // port's coverage of the same family plus `agree`/`derive-bits`.
 
 import { assertEq, assertRejects } from "./asserts.ts";

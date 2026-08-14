@@ -696,8 +696,8 @@ equivalent of a semver major:
 | `deltic.future/1` | `Future.prototype` | embedder future handles |
 | `deltic.errorContext/1` | `ErrorContext.prototype` | lifted error-contexts |
 | `deltic.resourceState/1` | guest-resource wrappers (key for internal state; the state shape stays runtime-internal) | resource wrappers |
-| `deltic.pollable/1` | `Pollable.prototype` (wasi-shims) | pollables |
-| `deltic.wasiExit/1` | `ExitError.prototype` (wasi-shims) | wasi exit unwinds |
+| `deltic.pollable/1` | `Pollable.prototype` (the wasi package) | pollables |
+| `deltic.wasiExit/1` | `ExitError.prototype` (the wasi package) | wasi exit unwinds |
 | `deltic.runtimeCopies/1` | `globalThis` | the copy registry |
 
 **Brands are contract markers, not a security boundary.** A hand-rolled

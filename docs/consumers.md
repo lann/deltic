@@ -39,7 +39,7 @@ Their jco blockers map one-for-one onto this project's proven strengths
   writes shims against these conventions, and the broader ecosystem's
   most important interfaces are exactly these. The embedder-api contract
   carries paper signatures for a representative WASI slice; the
-  `wasi-shims/` package is the executable check.
+  `wasi/` package is the executable check.
 - **The application owns the import map** (issue #83, decision 2026-08-11;
   the WICG import-maps stance as a family convention). Host-module
   packages import `@deltic/*` by bare specifier and carry **no** mapping

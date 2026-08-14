@@ -1,7 +1,7 @@
 // The flagship gate: execute the consumer's REAL conformance suite
 // (`polymorph-websocket/conformance/guest-ct`) under deltic, with
 // this port supplying `polymorph:websocket/connections@0.1.0` and
-// `wasi-shims` supplying WASI.
+// `wasi` supplying WASI.
 //
 //   deno task conformance [--only SUBSTRING] [--jspi]
 //
@@ -18,7 +18,7 @@
 //   `connections.setMaxInboundBufferBytes(…)`  | `configure({ … })`, same values
 //   `spawnEchod(bin)` scraping LISTENING       | `spawnEchod()`, same scrape
 //   `unreachableUrl()` (bind port 0, release)  | same
-//   `env = [[WS_CONFORMANCE_*, …]]`            | `wasiShims({ cli: { env } })`
+//   `env = [[WS_CONFORMANCE_*, …]]`            | `wasi({ cli: { env } })`
 //   `runSuite(...)` (component-test-js)        | `runSuite(...)` (ct-runner)
 //   `NODE_EXTRA_CA_CERTS=…/tls/ca.pem`         | `DENO_CERT=…/tls/ca.pem`
 //
@@ -28,7 +28,7 @@
 import { Translator } from "../../../runtime/src/shim/mod.ts";
 import type { ComponentArtifacts } from "../../../runtime/src/embedder/mod.ts";
 import { runSuite } from "../../../ct-runner/src/mod.ts";
-import { wasiShims } from "../../../wasi-shims/src/mod.ts";
+import { wasi } from "../../../wasi/src/mod.ts";
 import { configure, websocketImports } from "../src/websocket.ts";
 
 const CE_ROOT = new URL("../../../", import.meta.url).pathname;
@@ -200,7 +200,7 @@ async function main() {
 
   const artifacts = await loadArtifacts();
   const imports = {
-    ...wasiShims({ cli: { env, passthrough: false } }),
+    ...wasi({ cli: { env, passthrough: false } }),
     ...websocketImports(),
   };
 

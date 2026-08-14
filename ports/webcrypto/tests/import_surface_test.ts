@@ -14,7 +14,7 @@
 
 import { Translator } from "../../../runtime/src/shim/mod.ts";
 import { analyzeImports } from "../../../ct-runner/src/mod.ts";
-import { wasiShims } from "../../../wasi-shims/src/mod.ts";
+import { wasi } from "../../../wasi/src/mod.ts";
 import { webcryptoImports } from "../src/mod.ts";
 import { assertEq } from "./asserts.ts";
 
@@ -36,12 +36,12 @@ async function missingLeaves(suite: string): Promise<string[] | undefined> {
   if (shim === undefined || componentBytes === undefined) return undefined;
   const translator = await Translator.create(shim);
   const { plan } = translator.translate(componentBytes);
-  const analysis = analyzeImports(plan, { ...wasiShims(), ...webcryptoImports() });
+  const analysis = analyzeImports(plan, { ...wasi(), ...webcryptoImports() });
   return analysis.missing;
 }
 
 for (const suite of ["conformance_guest_ct", "conformance_signing_guest_ct"]) {
-  Deno.test(`import surface: ${suite} has zero unresolved leaves under wasiShims() + webcryptoImports()`, async () => {
+  Deno.test(`import surface: ${suite} has zero unresolved leaves under wasi() + webcryptoImports()`, async () => {
     const missing = await missingLeaves(suite);
     if (missing === undefined) {
       console.log("  (skip: the suite artifact or the translator shim is not built)");

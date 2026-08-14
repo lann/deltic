@@ -7,7 +7,7 @@
 // Mirrors tools/smoke-c0 leg 4 (translate-only + import-surface enumeration)
 // and then goes one step further than the issue asks: the tls conformance
 // suite artifacts are fully composed (no network, no sockets — recon
-// 2026-08-09), so the same ct-runner + wasi-shims path that runs the
+// 2026-08-09), so the same ct-runner + wasi path that runs the
 // websocket suite (ports/websocket/conformance/run.ts) can execute them
 // directly. All consumer artifacts are referenced by absolute path and are
 // READ-ONLY; nothing here writes to the polymorph trees.
@@ -36,7 +36,7 @@ import {
 } from "../smoke-c0/common.ts";
 import type { ComponentArtifacts } from "../../runtime/src/embedder/mod.ts";
 import { runSuite } from "../../ct-runner/src/mod.ts";
-import { wasiShims } from "../../wasi-shims/src/mod.ts";
+import { wasi } from "../../wasi/src/mod.ts";
 
 const CONF = `${POLYMORPH}/polymorph-tls/target/conformance`;
 
@@ -116,7 +116,7 @@ async function translatePhase(): Promise<number> {
 }
 
 async function execPhase(only?: string): Promise<number> {
-  console.log("\n=== phase 2: execute the suites (ct-runner + wasi-shims) ===\n");
+  console.log("\n=== phase 2: execute the suites (ct-runner + wasi) ===\n");
   const t = await loadTranslator();
   let failures = 0;
   for (const [target, path, missing, xfails] of EXEC_TARGETS) {
@@ -133,7 +133,7 @@ async function execPhase(only?: string): Promise<number> {
     const lines: string[] = [];
     try {
       const counts = await runSuite(artifacts, {
-        imports: wasiShims(),
+        imports: wasi(),
         target,
         suiteName: path.split("/").pop()!.replace(/\.wasm$/, ""),
         missing,

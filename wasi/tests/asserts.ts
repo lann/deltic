@@ -1,4 +1,4 @@
-// Minimal, dependency-free assertion helpers for wasi-shims tests.
+// Minimal, dependency-free assertion helpers for wasi tests.
 
 export function assertEq<T>(actual: T, expected: T, msg?: string): void {
   const ok = Object.is(actual, expected) ||

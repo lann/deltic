@@ -1,7 +1,7 @@
 // The flagship gate: execute the consumer's REAL conformance suites
 // (`polymorph-webcrypto/conformance/guest-ct` and its signing sibling)
 // under deltic, with this port supplying every `polymorph:webcrypto/*`
-// interface and `wasi-shims` supplying WASI.
+// interface and `wasi` supplying WASI.
 //
 //   deno task conformance [--only SUBSTRING] [--suite shared|signing] [--jspi]
 //
@@ -26,7 +26,7 @@
 import { Translator } from "../../../runtime/src/shim/mod.ts";
 import type { ComponentArtifacts } from "../../../runtime/src/embedder/mod.ts";
 import { runSuite } from "../../../ct-runner/src/mod.ts";
-import { wasiShims } from "../../../wasi-shims/src/mod.ts";
+import { wasi } from "../../../wasi/src/mod.ts";
 import { setRsaPrivateKeyPolicy, webcryptoImports } from "../src/mod.ts";
 
 const CE_ROOT = new URL("../../../", import.meta.url).pathname;
@@ -130,7 +130,7 @@ async function loadArtifacts(wasm: string): Promise<ComponentArtifacts> {
 
 async function runOne(spec: SuiteSpec, cli: Cli): Promise<number> {
   const artifacts = await loadArtifacts(spec.wasm);
-  const imports = { ...wasiShims({ cli: { env: {}, passthrough: false } }), ...webcryptoImports() };
+  const imports = { ...wasi({ cli: { env: {}, passthrough: false } }), ...webcryptoImports() };
   const out = cli.out ?? new URL(`./results-${spec.target}.jsonl`, import.meta.url).pathname;
   const lines: string[] = [];
   const started = performance.now();

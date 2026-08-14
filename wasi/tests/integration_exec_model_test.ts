@@ -1,5 +1,5 @@
 // Integration gate 2: `iroh_exec_model_guest.wasm` runs its full probe
-// sequence end-to-end via `instantiate(artifacts, { ...wasiShims(), ...
+// sequence end-to-end via `instantiate(artifacts, { ...wasi(), ...
 // webcryptoFixture })` — ZERO hand-written wasi stubs. This is the mission's
 // named integration gate; the driving order is ported from
 // tools/smoke-c0/leg2_exec_model.ts (the lann/jco#11 kill shot).
@@ -10,7 +10,7 @@
 import { assertEq, assertTrue } from "./asserts.ts";
 import { Translator } from "@deltic/runtime/shim";
 import { instantiate, Stream } from "@deltic/runtime/embedder";
-import { wasiShims } from "../src/mod.ts";
+import { wasi } from "../src/mod.ts";
 
 const ARTIFACT =
   "/home/lmartin/p/polymorph/polymorph-iroh/target/wasm32-wasip2/release/iroh_exec_model_guest.wasm";
@@ -88,7 +88,7 @@ function webcryptoFixture(): Record<string, unknown> {
 // -----------------------------------------------------------------------
 
 Deno.test({
-  name: "integration: iroh_exec_model_guest.wasm probe sequence via wasiShims()",
+  name: "integration: iroh_exec_model_guest.wasm probe sequence via wasi()",
   ignore: (await readIfPresent(ARTIFACT)) === null ||
     (await readIfPresent(SHIM_WASM)) === null,
   fn: async () => {
@@ -97,7 +97,7 @@ Deno.test({
     const translator = await Translator.create(shimBytes);
     const { plan, adapters } = translator.translate(bytes);
 
-    const shims = wasiShims();
+    const shims = wasi();
     const instance = await instantiate(
       { plan, componentBytes: bytes, adapters },
       { ...shims, ...webcryptoFixture() },

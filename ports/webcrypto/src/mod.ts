@@ -85,7 +85,7 @@ export type { WcErrorPayload } from "./errors.ts";
 /**
  * Build the `polymorph:webcrypto@0.1.0` imports fragment for `instantiate`.
  *
- * Usage: `instantiate(artifacts, { ...wasiShims(), ...webcryptoImports() })`
+ * Usage: `instantiate(artifacts, { ...wasi(), ...webcryptoImports() })`
  * — the shape both conformance suites are driven with (see
  * conformance/run.ts and tests/import_surface_test.ts, which asserts this
  * record leaves ZERO import leaves unresolved for either suite).

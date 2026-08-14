@@ -1,5 +1,5 @@
 // Integration gate 3: `engine-go/main.wasm` (componentize-go, ~8MB, carries
-// the full p2 baseline) instantiates cleanly with `wasiShims()` alone, and
+// the full p2 baseline) instantiates cleanly with `wasi()` alone, and
 // its `version()` export (no params, no polymorph imports) succeeds.
 //
 // This component is also the regression guard for the embedder facade's
@@ -18,7 +18,7 @@
 import { assertEq, assertTrue } from "./asserts.ts";
 import { Translator } from "@deltic/runtime/shim";
 import { instantiate } from "@deltic/runtime/embedder";
-import { wasiShims } from "../src/mod.ts";
+import { wasi } from "../src/mod.ts";
 
 const ARTIFACT = "/home/lmartin/p/polymorph/experiment-mosh/engine-go/main.wasm";
 const SHIM_WASM = new URL(
@@ -35,7 +35,7 @@ async function readIfPresent(path: string | URL): Promise<Uint8Array | null> {
 }
 
 Deno.test({
-  name: "integration: engine-go instantiates with wasiShims() and version() works",
+  name: "integration: engine-go instantiates with wasi() and version() works",
   ignore: (await readIfPresent(ARTIFACT)) === null ||
     (await readIfPresent(SHIM_WASM)) === null,
   fn: async () => {
@@ -81,7 +81,7 @@ Deno.test({
     // This test is the regression guard.
     const instance = await instantiate(
       { plan, componentBytes: bytes, adapters },
-      wasiShims(),
+      wasi(),
     );
 
     const engine = instance.exports["experiment:mosh/engine"] as {

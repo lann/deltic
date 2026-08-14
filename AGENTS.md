@@ -36,7 +36,7 @@ just gates    # everything below, in this order
 just build test-rust      # cargo build --workspace; translator-shim/bindgen/testgen tests
 just test-runtime         # runtime check + tests (deps: shim, fixtures, corpus)
 just test-protocol
-just test-wasi-shims test-ct-runner
+just test-wasi test-ct-runner
 just test-sockets-node    # sockets fragment's node backend on pinned Node
 just test-bundle          # embedder-bundle release asset
 just publish-check        # deno publish --dry-run: the JSR publish checks, no upload

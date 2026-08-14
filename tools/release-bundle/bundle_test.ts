@@ -95,9 +95,9 @@ Deno.test({
     assertEq(counts, { passed: 3, failed: 1, skipped: 1, na: 1, total: 6 });
     assertEq(JSON.parse(lines[0]).run.scheduling, "tags");
 
-    // The wasi-shims surface came along too (polymorph consumers wire it).
-    assertEq(typeof mod.wasiShims, "function");
-    const shims = mod.wasiShims();
+    // The wasi surface came along too (polymorph consumers wire it).
+    assertEq(typeof mod.wasi, "function");
+    const shims = mod.wasi();
     assertEq(typeof shims["wasi:cli/environment@0.2"], "object");
   },
 });

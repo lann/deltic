@@ -6,7 +6,7 @@ ported to the deltic embedder conventions
 consumer's **real** conformance suite under deltic.
 
 This package is deliberately **not** a member of the root Deno workspace
-(like `tools/smoke-c0`): it imports the runtime, `wasi-shims` and
+(like `tools/smoke-c0`): it imports the runtime, `wasi` and
 `ct-runner` by relative path. The "not a member of the workspace" warning
 Deno prints is benign.
 

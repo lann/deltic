@@ -12,7 +12,7 @@
 import { assertEq, assertTrue } from "./asserts.ts";
 import { Translator } from "@deltic/runtime/shim";
 import { instantiate } from "@deltic/runtime/embedder";
-import { wasiShims } from "../src/mod.ts";
+import { wasi } from "../src/mod.ts";
 
 const SHIM_WASM = new URL(
   "../../target/wasm32-unknown-unknown/release/translator_shim.wasm",
@@ -36,7 +36,7 @@ async function boot(opts: { jspi?: boolean } = {}) {
   const translator = await Translator.create(shimBytes!);
   return await instantiate(
     { componentBytes: componentBytes!, translator },
-    { ...wasiShims() },
+    { ...wasi() },
     opts,
   );
 }

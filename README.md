@@ -40,7 +40,7 @@ Pre-1.0, but densely gated:
 | `crates/bindgen` | WIT → TypeScript types for the embedder conventions |
 | `examples/` | **start here to embed**: hello-world + kitchen-sink (WIT + Rust guest + TS host, self-checking), plus the guest fixture corpus |
 | `translator/` | `@deltic/translator`: the packaged translator asset + `defaultTranslator()` per-platform loader (build-time alternative: `tools/translate`) |
-| `wasi-shims/` | minimal WASI providers (p2 baseline + p3 clocks), one per semver track |
+| `wasi/` | minimal WASI providers (p2 baseline + p3 clocks), one per semver track |
 | `ct-runner/` | conformance-suite runner for the polymorph-test L1 contract |
 | `harness/` + `tools/browser` | official-suite harness; Deno lane + Chromium/Firefox/WebKit lanes |
 | `contracts/` | the versioned interface contracts (plan format, embedder API, intrinsics, digest) |
@@ -80,7 +80,7 @@ the full decision record is the design note on
 ## Consuming the unstable prereleases
 
 Every green `main` commit publishes
-`@deltic/{runtime,translator,wasi-shims,ct-runner}` to JSR as
+`@deltic/{runtime,translator,wasi,ct-runner}` to JSR as
 `0.1.0-pre.g<shorthash>` — the same short hash as the corresponding
 `pre-<shorthash>` [GitHub release](https://github.com/lann/deltic/releases),
 so a version names an exact commit. There is no stable line yet

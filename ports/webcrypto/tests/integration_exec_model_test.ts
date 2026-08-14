@@ -1,8 +1,8 @@
 // Integration gate (mission dispatch item 4): the iroh exec-model probe
-// sequence, driven end-to-end via `instantiate(artifacts, { ...wasiShims(),
+// sequence, driven end-to-end via `instantiate(artifacts, { ...wasi(),
 // ...webcryptoImports() })` — the REAL `polymorph:webcrypto` port replacing
-// wasi-shims's test-local `webcryptoFixture()` fixture
-// (wasi-shims/tests/integration_exec_model_test.ts:31-86, which this test
+// wasi's test-local `webcryptoFixture()` fixture
+// (wasi/tests/integration_exec_model_test.ts:31-86, which this test
 // otherwise mirrors probe-for-probe).
 //
 // Skip-if-absent: the artifact is a real polymorph build product, not
@@ -11,7 +11,7 @@
 import { assertEq, assertTrue } from "./asserts.ts";
 import { Translator } from "../../../runtime/src/shim/mod.ts";
 import { instantiate, Stream } from "../../../runtime/src/embedder/mod.ts";
-import { wasiShims } from "../../../wasi-shims/src/mod.ts";
+import { wasi } from "../../../wasi/src/mod.ts";
 import { webcryptoImports } from "../src/mod.ts";
 
 const ARTIFACT =
@@ -30,7 +30,7 @@ async function readIfPresent(path: string | URL): Promise<Uint8Array | null> {
 }
 
 Deno.test({
-  name: "integration: iroh_exec_model_guest.wasm probe sequence via wasiShims() + webcryptoImports() (real port)",
+  name: "integration: iroh_exec_model_guest.wasm probe sequence via wasi() + webcryptoImports() (real port)",
   ignore: (await readIfPresent(ARTIFACT)) === null ||
     (await readIfPresent(SHIM_WASM)) === null,
   fn: async () => {
@@ -39,7 +39,7 @@ Deno.test({
     const translator = await Translator.create(shimBytes);
     const { plan, adapters } = translator.translate(bytes);
 
-    const shims = wasiShims();
+    const shims = wasi();
     const instance = await instantiate(
       { plan, componentBytes: bytes, adapters },
       { ...shims, ...webcryptoImports() },

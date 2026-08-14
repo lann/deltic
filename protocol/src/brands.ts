@@ -65,9 +65,9 @@ export const ERROR_CONTEXT: unique symbol = Symbol.for(
 export const RESOURCE_STATE: unique symbol = Symbol.for(
   "deltic.resourceState/1",
 );
-/** `Pollable.prototype` (wasi-shims). */
+/** `Pollable.prototype` (wasi). */
 export const POLLABLE: unique symbol = Symbol.for("deltic.pollable/1");
-/** `ExitError.prototype` (wasi-shims) — wasi exit unwinds. */
+/** `ExitError.prototype` (wasi) — wasi exit unwinds. */
 export const WASI_EXIT: unique symbol = Symbol.for(
   "deltic.wasiExit/1",
 );

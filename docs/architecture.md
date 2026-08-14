@@ -86,15 +86,16 @@ contracts throughout the repo. Related documents:
   outside the core: WASI interface *shapes* are first-class design inputs
   to the embedder conventions ([consumers.md](consumers.md); milestone C1) —
   they are the ecosystem's most important interfaces and the conventions must
-  serve them well — and a minimal WASI shim *package* (`wasi-shims/`, a
-  separate deliverable; consumer-driven scope: p2 cli/io/clocks/random
+  serve them well — and a WASI provider *package* (`wasi/`, `@deltic/wasi`;
+  named `wasi-shims` until 2026-08-14, when the contents outgrew "shim" —
+  a separate deliverable; consumer-driven scope: p2 cli/io/clocks/random
   baseline + p3 clocks, plus an à la carte p3 `wasi:sockets` fragment
-  (`@deltic/wasi-shims/sockets` — UDP adopted from polymorph-iroh's Deno
+  (`@deltic/wasi/sockets` — UDP adopted from polymorph-iroh's Deno
   host, TCP client + listener (the wosh consumer / the A13
   resource-stream accept path); one node-builtins backend serving Deno
   via its stable node compat — no `--unstable-net` — and real Node,
   [#4](https://github.com/lann/deltic/issues/4)) that server-JS
-  hosts opt into and the default `wasiShims()` never carries).
+  hosts opt into and the default `wasi()` merge never carries).
 - **Componentizing JS/TS.** Guests are components built by external toolchains
   (Rust + wit-bindgen is the reference). No embedded-JS-engine work.
 - **jco compatibility or reuse.** Ignored entirely — including at the
@@ -619,7 +620,7 @@ are kept as gates.
 | Testing-toolchain format skew: testgen assembles with `wast` 255 while the shim validates with wasmparser 0.252 (wasmtime-47 pin) — the 0.253–0.255 window re-arited 🧵 thread opcodes (byte-level desync) | low, bounded | known 5-entry xfail set; exits on the wasmtime bump ([#1](https://github.com/lann/deltic/issues/1)); testgen cannot downgrade (suite text syntax needs `wast` ≥255) |
 | CSP variance in embedders | low | baseline needs only `wasm-unsafe-eval` — an invariant, no path may require full `unsafe-eval` (§3); specialized JS is emission-only, deploy-time or server-side cache import ([#8](https://github.com/lann/deltic/issues/8)) |
 | Consumer coupling churn: 7+ downstream repos tracking pre-1.0 plan/contract formats | medium | exact pinning via git refs and/or `pre-<shorthash>` prerelease artifacts — registry publishing deferred ([#16](https://github.com/lann/deltic/issues/16), decision 2026-08-09); strict formatVersion equality already fails loud; consumer matrices as release gate (the wasmtime↔embedder relationship); both sides practice exact pinning |
-| Consumer scope creep pulling WASI implementations into the core | medium | shim package is a separate deliverable with consumer-driven scope; §2 non-goal stands; the L3 runner belongs in polymorph-test ([#14](https://github.com/lann/deltic/issues/14)) |
+| Consumer scope creep pulling WASI implementations into the core | medium | the wasi package is a separate deliverable with consumer-driven scope; §2 non-goal stands; the L3 runner belongs in polymorph-test ([#14](https://github.com/lann/deltic/issues/14)) |
 | Host-boundary perf vs jco's generated JS (v1 interpreter) | low-medium | translation throughput measured (multi-MB components in tens of ms); cutover benches tracked with [#8](https://github.com/lann/deltic/issues/8); iroh's polling-workaround removal dominates first-consumer numbers regardless |
 
 [WebAssembly/component-model]: https://github.com/WebAssembly/component-model

@@ -1,12 +1,16 @@
-// wasi-shims — the minimal WASI shim package (contracts/embedder-api.md
-// C2 checklist item 7): the executable check that the embedder conventions
-// (`@deltic/runtime/embedder`) serve WASI. Scope: p2 baseline +
-// p3 clocks (mission scope; wasi:http deferred). p3 sockets (UDP + TCP
-// client/listener, one node-builtins backend serving Deno and Node) is à
-// la carte at `@deltic/wasi-shims/sockets` (issue #4; server-JS hosts
-// only) —
+// `@deltic/wasi` — the WASI providers for deltic hosts, and the
+// executable check that the embedder conventions
+// (`@deltic/runtime/embedder`) serve WASI (contracts/embedder-api.md C2
+// checklist item 7; docs/architecture.md §2 keeps implementations out of
+// the RUNTIME — this package is where they live). Named `wasi-shims`
+// until 2026-08-14: "shim" described the original thin adapters, not the
+// full providers (sockets; more planned) the package grew into; the
+// deprecated `wasiShims` aliases below cover the transition. Scope: p2
+// baseline + p3 clocks + à la carte p3 sockets (UDP + TCP
+// client/listener, one node-builtins backend serving Deno and Node;
+// `@deltic/wasi/sockets`, issue #4, server-JS hosts only). Sockets is
 // deliberately not merged here: this root module stays host-agnostic
-// web-platform code, and `wasiShims()` merges only AMBIENT, side-effect-
+// web-platform code, and `wasi()` merges only AMBIENT, side-effect-
 // benign capabilities (time, entropy, stdio capture, an empty
 // filesystem). Anything granting network egress is opt-in regardless of
 // how portable it is — sockets today, a fetch-backed wasi:http tomorrow.
@@ -14,9 +18,9 @@
 // COMPOSITION — three forms, coarsest to finest (virtualization scenarios
 // pinned by tests/version_resolution_test.ts):
 //
-// 1. Batteries: `instantiate(a, { ...wasiShims() })`.
+// 1. Batteries: `instantiate(a, { ...wasi() })`.
 // 2. À la carte fragments: every IMPL is its own subpath export
-//    (`@deltic/wasi-shims/{cli,clocks,filesystem,io,random,sockets}`) and
+//    (`@deltic/wasi/{cli,clocks,filesystem,io,random,sockets}`) and
 //    a plain `{ imports }` record — hand-merge exactly the set you mean:
 //    `{ ...io().imports, ...clocks().imports }`. Fragment dependencies:
 //    cli and clocks import io's Pollable/stream vocabulary; filesystem
@@ -27,7 +31,7 @@
 // 3. Per-interface override: the merged record is a plain object keyed by
 //    TRACK keys (`wasi:random/random@0.2`), so later spreads replace
 //    single interfaces wholesale:
-//    `{ ...wasiShims(), "wasi:random/random@0.2": myStub }`.
+//    `{ ...wasi(), "wasi:random/random@0.2": myStub }`.
 //    Replace the track key, don't add an exact-versioned sibling — the
 //    resolver refuses track+exact coexistence on one track as ambiguous
 //    (contracts/embedder-api.md §"Version canonicalization"). Per-guest
@@ -36,7 +40,7 @@
 //    knob directly — `random({ source })` swaps the CSPRNG while keeping
 //    the WIT shapes and the no-short-reads rule.
 //
-// `wasiShims(options)` returns one flat imports-record fragment, keyed by
+// `wasi(options)` returns one flat imports-record fragment, keyed by
 // compatibility-**track** keys per contracts/embedder-api.md §"Version
 // canonicalization" (`@0.2`, `@0.3`) — this package is the flagship
 // track-key-registration consumer: one `@0.2` provider serves every p2
@@ -83,11 +87,14 @@ export {
   type RandomOptions,
 } from "./random.ts";
 
-export interface WasiShimsOptions {
+export interface WasiOptions {
   cli?: CliOptions;
   clocks?: ClocksOptions;
   random?: RandomOptions;
 }
+
+/** @deprecated Renamed `WasiOptions` with the package (2026-08-14). */
+export type WasiShimsOptions = WasiOptions;
 
 /**
  * The merged imports record plus the one piece of host-observable state a
@@ -99,16 +106,19 @@ export interface WasiShimsOptions {
  * neither `:` nor `/` — see `runtime/src/embedder/version.ts`
  * `#register`).
  */
-export interface WasiShims extends Record<string, unknown> {
+export interface WasiImports extends Record<string, unknown> {
   readonly captured: CliCaptured;
 }
+
+/** @deprecated Renamed `WasiImports` with the package (2026-08-14). */
+export type WasiShims = WasiImports;
 
 /**
  * Build the merged `wasi:*` imports fragment for `instantiate`.
  *
- * Usage: `instantiate(artifacts, { ...wasiShims(), ...moreImports })`.
+ * Usage: `instantiate(artifacts, { ...wasi(), ...moreImports })`.
  */
-export function wasiShims(options: WasiShimsOptions = {}): WasiShims {
+export function wasi(options: WasiOptions = {}): WasiImports {
   const c = cli(options.cli);
   const merged: Record<string, unknown> = {
     ...c.imports,
@@ -117,5 +127,8 @@ export function wasiShims(options: WasiShimsOptions = {}): WasiShims {
     ...random(options.random).imports,
     ...filesystem().imports,
   };
-  return Object.assign(merged, { captured: c.captured }) as WasiShims;
+  return Object.assign(merged, { captured: c.captured }) as WasiImports;
 }
+
+/** @deprecated Renamed `wasi` with the package (2026-08-14). */
+export const wasiShims: (options?: WasiOptions) => WasiImports = wasi;
