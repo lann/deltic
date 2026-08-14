@@ -86,7 +86,7 @@ jobs:
         run: |
           VERSION="0.1.0-pre.g${SHORT}"
           echo "publishing @deltic/* ${VERSION}"
-          for p in runtime translator wasi-shims ct-runner; do
+          for p in runtime translator wasi ct-runner; do
             jq --arg v "$VERSION" '.version = $v' "$p/deno.json" > "$p/deno.json.tmp"
             mv "$p/deno.json.tmp" "$p/deno.json"
           done
@@ -102,10 +102,10 @@ jobs:
             echo "Artifacts: the prebuilt translator shim wasm (size-tuned — the"
             echo "exact artifact every test suite runs against) and the embedder"
             echo "bundle deltic-embedder.mjs (one platform-neutral ES module:"
-            echo "embedder API + Translator + ct-runner + wasi-shims — browsers"
+            echo "embedder API + Translator + ct-runner + the wasi package — browsers"
             echo "and plain Node, no flags). Consumers need no Rust toolchain."
             echo "The same commit is published to JSR as an unstable prerelease"
-            echo "of @deltic/{runtime,translator,wasi-shims,ct-runner}; see"
+            echo "of @deltic/{runtime,translator,wasi,ct-runner}; see"
             echo "README.md for usage."
             echo
             echo '```'
