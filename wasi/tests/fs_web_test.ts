@@ -1,7 +1,8 @@
 // The web (OPFS) backend of wasi:filesystem (filesystem_web.ts +
 // fs_provider.ts), against the in-memory fake (tests/support/opfs_fake.ts
 // — Deno has no `navigator.storage.getDirectory`; the REAL OPFS runs in
-// the browser lanes). Direct calls on the WIT-facing surface.
+// the OPFS smoke, `just smoke-opfs` / tools/browser/opfs-smoke.ts).
+// Direct calls on the WIT-facing surface.
 //
 // The load-bearing assertions, mirror-image of fs_node_test.ts:
 //   * PARKING: the 0.2 descriptor methods are `suspending`-marked (A14 —

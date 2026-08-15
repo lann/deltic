@@ -8,6 +8,9 @@
 //   /corpus/<dir>/<file>     the generated JSON command files + .wasm artifacts
 //   /corpus/translator_shim.wasm
 //                            target/wasm32-unknown-unknown/release/…
+//   /opfs.html + /fixtures/<guest>.component.wasm
+//                            the OPFS smoke page and its wasip2 fixtures
+//                            (examples/guests/build; tools/browser/opfs-smoke.ts)
 //   POST /ingest             per-file result stream from the page
 //
 // `.wasm` is served as `application/wasm` so `instantiateStreaming` works if
@@ -20,6 +23,7 @@ const repoRoot = normalize(
 );
 const browserDir = join(repoRoot, "harness", "browser");
 const generatedDir = join(repoRoot, "harness", "generated");
+const fixturesDir = join(repoRoot, "examples", "guests", "build");
 const shimPath = join(
   repoRoot,
   "target",
@@ -100,6 +104,13 @@ export function startServer(
 
     if (path === "/" || path === "/index.html") {
       return await serveFile(browserDir, "index.html");
+    }
+    if (path === "/opfs.html") {
+      return await serveFile(browserDir, "opfs.html");
+    }
+    if (path.startsWith("/fixtures/")) {
+      // The wasip2 guest corpus (examples/build.sh), for the OPFS smoke.
+      return await serveFile(fixturesDir, path.slice("/fixtures/".length));
     }
     if (path.startsWith("/dist/")) {
       return await serveFile(

@@ -191,6 +191,15 @@ browser-lane lane *args: shim corpus
 browsers:
     just browser-lane chromium
     just browser-lane firefox
+    just smoke-opfs chromium
+    just smoke-opfs firefox
+
+# filesystem-web against the REAL Origin Private File System (the unit
+# suite runs an in-memory fake — Deno has no navigator.storage): the
+# direct descriptor battery plus the fs-probe guest parking through
+# A14/JSPI over real async storage. tools/browser/opfs-smoke.ts.
+smoke-opfs lane: shim fixtures
+    deno run -A tools/browser/opfs-smoke.ts {{lane}}
 
 # ----- consumer smokes + exams (polymorph checkouts; docs/consumers.md) -------
 

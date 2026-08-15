@@ -67,9 +67,12 @@ core:
 browser:
     @just gha::_step shim
     @just gha::_step corpus
+    @just gha::_step fixtures
     @just gha::_step "browsers-install --with-deps"
     @just gha::_step "browser-lane chromium"
     @just gha::_step "browser-lane firefox"
+    @just gha::_step "smoke-opfs chromium"
+    @just gha::_step "smoke-opfs firefox"
     @just gha::_step-tolerated "browsers-install-webkit --with-deps"
     @just gha::_step-tolerated "browser-lane webkit"
 
