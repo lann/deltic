@@ -6,8 +6,9 @@
 // until 2026-08-14: "shim" described the original thin adapters, not the
 // full providers (sockets; more planned) the package grew into; the
 // deprecated `wasiShims` aliases below cover the transition. Scope: p2
-// baseline + p3 clocks + à la carte p3 sockets (UDP + TCP
-// client/listener, one node-builtins backend serving Deno and Node;
+// baseline + p3 clocks + à la carte sockets on BOTH tracks (the
+// poll-shaped `@0.2` surface std::net links, and `@0.3` UDP + TCP
+// client/listener; one node-builtins backend serving Deno and Node;
 // `@deltic/wasi/sockets`, issue #4, server-JS hosts only). Sockets is
 // deliberately not merged here: this root module stays host-agnostic
 // web-platform code, and `wasi()` merges only AMBIENT, side-effect-

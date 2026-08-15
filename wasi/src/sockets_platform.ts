@@ -96,6 +96,14 @@ export interface DatagramConn {
   setRecvBufferSize?(size: number): void;
   getSendBufferSize?(): number;
   setSendBufferSize?(size: number): void;
+  /** Non-blocking queue access + readiness (the 0.2 datagram streams:
+   * poll-shaped receive instead of the promise-shaped one above).
+   * Optional capabilities. */
+  tryReceive?(): [Uint8Array, NetAddr] | undefined;
+  receiveReady?(): boolean;
+  /** The CURRENT epoch's wake promise (promise-swap: settles when a
+   * datagram arrives, the socket errors, or it closes; re-armed per event). */
+  waitReceive?(): Promise<void>;
 }
 
 export type ListenDatagram = (options: {
@@ -137,6 +145,11 @@ export interface TcpListener {
   settled(): Promise<void>;
   accept(): Promise<TcpConn>;
   close(): void;
+  /** Non-blocking accept + readiness (the 0.2 poll-shaped accept).
+   * Optional capabilities; same promise-swap contract as `waitReceive`. */
+  tryAccept?(): TcpConn | undefined;
+  acceptReady?(): boolean;
+  waitAccept?(): Promise<void>;
 }
 
 export type TcpListen = (options: {
@@ -305,9 +318,13 @@ class NodeDatagramConn implements DatagramConn {
   }[] = [];
   #failure: unknown;
   #closed = false;
+  /** Promise-swap wake for the poll-shaped consumers (waitReceive). */
+  #wake = (): void => {};
+  #wakePromise: Promise<void>;
 
   constructor(socket: NodeUdpSocket) {
     this.#socket = socket;
+    this.#wakePromise = new Promise((r) => (this.#wake = r));
     const a = socket.address();
     this.addr = { transport: "udp", hostname: a.address, port: a.port };
     socket.on("message", (...args: unknown[]) => {
@@ -325,11 +342,19 @@ class NodeDatagramConn implements DatagramConn {
       }
       if (this.#closed || this.#queue.length >= MAX_QUEUED_DATAGRAMS) return; // tail-drop
       this.#queue.push([msg, from]);
+      this.#signal();
     });
     socket.on("error", (...args: unknown[]) => {
       this.#failure = args[0];
       this.#failWaiters(args[0]);
+      this.#signal();
     });
+  }
+
+  #signal(): void {
+    const wake = this.#wake;
+    this.#wakePromise = new Promise((r) => (this.#wake = r));
+    wake();
   }
 
   #failWaiters(e: unknown): void {
@@ -404,6 +429,22 @@ class NodeDatagramConn implements DatagramConn {
     });
   }
 
+  tryReceive(): [Uint8Array, NetAddr] | undefined {
+    if (this.#failure !== undefined) throw this.#failure;
+    if (this.#closed) {
+      throw codedError("ERR_SOCKET_DGRAM_NOT_RUNNING", "socket is closed");
+    }
+    return this.#queue.shift();
+  }
+
+  receiveReady(): boolean {
+    return this.#queue.length > 0 || this.#failure !== undefined || this.#closed;
+  }
+
+  waitReceive(): Promise<void> {
+    return this.#wakePromise;
+  }
+
   close(): void {
     if (this.#closed) return;
     this.#closed = true;
@@ -411,6 +452,7 @@ class NodeDatagramConn implements DatagramConn {
     this.#failWaiters(
       codedError("ERR_SOCKET_DGRAM_NOT_RUNNING", "socket closed under a pending receive"),
     );
+    this.#signal();
     try {
       this.#socket.close();
     } catch {
@@ -589,6 +631,14 @@ function nodeTcpListen(): TcpListen | undefined {
     }[] = [];
     let failure: unknown;
     let closed = false;
+    // Promise-swap wake for the poll-shaped consumers (waitAccept).
+    let wake = (): void => {};
+    let wakePromise = new Promise<void>((r) => (wake = r));
+    const signal = (): void => {
+      const w = wake;
+      wakePromise = new Promise<void>((r) => (wake = r));
+      w();
+    };
 
     const failWaiters = (e: unknown): void => {
       const w = waiters.splice(0, waiters.length);
@@ -606,6 +656,7 @@ function nodeTcpListen(): TcpListen | undefined {
         return;
       }
       queue.push(socket);
+      signal();
     });
     // The deferred OS bind (module header): 'listening' or 'error' arrive
     // one tick after listen(). `settled` is created eagerly (with a no-op
@@ -626,6 +677,7 @@ function nodeTcpListen(): TcpListen | undefined {
       failure = args[0];
       fail(args[0]);
       failWaiters(args[0]);
+      signal();
     });
     server.listen({ port, host: hostname, ...(backlog === undefined ? {} : { backlog }) });
 
@@ -654,9 +706,24 @@ function nodeTcpListen(): TcpListen | undefined {
           waiters.push({ resolve, reject });
         });
       },
+      tryAccept(): TcpConn | undefined {
+        if (failure !== undefined) throw failure;
+        if (closed) {
+          throw codedError("ERR_SERVER_NOT_RUNNING", "listener is closed");
+        }
+        const queued = queue.shift();
+        return queued === undefined ? undefined : new NodeTcpConn(queued);
+      },
+      acceptReady(): boolean {
+        return queue.length > 0 || failure !== undefined || closed;
+      },
+      waitAccept(): Promise<void> {
+        return wakePromise;
+      },
       close(): void {
         if (closed) return;
         closed = true;
+        signal();
         failWaiters(
           codedError("ERR_SERVER_NOT_RUNNING", "listener closed under a pending accept"),
         );
