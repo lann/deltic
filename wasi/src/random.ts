@@ -1,6 +1,10 @@
-// `wasi:random@0.2` — random, insecure, insecure-seed
-// (contracts/embedder-api.md §"WASI examination"; leaves confirmed against
-// `engine-go/main.wasm`'s import surface: `get-random-bytes`).
+// `wasi:random@0.2` + `wasi:random@0.3` — random, insecure, insecure-seed
+// (contracts/embedder-api.md §"WASI examination"; 0.2 leaves confirmed
+// against `engine-go/main.wasm`'s import surface: `get-random-bytes`; 0.3
+// shapes from the WASI 0.3.1 release — same three interfaces, same
+// function names, `len` renamed `max-len` with short reads permitted; see
+// the divergence note on `GET_RANDOM_VALUES_MAX`). One impl serves both
+// tracks: chunk-to-full is conforming on each.
 
 export interface RandomOptions {
   /** Override the deterministic default `insecure-seed` value. */
@@ -82,27 +86,36 @@ function makeRandomU64(bytes: (len: bigint) => Uint8Array): () => bigint {
  */
 const DEFAULT_INSECURE_SEED: readonly [bigint, bigint] = [0n, 1n];
 
-/** `wasi:random@0.2` provider fragment (track key). */
+/** `wasi:random@0.2` + `@0.3` provider fragment (two track keys). */
 export function random(options: RandomOptions = {}): { imports: Record<string, unknown> } {
   const seed = options.insecureSeed ?? DEFAULT_INSECURE_SEED;
   const randomBytes = makeRandomBytes(options.source);
   const randomU64 = makeRandomU64(randomBytes);
+  const randomIface = {
+    getRandomBytes: randomBytes,
+    getRandomU64: randomU64,
+  };
+  // "insecure" only means "not required to be a CSPRNG" — it is still
+  // wired to the real CSPRNG here for simplicity; only `insecure-seed`
+  // is deliberately, documentedly predictable.
+  const insecureIface = {
+    getInsecureRandomBytes: randomBytes,
+    getInsecureRandomU64: randomU64,
+  };
+  const insecureSeedIface = {
+    insecureSeed: (): readonly [bigint, bigint] => seed,
+  };
   return {
     imports: {
-      "wasi:random/random@0.2": {
-        getRandomBytes: randomBytes,
-        getRandomU64: randomU64,
-      },
-      // "insecure" only means "not required to be a CSPRNG" — it is still
-      // wired to the real CSPRNG here for simplicity; only `insecure-seed`
-      // is deliberately, documentedly predictable.
-      "wasi:random/insecure@0.2": {
-        getInsecureRandomBytes: randomBytes,
-        getInsecureRandomU64: randomU64,
-      },
-      "wasi:random/insecure-seed@0.2": {
-        insecureSeed: (): readonly [bigint, bigint] => seed,
-      },
+      "wasi:random/random@0.2": randomIface,
+      "wasi:random/insecure@0.2": insecureIface,
+      "wasi:random/insecure-seed@0.2": insecureSeedIface,
+      // The @0.3 track: identical function names; `max-len` PERMITS short
+      // reads but chunk-to-full returns exactly max-len, which "up to
+      // max-len" includes (module header) — one impl, both tracks.
+      "wasi:random/random@0.3": randomIface,
+      "wasi:random/insecure@0.3": insecureIface,
+      "wasi:random/insecure-seed@0.3": insecureSeedIface,
     },
   };
 }

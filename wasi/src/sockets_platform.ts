@@ -81,9 +81,21 @@ export interface NetAddr {
 /** The bound-datagram-socket seam. */
 export interface DatagramConn {
   readonly addr: NetAddr;
-  send(p: Uint8Array, addr: NetAddr): Promise<number>;
+  /** No `addr` = connected-mode send (valid only after `connect`). */
+  send(p: Uint8Array, addr?: NetAddr): Promise<number>;
   receive(): Promise<[Uint8Array, NetAddr]>;
   close(): void;
+  /** OS-level connected mode (kernel filters + default destination).
+   * Optional capability: absent = the provider answers `not-supported`. */
+  connect?(addr: NetAddr): Promise<void>;
+  disconnect?(): void;
+  /** IP_TTL / IPV6_UNICAST_HOPS. Optional capability. */
+  setTtl?(ttl: number): void;
+  /** SO_RCVBUF / SO_SNDBUF. Optional capabilities. */
+  getRecvBufferSize?(): number;
+  setRecvBufferSize?(size: number): void;
+  getSendBufferSize?(): number;
+  setSendBufferSize?(size: number): void;
 }
 
 export type ListenDatagram = (options: {
@@ -101,6 +113,9 @@ export interface TcpConn {
   write(p: Uint8Array): Promise<number>;
   closeWrite(): Promise<void>;
   close(): void;
+  /** SO_KEEPALIVE + TCP_KEEPIDLE (node exposes exactly this pair).
+   * Optional capability: absent = the provider answers `not-supported`. */
+  setKeepAlive?(enabled: boolean, idleMs: number): void;
 }
 
 export type TcpConnect = (options: {
@@ -128,7 +143,18 @@ export type TcpListen = (options: {
   transport: "tcp";
   hostname: string;
   port: number;
+  /** The accept queue hint (SOMAXCONN-clamped by the OS). */
+  backlog?: number;
 }) => TcpListener;
+
+/** One `getaddrinfo` answer. */
+export interface LookupAnswer {
+  address: string;
+  family: number; // 4 | 6
+}
+
+/** The name-resolution seam (node:dns `lookup` with `all: true`). */
+export type DnsLookup = (name: string) => Promise<LookupAnswer[]>;
 
 // --- detection ----------------------------------------------------------------
 
@@ -161,6 +187,26 @@ export function tcpListen(): TcpListen | undefined {
   return nodeTcpListen();
 }
 
+/** The name-resolution backend, re-detected per call. */
+export function dnsLookup(): DnsLookup | undefined {
+  const dns = nodeBuiltin("node:dns") as
+    | {
+      promises?: {
+        lookup(
+          name: string,
+          options: { all: true; verbatim: boolean },
+        ): Promise<LookupAnswer[]>;
+      };
+    }
+    | undefined;
+  const promises = dns?.promises;
+  const lookup = promises?.lookup;
+  if (promises === undefined || lookup === undefined) return undefined;
+  // verbatim: getaddrinfo order as-is (the WIT: "returned in the order
+  // the resolver prefers").
+  return (name) => lookup.call(promises, name, { all: true, verbatim: true });
+}
+
 // --- the node:dgram backend -----------------------------------------------------
 
 /**
@@ -180,6 +226,15 @@ interface NodeUdpSocket {
     address: string,
     cb: (err: Error | null) => void,
   ): void;
+  /** Connected-mode overload (after `connect`). */
+  send(msg: Uint8Array, cb: (err: Error | null) => void): void;
+  connect(port: number, address: string, cb: (err?: Error | null) => void): void;
+  disconnect(): void;
+  setTTL(ttl: number): void;
+  getRecvBufferSize(): number;
+  setRecvBufferSize(size: number): void;
+  getSendBufferSize(): number;
+  setSendBufferSize(size: number): void;
   close(): void;
   on(event: string, listener: (...args: unknown[]) => void): unknown;
 }
@@ -283,19 +338,54 @@ class NodeDatagramConn implements DatagramConn {
     for (const w of waiters) w.reject(e);
   }
 
-  send(p: Uint8Array, addr: NetAddr): Promise<number> {
+  send(p: Uint8Array, addr?: NetAddr): Promise<number> {
     return new Promise<number>((resolve, reject) => {
       if (this.#closed) {
         reject(codedError("ERR_SOCKET_DGRAM_NOT_RUNNING", "socket is closed"));
         return;
       }
-      this.#socket.send(
-        p,
-        addr.port,
-        addr.hostname,
-        (err) => err !== null ? reject(err) : resolve(p.length),
-      );
+      const cb = (err: Error | null): void =>
+        err !== null && err !== undefined ? reject(err) : resolve(p.length);
+      if (addr === undefined) this.#socket.send(p, cb); // connected mode
+      else this.#socket.send(p, addr.port, addr.hostname, cb);
     });
+  }
+
+  connect(addr: NetAddr): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      if (this.#closed) {
+        reject(codedError("ERR_SOCKET_DGRAM_NOT_RUNNING", "socket is closed"));
+        return;
+      }
+      this.#socket.connect(addr.port, addr.hostname, (err) => {
+        if (err !== null && err !== undefined) reject(err);
+        else resolve();
+      });
+    });
+  }
+
+  disconnect(): void {
+    this.#socket.disconnect();
+  }
+
+  setTtl(ttl: number): void {
+    this.#socket.setTTL(ttl);
+  }
+
+  getRecvBufferSize(): number {
+    return this.#socket.getRecvBufferSize();
+  }
+
+  setRecvBufferSize(size: number): void {
+    this.#socket.setRecvBufferSize(size);
+  }
+
+  getSendBufferSize(): number {
+    return this.#socket.getSendBufferSize();
+  }
+
+  setSendBufferSize(size: number): void {
+    this.#socket.setSendBufferSize(size);
   }
 
   receive(): Promise<[Uint8Array, NetAddr]> {
@@ -343,6 +433,7 @@ interface NodeTcpSocket {
   write(chunk: Uint8Array, cb: (err?: Error | null) => void): boolean;
   end(cb?: () => void): unknown;
   destroy(): unknown;
+  setKeepAlive(enable: boolean, initialDelay: number): unknown;
   on(event: string, listener: (...args: unknown[]) => void): unknown;
   once(event: string, listener: (...args: unknown[]) => void): unknown;
   off(event: string, listener: (...args: unknown[]) => void): unknown;
@@ -460,6 +551,10 @@ class NodeTcpConn implements TcpConn {
     });
   }
 
+  setKeepAlive(enabled: boolean, idleMs: number): void {
+    this.#socket.setKeepAlive(enabled, idleMs);
+  }
+
   close(): void {
     this.#socket.destroy();
   }
@@ -477,7 +572,7 @@ class NodeTcpConn implements TcpConn {
 export const MAX_QUEUED_CONNECTIONS = 64;
 
 interface NodeTcpServer {
-  listen(options: { port: number; host: string }): unknown;
+  listen(options: { port: number; host: string; backlog?: number }): unknown;
   address(): { address: string; port: number } | null;
   close(cb?: () => void): unknown;
   on(event: string, listener: (...args: unknown[]) => void): unknown;
@@ -486,7 +581,7 @@ interface NodeTcpServer {
 function nodeTcpListen(): TcpListen | undefined {
   const net = nodeBuiltin("node:net") as NodeNetModule | undefined;
   if (net === undefined) return undefined;
-  return ({ hostname, port }) => {
+  return ({ hostname, port, backlog }) => {
     const queue: NodeTcpSocket[] = [];
     const waiters: {
       resolve: (c: TcpConn) => void;
@@ -532,7 +627,7 @@ function nodeTcpListen(): TcpListen | undefined {
       fail(args[0]);
       failWaiters(args[0]);
     });
-    server.listen({ port, host: hostname });
+    server.listen({ port, host: hostname, ...(backlog === undefined ? {} : { backlog }) });
 
     return {
       get addr(): NetAddr | null {

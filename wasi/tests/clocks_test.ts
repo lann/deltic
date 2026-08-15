@@ -64,3 +64,17 @@ Deno.test("clocks: now() is overridable for deterministic tests", () => {
   const mono = imports["wasi:clocks/monotonic-clock@0.2"] as { now(): bigint };
   assertEq(mono.now(), 42n);
 });
+
+Deno.test("clocks@0.3: system-clock (0.3's wall-clock reshape) — instant record, duration resolution", () => {
+  const { imports } = clocks();
+  const sys = imports["wasi:clocks/system-clock@0.3"] as {
+    now(): { seconds: bigint; nanoseconds: number };
+    getResolution(): bigint;
+  };
+  const t = sys.now();
+  assertTrue(t.seconds > 1_500_000_000n, "a plausible epoch second");
+  assertTrue(t.nanoseconds >= 0 && t.nanoseconds < 1_000_000_000, "ns in range");
+  assertEq(sys.getResolution(), 1_000_000n); // Date.now() is ms-backed
+  // The type-only types interface is a registered import target.
+  assertTrue("wasi:clocks/types@0.3" in imports, "types@0.3 registered");
+});
