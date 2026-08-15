@@ -51,6 +51,7 @@ import {
   Task,
   type TaskOptions,
   Thread,
+  withPoisonCause,
 } from "../task/mod.ts";
 import { currentTask } from "../task/scheduler.ts";
 import { PlanError } from "../plan/loader.ts";
@@ -1156,10 +1157,14 @@ export function createLiftedFunction(input: {
 
     // Reference `Store.lift` (line 578): the host is the caller, so the
     // entering set is the callee's `self_and_ancestors()`.
-    trapIf(
-      !inst.mayEnterFrom(null),
-      `cannot enter component instance ${inst.index} (reentrance forbidden)`,
-    );
+    // On refusal, distinguish the corpse from the crowd: a poisoned
+    // instance's refusal names the original trap (deltic#145 ask 1).
+    if (!inst.mayEnterFrom(null)) {
+      trap(withPoisonCause(
+        inst,
+        `cannot enter component instance ${inst.index} (reentrance forbidden)`,
+      ));
+    }
     // The set this entry locked (definitions.py `ComponentInstance.enter_from`
     // iterates `entering_set`). Remembered so a trap can leave exactly these
     // locked and no others.
