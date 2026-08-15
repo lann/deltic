@@ -16,8 +16,11 @@ const repoRoot = normalize(
   join(dirname(fromFileUrl(import.meta.url)), "..", ".."),
 );
 
-export async function bundle(): Promise<void> {
-  const out = join(repoRoot, "harness", "browser", "dist", "entry.js");
+export async function bundle(
+  entry = join("harness", "browser", "entry.ts"),
+  outFile = join("harness", "browser", "dist", "entry.js"),
+): Promise<void> {
+  const out = join(repoRoot, outFile);
   await Deno.mkdir(dirname(out), { recursive: true });
   const cmd = new Deno.Command(Deno.execPath(), {
     args: [
@@ -29,7 +32,7 @@ export async function bundle(): Promise<void> {
       "--sourcemap=linked",
       "-o",
       out,
-      join(repoRoot, "harness", "browser", "entry.ts"),
+      join(repoRoot, entry),
     ],
     cwd: repoRoot,
     stdout: "inherit",

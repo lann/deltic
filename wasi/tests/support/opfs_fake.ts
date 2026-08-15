@@ -2,7 +2,8 @@
 // filesystem_web.ts's Opfs*Handle interfaces (the point of keeping those
 // structural). Deno has no `navigator.storage.getDirectory`, so the web
 // backend's unit tests run against this; the REAL OPFS is exercised by
-// the browser lanes. Error spellings mirror the spec's DOMException
+// the OPFS smoke (`just smoke-opfs`, tools/browser/opfs-smoke.ts).
+// Error spellings mirror the spec's DOMException
 // names (`NotFoundError`, `TypeMismatchError`, `InvalidModificationError`)
 // because that is exactly what the backend's error mapper consumes.
 //
