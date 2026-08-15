@@ -56,7 +56,13 @@ streams first-class: `stream<own<R>>` elements lower as live handles, a
 world-level host resource's class registers under the resource's own
 (camelCase) name with its member leaves dispatching on it, and elements a
 producer lowered that the reader never takes are DESTROYED (dtors run),
-never leaked — see §"Streams and futures".**
+never leaked — see §"Streams and futures"; amendment A14 (2026-08-14)
+marks the p2 stream `blocking-*` declarations park-capable: the wasi
+package's buffer-backed base streams keep their sync fast path (never
+park), while genuinely-async stream impls — the host-stdio cli — return
+Promises and park through the A6 kernel; the A2 mark-relay (prototype
+declares, instances behave) is what lets duck-typed stream impls park
+through the registered resource types.**
 This document supersedes `descriptor-ir.md`'s interim
 "host value mapping" table as the destination for host-facing value shapes.
 The runtime's *raw* boundary (`instance.exports`, `HostImports`) keeps the
@@ -782,8 +788,12 @@ a ready pollable costs one engine hop and only a genuine wait parks the
 frame. Timer pollables are real (monotonic-clock subscribe-*). On engines
 without JSPI, `chooseMode` degrades to plain and a genuine park raises a
 clean `NeedsJspi` at the park site instead of livelocking; `jspi: false`
-is the per-instantiation opt-out. Streams stay buffer-backed (sync
-`read`/`check-write` never park — sufficient for every known consumer).
+is the per-instantiation opt-out. Stream `read`/`check-write` stay plain
+(sync, never park); the `blocking-*` stream declarations are marked
+park-capable since amendment A14 — the buffer-backed defaults always
+take the sync fast path, and the host-stdio cli impl is the first
+genuinely-parking stream provider (a real stdin behind p2's sync
+`blocking-read`).
 `Pollable` is publicly constructible — `new Pollable(ready, wait)` — as
 the interop seam for external providers (e.g. consumer-side sockets glue)
 whose pollables the kernel `poll()`s uniformly; `wait()` follows the

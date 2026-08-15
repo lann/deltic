@@ -35,10 +35,15 @@
 // pollables to datagram queues exactly this way; the reference for the
 // wake pattern is polymorph-iroh's shim (promise-swap edge triggering).
 //
-// Streams stay buffer-backed: `read`/`check-write` serve synchronously
-// from host-side buffers, so their fast path never parks — sufficient
-// for every known consumer (the iroh class does no stream I/O; its bytes
-// ride datagrams).
+// Streams: `read`/`check-write` stay plain (sync, never park), but the
+// `blocking-*` declarations are MARKED park-capable (amendment A14): the
+// buffer-backed base impls below always take the sync fast path, while a
+// genuinely-async stream impl — cli-stdio's host stdin/stdout, where
+// "blocking" cannot be served from a buffer — returns a Promise and
+// parks the frame. Marking follows the WIT declaration on THIS class's
+// prototype (A2: instance-level overrides change behavior, not
+// suspendability), which is what lets cli-stdio's duck-typed streams
+// park through the resource types registered here.
 
 import { defineBrand, POLLABLE } from "@deltic/protocol";
 import { suspending, ComponentException } from "@deltic/runtime/embedder";
@@ -219,7 +224,9 @@ export class InputStream {
     return out;
   }
 
-  blockingRead(len: bigint): Uint8Array {
+  /** Park-capable (A14): the buffer-backed base never parks. */
+  @suspending
+  blockingRead(len: bigint): Uint8Array | Promise<Uint8Array> {
     return this.read(len);
   }
 
@@ -227,7 +234,9 @@ export class InputStream {
     return BigInt(this.read(len).length);
   }
 
-  blockingSkip(len: bigint): bigint {
+  /** Park-capable (A14): the buffer-backed base never parks. */
+  @suspending
+  blockingSkip(len: bigint): bigint | Promise<bigint> {
     return this.skip(len);
   }
 
@@ -264,7 +273,9 @@ export class OutputStream {
     this.#sink(contents);
   }
 
-  blockingWriteAndFlush(contents: Uint8Array): void {
+  /** Park-capable (A14): the never-backpressured base never parks. */
+  @suspending
+  blockingWriteAndFlush(contents: Uint8Array): void | Promise<void> {
     this.write(contents);
   }
 
@@ -272,7 +283,9 @@ export class OutputStream {
     if (this.#closed) throw closedError();
   }
 
-  blockingFlush(): void {
+  /** Park-capable (A14): the never-backpressured base never parks. */
+  @suspending
+  blockingFlush(): void | Promise<void> {
     this.flush();
   }
 
@@ -284,7 +297,9 @@ export class OutputStream {
     this.write(new Uint8Array(Number(len)));
   }
 
-  blockingWriteZeroesAndFlush(len: bigint): void {
+  /** Park-capable (A14): the never-backpressured base never parks. */
+  @suspending
+  blockingWriteZeroesAndFlush(len: bigint): void | Promise<void> {
     this.writeZeroes(len);
   }
 
@@ -294,7 +309,9 @@ export class OutputStream {
     return BigInt(chunk.length);
   }
 
-  blockingSplice(src: InputStream, len: bigint): bigint {
+  /** Park-capable (A14): the never-backpressured base never parks. */
+  @suspending
+  blockingSplice(src: InputStream, len: bigint): bigint | Promise<bigint> {
     return this.splice(src, len);
   }
 

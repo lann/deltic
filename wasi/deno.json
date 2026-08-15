@@ -4,6 +4,7 @@
   "exports": {
     ".": "./src/mod.ts",
     "./cli": "./src/cli.ts",
+    "./cli-stdio": "./src/cli_stdio.ts",
     "./clocks": "./src/clocks.ts",
     "./filesystem": "./src/filesystem.ts",
     "./http": "./src/http.ts",

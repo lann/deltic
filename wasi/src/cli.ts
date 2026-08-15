@@ -1,15 +1,43 @@
-// `wasi:cli@0.2` — environment, exit, stdin, stdout, stderr, terminal-*
-// (contracts/embedder-api.md §"WASI examination"; leaf inventory mined from
-// `iroh_exec_model_guest.wasm` / `engine-go/main.wasm`, tools/smoke-c0/
-// REPORT.md §"C1 design-input notes" finding provenance).
+// `wasi:cli@0.2` + `wasi:cli@0.3` — environment, exit, stdin, stdout,
+// stderr, terminal-* (contracts/embedder-api.md §"WASI examination"; 0.2
+// leaf inventory mined from `iroh_exec_model_guest.wasm` /
+// `engine-go/main.wasm`; 0.3 shapes from the WASI 0.3.1 release —
+// WebAssembly/WASI v0.3.1, proposals/cli/wit). This is the CAPTURE impl
+// (the batteries fragment `wasi()` merges): stdin from a caller-supplied
+// buffer, stdout/stderr into capture buffers, exit recorded. The
+// host-stdio impl is à la carte at `@deltic/wasi/cli-stdio` (cli_stdio.ts
+// — it grants terminal/process access, so it never rides the default).
+//
+// 0.3 reshapes stdio around streams: `stdin.read-via-stream: func() ->
+// tuple<stream<u8>, future<result<_, error-code>>>` (the tcp-receive
+// tuple shape) and `stdout/stderr.write-via-stream: func(data:
+// stream<u8>) -> future<result<_, error-code>>` (the tcp-send shape:
+// the async method's promise IS the future source, amendment A12); exit
+// gains `exit-with-code: func(status-code: u8)`, and environment's cwd
+// getter is renamed `get-initial-cwd` (0.2 spells it `initial-cwd`).
 
 import { defineBrand, WASI_EXIT } from "@deltic/protocol";
+import { Stream } from "@deltic/runtime/embedder";
 import { InputStream, OutputStream } from "./io.ts";
+
+/** `wasi:cli/types@0.3`'s `error-code` enum, as kind-only values. */
+export type CliErrorCode = { kind: "io" | "illegal-byte-sequence" | "pipe" };
+
+/** `result<_, error-code>` AS A VALUE (the 0.3 stdio futures). */
+export type CliIoResult = { kind: "ok" } | { kind: "err"; value: CliErrorCode };
+
+/** What 0.3 write-via-stream accepts: the lifted handle or any byte producer. */
+export type CliByteSource =
+  | Stream<number>
+  | AsyncIterable<Uint8Array | number[]>
+  | Iterable<Uint8Array | number[]>;
 
 /** Raised by `exit()` when `throwOnExit` is set (contract: "option to throw a named ExitError"). */
 export class ExitError extends Error {
-  constructor(readonly ok: boolean) {
-    super(`wasi:cli/exit#exit(${ok ? "success" : "failure"})`);
+  constructor(readonly ok: boolean, readonly code?: number) {
+    super(
+      `wasi:cli/exit#exit(${ok ? "success" : "failure"}${code === undefined ? "" : `, code ${code}`})`,
+    );
     this.name = "ExitError";
   }
 }
@@ -45,8 +73,10 @@ export interface CliCaptured {
   stderrText(): string;
   /** Whether `wasi:cli/exit#exit` has been called. */
   exited(): boolean;
-  /** The `result` tag of the last `exit()` call's `status`, or `undefined` if never called. */
+  /** The `result` kind of the last `exit()` call's `status`, or `undefined` if never called. */
   exitOk(): boolean | undefined;
+  /** The last `exit-with-code` status (0.3), or `undefined` if never called. */
+  exitCode(): number | undefined;
 }
 
 export interface CliResult {
@@ -71,8 +101,10 @@ function concat(chunks: Uint8Array[]): Uint8Array {
  * `exit`'s WIT signature is `exit: func(status: result)` — `result` with no
  * type parameters, i.e. `result<_, _>`. Per contracts/embedder-api.md's value
  * table, a `result` in **parameter** (non-return) position is plain nested
- * data: `{ tag: "ok" } | { tag: "err" }`, never a throw. Only a function's own
- * *return*-position result throws/rejects.
+ * data: `{ kind: "ok" } | { kind: "err" }` (the A10 family — this comment
+ * and the impl carried the pre-A10 `tag` spelling until 2026-08-14, a
+ * latent bug the direct-call unit tests masked), never a throw. Only a
+ * function's own *return*-position result throws/rejects.
  */
 export function cli(options: CliOptions = {}): CliResult {
   const stdoutChunks: Uint8Array[] = [];
@@ -80,6 +112,7 @@ export function cli(options: CliOptions = {}): CliResult {
   const passthrough = options.passthrough ?? false;
   let exited = false;
   let exitOk: boolean | undefined;
+  let exitCode: number | undefined;
 
   const stdout = new OutputStream((chunk) => {
     stdoutChunks.push(chunk);
@@ -97,6 +130,21 @@ export function cli(options: CliOptions = {}): CliResult {
     stderrText: () => new TextDecoder().decode(concat(stderrChunks)),
     exited: () => exited,
     exitOk: () => exitOk,
+    exitCode: () => exitCode,
+  };
+
+  /** 0.3 write-via-stream into a capture buffer (A12: the promise IS the future). */
+  const captureViaStream = (
+    chunks: Uint8Array[],
+    mirror: ((text: string) => void) | undefined,
+  ) =>
+  async (data: CliByteSource): Promise<CliIoResult> => {
+    for await (const chunk of data as AsyncIterable<Uint8Array | number[]>) {
+      const bytes = chunk instanceof Uint8Array ? chunk : Uint8Array.from(chunk);
+      chunks.push(bytes);
+      mirror?.(new TextDecoder().decode(bytes));
+    }
+    return { kind: "ok" };
   };
 
   const imports: Record<string, unknown> = {
@@ -106,9 +154,9 @@ export function cli(options: CliOptions = {}): CliResult {
       initialCwd: (): string | undefined => options.cwd,
     },
     "wasi:cli/exit@0.2": {
-      exit: (status: { tag: "ok" | "err" }): void => {
+      exit: (status: { kind: "ok" | "err" }): void => {
         exited = true;
-        exitOk = status.tag === "ok";
+        exitOk = status.kind === "ok";
         if (options.throwOnExit) throw new ExitError(exitOk);
       },
     },
@@ -128,6 +176,58 @@ export function cli(options: CliOptions = {}): CliResult {
       getTerminalStdout: (): TerminalOutput | undefined => undefined,
     },
     "wasi:cli/terminal-stderr@0.2": {
+      getTerminalStderr: (): TerminalOutput | undefined => undefined,
+    },
+
+    // ---- the @0.3 track (WASI 0.3.1 shapes; module header) -------------------
+    "wasi:cli/types@0.3": {},
+    "wasi:cli/environment@0.3": {
+      getEnvironment: (): [string, string][] => Object.entries(options.env ?? {}),
+      getArguments: (): string[] => options.args ?? [],
+      getInitialCwd: (): string | undefined => options.cwd,
+    },
+    "wasi:cli/exit@0.3": {
+      exit: (status: { kind: "ok" | "err" }): void => {
+        exited = true;
+        exitOk = status.kind === "ok";
+        if (options.throwOnExit) throw new ExitError(exitOk);
+      },
+      exitWithCode: (statusCode: number): void => {
+        exited = true;
+        exitOk = statusCode === 0;
+        exitCode = statusCode;
+        if (options.throwOnExit) throw new ExitError(exitOk);
+      },
+    },
+    "wasi:cli/stdin@0.3": {
+      // The tcp-receive tuple shape: [stream, completion future]. A
+      // buffered stdin always delivers cleanly.
+      readViaStream: (): [Iterable<Uint8Array>, Promise<CliIoResult>] => [
+        options.stdinBuffer === undefined ? [] : [options.stdinBuffer],
+        Promise.resolve({ kind: "ok" }),
+      ],
+    },
+    "wasi:cli/stdout@0.3": {
+      writeViaStream: captureViaStream(
+        stdoutChunks,
+        passthrough ? (t) => console.log(t) : undefined,
+      ),
+    },
+    "wasi:cli/stderr@0.3": {
+      writeViaStream: captureViaStream(
+        stderrChunks,
+        passthrough ? (t) => console.error(t) : undefined,
+      ),
+    },
+    "wasi:cli/terminal-input@0.3": { TerminalInput },
+    "wasi:cli/terminal-output@0.3": { TerminalOutput },
+    "wasi:cli/terminal-stdin@0.3": {
+      getTerminalStdin: (): TerminalInput | undefined => undefined,
+    },
+    "wasi:cli/terminal-stdout@0.3": {
+      getTerminalStdout: (): TerminalOutput | undefined => undefined,
+    },
+    "wasi:cli/terminal-stderr@0.3": {
       getTerminalStderr: (): TerminalOutput | undefined => undefined,
     },
   };
