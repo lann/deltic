@@ -921,6 +921,11 @@ export function http(options: HttpOptions = {}): HttpFragment {
     imports: {
       [`wasi:http/types@${v}`]: { Fields, Request, RequestOptions, Response },
       [`wasi:http/client@${v}`]: { send },
+      // The middleware world (worlds.wit) IMPORTS `handler` — same
+      // signature as client.send (`handle: async func(request) ->
+      // result<response, error-code>`); serving it over fetch makes a
+      // middleware-shaped guest's pass-through leg work out of the box.
+      [`wasi:http/handler@${v}`]: { handle: send },
     },
     Fields: Fields as unknown as FieldsClass,
     Request: Request as unknown as RequestClass,

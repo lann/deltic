@@ -349,3 +349,9 @@ Deno.test("http fragment: the @0.3 track by default; rc snapshots re-key exactly
   new custom.Fields();
   assertEq(JSON.stringify(calls), JSON.stringify(["fields.constructor"]));
 });
+
+Deno.test("fragment: the middleware world's handler import rides the fragment (handle = send)", () => {
+  const { imports, send } = http();
+  const handler = imports["wasi:http/handler@0.3"] as { handle: unknown };
+  assertTrue(handler.handle === send, "handle IS client.send");
+});

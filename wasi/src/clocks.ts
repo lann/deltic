@@ -4,6 +4,8 @@
 // across the consumer corpus (`wait-for` vs `now`+`wait-until`) at the SAME
 // version string — same track, divergent drafts, served by one union
 // provider per contracts/embedder-api.md §"Version canonicalization").
+// The @0.3 track also carries system-clock (0.3's wall-clock reshape) and
+// the type-only types interface, per the WASI 0.3.1 release WIT.
 
 import { Pollable } from "./io.ts";
 
@@ -65,11 +67,32 @@ export function clocks(options: ClocksOptions = {}): { imports: Record<string, u
     },
   };
 
+  // 0.3 reshapes wall-clock into system-clock (WASI 0.3.1 release:
+  // clocks/system-clock.wit): `now() -> instant` — a RECORD with SIGNED
+  // seconds (record instant { seconds: s64, nanoseconds: u32 }; the same
+  // value shape as 0.2's datetime) — and `get-resolution() -> duration`
+  // (plain u64 nanoseconds, unlike 0.2's datetime-shaped resolution).
+  const systemClock03 = {
+    now: (): { seconds: bigint; nanoseconds: number } => {
+      const ms = Date.now();
+      return {
+        seconds: BigInt(Math.floor(ms / 1000)),
+        nanoseconds: (ms % 1000) * 1_000_000,
+      };
+    },
+    getResolution: (): bigint => 1_000_000n, // Date.now() is millisecond-backed
+  };
+
   return {
     imports: {
       "wasi:clocks/monotonic-clock@0.2": monotonic02,
       "wasi:clocks/wall-clock@0.2": wallClock02,
       "wasi:clocks/monotonic-clock@0.3": monotonic03,
+      "wasi:clocks/system-clock@0.3": systemClock03,
+      // Type-only interface (`type duration = u64`): nothing to
+      // implement, registered so the import target resolves (the
+      // cli/types@0.3 precedent).
+      "wasi:clocks/types@0.3": {},
     },
   };
 }

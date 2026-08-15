@@ -25,34 +25,44 @@
 // `listener-core/src/tcp.rs` — issue #4's prospective consumer) and the
 // smoke-c0 leg-4 composed-websocket shopping list names.
 //
-// The implemented resource shapes (0.3.x WIT; the surfaces the known
-// consumers actually link):
+// The implemented resource shapes (0.3.x WIT — the full 0.3.1 release
+// surface, minus the recorded not-supported options below):
 //
 //   resource udp-socket {
-//     create: static func(address-family: ip-address-family) -> result<udp-socket, error-code>;
-//     bind: func(local-address: ip-socket-address) -> result<_, error-code>;
-//     send: async func(data: list<u8>, remote-address: option<ip-socket-address>) -> result<_, error-code>;
-//     receive: async func() -> result<tuple<list<u8>, ip-socket-address>, error-code>;
-//     get-local-address: func() -> result<ip-socket-address, error-code>;
+//     create/bind/connect/disconnect/send/receive,
+//     get-local-address/get-remote-address/get-address-family,
+//     get+set unicast-hop-limit, get+set receive/send-buffer-size
 //   }
 //   resource tcp-socket {
-//     create: static func(address-family: ip-address-family) -> result<tcp-socket, error-code>;
-//     bind: func(local-address: ip-socket-address) -> result<_, error-code>;
-//     connect: async func(remote-address: ip-socket-address) -> result<_, error-code>;
-//     listen: func() -> result<stream<tcp-socket>, error-code>;
-//     send: func(data: stream<u8>) -> future<result<_, error-code>>;
-//     receive: func() -> tuple<stream<u8>, future<result<_, error-code>>>;
-//     get-local-address: func() -> result<ip-socket-address, error-code>;
-//     get-remote-address: func() -> result<ip-socket-address, error-code>;
-//     get-address-family: func() -> ip-address-family;
-//     get-is-listening: func() -> bool;
+//     create/bind/connect/listen/send/receive,
+//     get-local-address/get-remote-address/get-address-family/get-is-listening,
+//     set-listen-backlog-size, get+set keep-alive-enabled,
+//     get+set keep-alive-idle-time
 //   }
+//   ip-name-lookup { resolve-addresses }  (system resolver via node:dns)
 //
-// That is also exactly what this module implements: the runtime dispatches
-// only the functions a component's plan imports, so the unlinked remainder
-// of the WIT resources (udp connect/disconnect, socket options) stays
-// absent, and a future guest that links more fails loudly with a trap
-// naming the missing method rather than riding an untested emulation.
+// OPTIONS HONESTY (the node option surface is narrow; nothing is
+// emulated silently):
+//
+//   * udp connect/disconnect are OS-level (node dgram connect: kernel
+//     filtering and default destination), not adapter filtering.
+//   * udp unicast-hop-limit: setter is real (dgram setTTL); the getter
+//     reports the cached value (default 64, documented) — node has no
+//     getter. Buffer sizes are real both ways once bound (SO_RCVBUF/
+//     SO_SNDBUF); before bind, gets report the cached request or fail
+//     `not-supported`.
+//   * tcp keep-alive: enabled + idle-time are real (node setKeepAlive);
+//     gets report cached values (idle default 7200 s, documented).
+//     keep-alive-interval/count, tcp hop-limit, and tcp buffer sizes
+//     have NO node:net API and fail `not-supported`.
+//   * set-listen-backlog-size: applied as listen()'s backlog hint;
+//     changing it while listening is `not-supported` (node cannot
+//     re-listen; wasmtime re-listens).
+//   * accepted sockets do NOT inherit the listener's options (wasmtime
+//     inherits; recorded divergence).
+//
+// Anything else a future guest links fails loudly with a trap naming the
+// missing method rather than riding an untested emulation.
 //
 // The behavioral yardstick is wasmtime-wasi's p3 provider (the consumers'
 // wasmtime hosts serve the same guests through it).
@@ -60,8 +70,8 @@
 // UDP: the same 64 KiB datagram ceiling, the same state machine (`bind`
 // once from unbound; `receive` and `get-local-address` demand a bound
 // socket; `send` to a remote implicitly binds an unbound socket to a
-// wildcard address; an omitted `send` remote is `invalid-argument` on this
-// connectionless surface), and the same address-family validation (an
+// wildcard address; an omitted `send` remote requires connected mode, and
+// an explicit remote on a connected socket is `invalid-argument`), and the same address-family validation (an
 // IPv4-mapped or deprecated IPv4-compatible IPv6 address never crosses a
 // family boundary). Recorded divergences, rooted in the platform exposing
 // no socket options:
@@ -155,6 +165,20 @@ export type IpSocketAddress =
   | { kind: "ipv4"; value: Ipv4SocketAddress }
   | { kind: "ipv6"; value: Ipv6SocketAddress };
 
+/** The address-only `ip-address` variant (ip-name-lookup's vocabulary). */
+export type IpAddress =
+  | { kind: "ipv4"; value: Ipv4Address }
+  | { kind: "ipv6"; value: Ipv6Address };
+
+/** `wasi:sockets/ip-name-lookup@0.3`'s own `error-code` variant. */
+export type NameLookupErrorCode =
+  | { kind: "access-denied" }
+  | { kind: "invalid-argument" }
+  | { kind: "name-unresolvable" }
+  | { kind: "temporary-resolver-failure" }
+  | { kind: "permanent-resolver-failure" }
+  | { kind: "other"; value?: string };
+
 /**
  * The `error-code` variant. Every case is listed so callers can switch
  * exhaustively against the real WIT vocabulary.
@@ -212,6 +236,7 @@ function componentError(
 
 import {
   type DatagramConn,
+  dnsLookup,
   listenDatagram,
   type NetAddr,
   type TcpConn,
@@ -353,6 +378,13 @@ function isUnspecified(addr: IpSocketAddress): boolean {
   return addr.value.address.every((g) => g === 0);
 }
 
+/** Same endpoint: family, address, and port (udp connected-mode filter). */
+function sameSocketAddress(a: IpSocketAddress, b: IpSocketAddress): boolean {
+  if (a.kind !== b.kind || a.value.port !== b.value.port) return false;
+  return a.value.address.length === b.value.address.length &&
+    a.value.address.every((part, i) => part === b.value.address[i]);
+}
+
 // --- error mapping ------------------------------------------------------------
 
 /** `e instanceof Deno.errors[name]`, tolerating hosts/versions lacking the class. */
@@ -488,9 +520,19 @@ export interface SocketsOptions {
  */
 export interface UdpSocket {
   bind(localAddress: IpSocketAddress): void;
+  connect(remoteAddress: IpSocketAddress): Promise<void>;
+  disconnect(): void;
   send(data: Uint8Array, remoteAddress: IpSocketAddress | undefined): Promise<void>;
   receive(): Promise<[Uint8Array, IpSocketAddress]>;
   getLocalAddress(): IpSocketAddress;
+  getRemoteAddress(): IpSocketAddress;
+  getAddressFamily(): IpAddressFamily;
+  getUnicastHopLimit(): number;
+  setUnicastHopLimit(value: number): void;
+  getReceiveBufferSize(): bigint;
+  setReceiveBufferSize(value: bigint): void;
+  getSendBufferSize(): bigint;
+  setSendBufferSize(value: bigint): void;
   [Symbol.dispose](): void;
 }
 
@@ -545,6 +587,21 @@ export interface TcpSocket {
   getRemoteAddress(): IpSocketAddress;
   getAddressFamily(): IpAddressFamily;
   getIsListening(): boolean;
+  setListenBacklogSize(value: bigint): void;
+  getKeepAliveEnabled(): boolean;
+  setKeepAliveEnabled(value: boolean): void;
+  getKeepAliveIdleTime(): bigint;
+  setKeepAliveIdleTime(value: bigint): void;
+  getKeepAliveInterval(): bigint;
+  setKeepAliveInterval(value: bigint): void;
+  getKeepAliveCount(): number;
+  setKeepAliveCount(value: number): void;
+  getHopLimit(): number;
+  setHopLimit(value: number): void;
+  getReceiveBufferSize(): bigint;
+  setReceiveBufferSize(value: bigint): void;
+  getSendBufferSize(): bigint;
+  setSendBufferSize(value: bigint): void;
   [Symbol.dispose](): void;
 }
 
@@ -561,6 +618,8 @@ export interface SocketsShim {
   /** This fragment's resource classes (exposed for direct/test use). */
   UdpSocket: UdpSocketClass;
   TcpSocket: TcpSocketClass;
+  /** `ip-name-lookup.resolve-addresses` (exposed for direct/test use). */
+  resolveAddresses: (name: string) => Promise<IpAddress[]>;
 }
 
 /**
@@ -574,6 +633,13 @@ export function sockets(options: SocketsOptions = {}): SocketsShim {
   class UdpSocket {
     #family: IpAddressFamily;
     #conn: DatagramConn | undefined;
+    /** Connected-mode remote (`connect`/`disconnect`); OS-level (kernel
+     * filters and default destination), not adapter emulation. */
+    #remote: IpSocketAddress | undefined;
+    /** Cached option values, applied at (implicit) bind. */
+    #hopLimit: number | undefined;
+    #recvBuffer: bigint | undefined;
+    #sendBuffer: bigint | undefined;
 
     private constructor(family: IpAddressFamily) {
       this.#family = family;
@@ -616,6 +682,89 @@ export function sockets(options: SocketsOptions = {}): SocketsShim {
       } catch (e) {
         throw mapPlatformError(e, "udp-socket.bind");
       }
+      this.#applyCachedOptions();
+    }
+
+    /**
+     * WIT (0.3.1): `connect: func(remote-address) -> result<_, error-code>`
+     * — OS-level connected mode: the kernel filters inbound datagrams to
+     * the remote and `send` needs no explicit address. An unbound socket
+     * implicitly binds to the family wildcard first (wasmtime parity).
+     *
+     * SUSPENDING (A1/A2): node's `dgram.connect` settles via callback one
+     * tick later, so this sync WIT func parks the calling frame for that
+     * tick — the same shape as tcp `listen`.
+     */
+    @suspending
+    async connect(remoteAddress: IpSocketAddress): Promise<void> {
+      onCall("udp-socket.connect");
+      if (this.#remote !== undefined) {
+        throw componentError(
+          { kind: "invalid-state" },
+          "udp-socket.connect: already connected (disconnect first)",
+        );
+      }
+      if (
+        !isValidAddressFamily(this.#family, remoteAddress) ||
+        isUnspecified(remoteAddress) ||
+        remoteAddress.value.port === 0
+      ) {
+        throw componentError(
+          { kind: "invalid-argument" },
+          "udp-socket.connect: the remote address must be a specific address " +
+            `and non-zero port in the socket's family (${this.#family})`,
+        );
+      }
+      if (remoteAddress.kind === "ipv6" && remoteAddress.value.scopeId !== 0) {
+        throw componentError(
+          { kind: "not-supported" },
+          "udp-socket.connect: non-zero scope-id (not expressible through node addresses)",
+        );
+      }
+      if (this.#conn === undefined) {
+        try {
+          this.#conn = this.#listen({
+            transport: "udp",
+            hostname: this.#family === "ipv4" ? "0.0.0.0" : "::",
+            port: 0,
+          });
+        } catch (e) {
+          throw mapPlatformError(e, "udp-socket.connect (implicit bind)");
+        }
+        this.#applyCachedOptions();
+      }
+      if (this.#conn.connect === undefined) {
+        throw componentError(
+          { kind: "not-supported" },
+          "udp-socket.connect: this host's datagram backend has no connected mode",
+        );
+      }
+      try {
+        await this.#conn.connect({
+          transport: "udp",
+          hostname: ipHostname(remoteAddress),
+          port: remoteAddress.value.port,
+        });
+      } catch (e) {
+        throw mapPlatformError(e, "udp-socket.connect");
+      }
+      this.#remote = remoteAddress;
+    }
+
+    disconnect(): void {
+      onCall("udp-socket.disconnect");
+      if (this.#remote === undefined || this.#conn === undefined) {
+        throw componentError(
+          { kind: "invalid-state" },
+          "udp-socket.disconnect: the socket is not connected",
+        );
+      }
+      try {
+        this.#conn.disconnect?.();
+      } catch (e) {
+        throw mapPlatformError(e, "udp-socket.disconnect");
+      }
+      this.#remote = undefined;
     }
 
     async send(data: Uint8Array, remoteAddress: IpSocketAddress | undefined): Promise<void> {
@@ -626,13 +775,42 @@ export function sockets(options: SocketsOptions = {}): SocketsShim {
           `udp-socket.send: ${data.length} bytes exceeds the ${MAX_UDP_DATAGRAM_SIZE}-byte ceiling`,
         );
       }
-      // This surface has no `connect`, so the socket is never in connected
-      // mode and an omitted remote has no destination to fall back to
-      // (POSIX EDESTADDRREQ).
+      // Connected mode (0.3.1): an omitted remote sends to the connected
+      // address (the kernel's default destination); a PRESENT remote on a
+      // connected socket is invalid-argument (wasmtime parity — node's
+      // dgram would raise ERR_SOCKET_DGRAM_IS_CONNECTED anyway). On an
+      // unconnected socket an omitted remote has no destination (POSIX
+      // EDESTADDRREQ).
       if (remoteAddress === undefined) {
+        if (this.#remote === undefined) {
+          throw componentError(
+            { kind: "invalid-argument" },
+            "udp-socket.send: no remote-address, and the socket is not connected",
+          );
+        }
+        if (this.#conn === undefined) {
+          throw componentError(
+            { kind: "invalid-state" },
+            "udp-socket.send: connected but unbound (unreachable)",
+          );
+        }
+        try {
+          const sent = await this.#conn.send(data);
+          if (sent !== data.length) {
+            throw componentError(
+              { kind: "other", value: `partial send: ${sent} of ${data.length} bytes` },
+              `udp-socket.send: partial send: ${sent} of ${data.length} bytes`,
+            );
+          }
+        } catch (e) {
+          throw mapPlatformError(e, "udp-socket.send");
+        }
+        return;
+      }
+      if (this.#remote !== undefined) {
         throw componentError(
           { kind: "invalid-argument" },
-          "udp-socket.send: no remote-address, and the socket is not connected",
+          "udp-socket.send: an explicit remote-address on a connected socket",
         );
       }
       if (this.#conn === undefined) {
@@ -647,6 +825,7 @@ export function sockets(options: SocketsOptions = {}): SocketsShim {
         } catch (e) {
           throw mapPlatformError(e, "udp-socket.send (implicit bind)");
         }
+        this.#applyCachedOptions();
       }
       if (
         !isValidAddressFamily(this.#family, remoteAddress) ||
@@ -692,10 +871,21 @@ export function sockets(options: SocketsOptions = {}): SocketsShim {
         );
       }
       try {
-        // Each datagram arrives as its own exactly-sized buffer; nothing
-        // the OS delivers is ever truncated (whole-datagram semantics).
-        const [payload, from] = await this.#conn.receive();
-        return [payload, parseNetAddr(from)];
+        for (;;) {
+          // Each datagram arrives as its own exactly-sized buffer; nothing
+          // the OS delivers is ever truncated (whole-datagram semantics).
+          const [payload, from] = await this.#conn.receive();
+          const source = parseNetAddr(from);
+          // The connected-mode filter, as a BACKSTOP over the OS's: the
+          // WIT pins "only receive datagrams from that address", the
+          // kernel filters on real node, but Deno's dgram compat treats
+          // connect() as a default destination only — so non-matching
+          // sources are dropped here either way (matching what a kernel
+          // filter would have done silently).
+          if (this.#remote === undefined || sameSocketAddress(source, this.#remote)) {
+            return [payload, source];
+          }
+        }
       } catch (e) {
         throw mapPlatformError(e, "udp-socket.receive");
       }
@@ -710,6 +900,115 @@ export function sockets(options: SocketsOptions = {}): SocketsShim {
         );
       }
       return parseNetAddr(this.#conn.addr);
+    }
+
+    getRemoteAddress(): IpSocketAddress {
+      onCall("udp-socket.get-remote-address");
+      if (this.#remote === undefined) {
+        throw componentError(
+          { kind: "invalid-state" },
+          "udp-socket.get-remote-address: the socket is not connected",
+        );
+      }
+      return this.#remote;
+    }
+
+    getAddressFamily(): IpAddressFamily {
+      onCall("udp-socket.get-address-family");
+      return this.#family;
+    }
+
+    /** Stored-value getter (documented default 64, the common OS default):
+     * node exposes a setter (`setTTL`) but no getter. */
+    getUnicastHopLimit(): number {
+      onCall("udp-socket.get-unicast-hop-limit");
+      return this.#hopLimit ?? 64;
+    }
+
+    setUnicastHopLimit(value: number): void {
+      onCall("udp-socket.set-unicast-hop-limit");
+      if (value < 1) {
+        // The WIT pins this: "set-unicast-hop-limit(0)" must fail.
+        throw componentError(
+          { kind: "invalid-argument" },
+          "udp-socket.set-unicast-hop-limit: the hop limit must be at least 1",
+        );
+      }
+      this.#hopLimit = value;
+      if (this.#conn !== undefined) this.#applyCachedOptions();
+    }
+
+    getReceiveBufferSize(): bigint {
+      onCall("udp-socket.get-receive-buffer-size");
+      return this.#bufferSize("receive", this.#recvBuffer, this.#conn?.getRecvBufferSize);
+    }
+
+    setReceiveBufferSize(value: bigint): void {
+      onCall("udp-socket.set-receive-buffer-size");
+      if (value === 0n) {
+        throw componentError(
+          { kind: "invalid-argument" },
+          "udp-socket.set-receive-buffer-size: zero is not a buffer size",
+        );
+      }
+      this.#recvBuffer = value;
+      if (this.#conn !== undefined) this.#applyCachedOptions();
+    }
+
+    getSendBufferSize(): bigint {
+      onCall("udp-socket.get-send-buffer-size");
+      return this.#bufferSize("send", this.#sendBuffer, this.#conn?.getSendBufferSize);
+    }
+
+    setSendBufferSize(value: bigint): void {
+      onCall("udp-socket.set-send-buffer-size");
+      if (value === 0n) {
+        throw componentError(
+          { kind: "invalid-argument" },
+          "udp-socket.set-send-buffer-size: zero is not a buffer size",
+        );
+      }
+      this.#sendBuffer = value;
+      if (this.#conn !== undefined) this.#applyCachedOptions();
+    }
+
+    /** Live kernel value when bound (SO_RCVBUF doubling and clamping
+     * included), the cached request before that, `not-supported` when
+     * neither exists (the OS default is unknowable pre-bind here). */
+    #bufferSize(
+      which: "receive" | "send",
+      cached: bigint | undefined,
+      live: (() => number) | undefined,
+    ): bigint {
+      if (this.#conn !== undefined && live !== undefined) {
+        try {
+          return BigInt(live.call(this.#conn));
+        } catch (e) {
+          throw mapPlatformError(e, `udp-socket.get-${which}-buffer-size`);
+        }
+      }
+      if (cached !== undefined) return cached;
+      throw componentError(
+        { kind: "not-supported" },
+        `udp-socket.get-${which}-buffer-size: unknowable before bind on this host`,
+      );
+    }
+
+    /** Cached options -> the live socket (at bind, and on later sets). */
+    #applyCachedOptions(): void {
+      const conn = this.#conn;
+      if (conn === undefined) return;
+      try {
+        if (this.#hopLimit !== undefined) conn.setTtl?.(this.#hopLimit);
+        if (this.#recvBuffer !== undefined) {
+          conn.setRecvBufferSize?.(Number(this.#recvBuffer));
+        }
+        if (this.#sendBuffer !== undefined) {
+          conn.setSendBufferSize?.(Number(this.#sendBuffer));
+        }
+      } catch (e) {
+        throw mapPlatformError(e, "udp-socket (applying cached options)");
+      }
     }
 
     [Symbol.dispose](): void {
@@ -746,6 +1045,14 @@ export function sockets(options: SocketsOptions = {}): SocketsShim {
     #localRequest: IpSocketAddress | undefined;
     #sendCalled = false;
     #receiveCalled = false;
+    /** listen()'s accept-queue hint (`set-listen-backlog-size`). */
+    #backlog: number | undefined;
+    /** SO_KEEPALIVE + TCP_KEEPIDLE cache (node's exact option surface);
+     * applied at connect and on set-while-connected. The idle default is
+     * Linux's tcp_keepalive_time (7200 s) — DOCUMENTED, not read from
+     * the OS (node exposes no getter). */
+    #keepAliveEnabled = false;
+    #keepAliveIdleNs = 7_200_000_000_000n;
     /**
      * Shared-ownership references (WIT: "The OS socket is closed only
      * after the last handle is dropped"): the resource handle plus each
@@ -882,6 +1189,7 @@ export function sockets(options: SocketsOptions = {}): SocketsShim {
       }
       this.#conn = conn;
       this.#state = "connected";
+      this.#applyKeepAlive(); // options set before connect reach the OS here
     }
 
     /**
@@ -928,6 +1236,7 @@ export function sockets(options: SocketsOptions = {}): SocketsShim {
         transport: "tcp",
         hostname: ipHostname(local),
         port: local.value.port,
+        ...(this.#backlog === undefined ? {} : { backlog: this.#backlog }),
       });
       try {
         await listener.settled(); // the one-tick park (doc comment above)
@@ -1121,6 +1430,130 @@ export function sockets(options: SocketsOptions = {}): SocketsShim {
       return this.#state === "listening";
     }
 
+    /** Stored pre-listen and applied as node's `listen` backlog hint;
+     * node cannot re-listen, so changing it on a LISTENING socket is
+     * `not-supported` (wasmtime re-listens; recorded divergence). */
+    setListenBacklogSize(value: bigint): void {
+      onCall("tcp-socket.set-listen-backlog-size");
+      if (value === 0n) {
+        throw componentError(
+          { kind: "invalid-argument" },
+          "tcp-socket.set-listen-backlog-size: zero is not a backlog",
+        );
+      }
+      if (this.#state === "listening") {
+        throw componentError(
+          { kind: "not-supported" },
+          "tcp-socket.set-listen-backlog-size: node cannot re-listen an active listener",
+        );
+      }
+      if (this.#state !== "unbound" && this.#state !== "bound") {
+        throw componentError(
+          { kind: "invalid-state" },
+          `tcp-socket.set-listen-backlog-size: not settable in the '${this.#state}' state`,
+        );
+      }
+      // Clamp to a safe int; the OS clamps to SOMAXCONN anyway.
+      this.#backlog = Number(value > 0x7fffffffn ? 0x7fffffffn : value);
+    }
+
+    getKeepAliveEnabled(): boolean {
+      onCall("tcp-socket.get-keep-alive-enabled");
+      return this.#keepAliveEnabled;
+    }
+
+    setKeepAliveEnabled(value: boolean): void {
+      onCall("tcp-socket.set-keep-alive-enabled");
+      this.#keepAliveEnabled = value;
+      this.#applyKeepAlive();
+    }
+
+    /** Stored-value getter (field doc: the default is documented, not
+     * read — node has no getter). */
+    getKeepAliveIdleTime(): bigint {
+      onCall("tcp-socket.get-keep-alive-idle-time");
+      return this.#keepAliveIdleNs;
+    }
+
+    setKeepAliveIdleTime(value: bigint): void {
+      onCall("tcp-socket.set-keep-alive-idle-time");
+      if (value < 1n) {
+        throw componentError(
+          { kind: "invalid-argument" },
+          "tcp-socket.set-keep-alive-idle-time: the idle time must be at least 1 ns",
+        );
+      }
+      this.#keepAliveIdleNs = value;
+      this.#applyKeepAlive();
+    }
+
+    // TCP_KEEPINTVL / TCP_KEEPCNT / IP_TTL / SO_RCVBUF / SO_SNDBUF have no
+    // node:net surface at all — answered honestly, not emulated.
+    getKeepAliveInterval(): never {
+      onCall("tcp-socket.get-keep-alive-interval");
+      throw this.#noOption("keep-alive-interval (TCP_KEEPINTVL)");
+    }
+    setKeepAliveInterval(_value: bigint): never {
+      onCall("tcp-socket.set-keep-alive-interval");
+      throw this.#noOption("keep-alive-interval (TCP_KEEPINTVL)");
+    }
+    getKeepAliveCount(): never {
+      onCall("tcp-socket.get-keep-alive-count");
+      throw this.#noOption("keep-alive-count (TCP_KEEPCNT)");
+    }
+    setKeepAliveCount(_value: number): never {
+      onCall("tcp-socket.set-keep-alive-count");
+      throw this.#noOption("keep-alive-count (TCP_KEEPCNT)");
+    }
+    getHopLimit(): never {
+      onCall("tcp-socket.get-hop-limit");
+      throw this.#noOption("hop-limit (IP_TTL)");
+    }
+    setHopLimit(_value: number): never {
+      onCall("tcp-socket.set-hop-limit");
+      throw this.#noOption("hop-limit (IP_TTL)");
+    }
+    getReceiveBufferSize(): never {
+      onCall("tcp-socket.get-receive-buffer-size");
+      throw this.#noOption("receive-buffer-size (SO_RCVBUF)");
+    }
+    setReceiveBufferSize(_value: bigint): never {
+      onCall("tcp-socket.set-receive-buffer-size");
+      throw this.#noOption("receive-buffer-size (SO_RCVBUF)");
+    }
+    getSendBufferSize(): never {
+      onCall("tcp-socket.get-send-buffer-size");
+      throw this.#noOption("send-buffer-size (SO_SNDBUF)");
+    }
+    setSendBufferSize(_value: bigint): never {
+      onCall("tcp-socket.set-send-buffer-size");
+      throw this.#noOption("send-buffer-size (SO_SNDBUF)");
+    }
+
+    #noOption(what: string): ComponentException<SocketErrorCode> {
+      return componentError(
+        { kind: "not-supported" },
+        `tcp-socket: node:net exposes no ${what}`,
+      );
+    }
+
+    /** The keep-alive cache -> the live socket, when there is one. */
+    #applyKeepAlive(): void {
+      const conn = this.#conn;
+      if (this.#state !== "connected" || conn === undefined) return;
+      if (conn.setKeepAlive === undefined) {
+        throw componentError(
+          { kind: "not-supported" },
+          "tcp-socket: this host's TCP backend has no keep-alive control",
+        );
+      }
+      try {
+        conn.setKeepAlive(this.#keepAliveEnabled, Number(this.#keepAliveIdleNs / 1_000_000n));
+      } catch (e) {
+        throw mapPlatformError(e, "tcp-socket (applying keep-alive)");
+      }
+    }
+
     [Symbol.dispose](): void {
       if (this.#handleDropped) return;
       this.#handleDropped = true;
@@ -1159,10 +1592,85 @@ export function sockets(options: SocketsOptions = {}): SocketsShim {
     }
   }
 
+  /**
+   * `wasi:sockets/ip-name-lookup@0.3`: `resolve-addresses: async
+   * func(name) -> result<list<ip-address>, error-code>` — getaddrinfo
+   * over the platform seam (node:dns `lookup`, i.e. the system resolver,
+   * not raw DNS). IP literals resolve locally without touching the
+   * resolver (wasmtime parity); answers keep the resolver's order.
+   */
+  const resolveAddresses = async (name: string): Promise<IpAddress[]> => {
+    onCall("ip-name-lookup.resolve-addresses");
+    const nameErr = (
+      payload: NameLookupErrorCode,
+      detail: string,
+    ): ComponentException<NameLookupErrorCode> =>
+      new ComponentException(payload, `wasi:sockets/ip-name-lookup@0.3: ${detail}`);
+    const toIpAddress = (hostname: string): IpAddress => {
+      const parsed = parseNetAddr({ hostname, port: 0 });
+      return parsed.kind === "ipv4"
+        ? { kind: "ipv4", value: parsed.value.address }
+        : { kind: "ipv6", value: parsed.value.address };
+    };
+    if (name.length === 0) {
+      throw nameErr({ kind: "invalid-argument" }, "resolve-addresses: empty name");
+    }
+    // An IP literal is already an answer (and `lookup` would hand it back
+    // unchanged anyway — skip the resolver round-trip).
+    try {
+      return [toIpAddress(name.startsWith("[") ? name.slice(1, -1) : name)];
+    } catch {
+      // Not a literal: a real name for the resolver.
+    }
+    const lookup = dnsLookup();
+    if (lookup === undefined) {
+      throw nameErr(
+        { kind: "permanent-resolver-failure" },
+        "resolve-addresses: this host provides no resolver (no node:dns)",
+      );
+    }
+    let answers;
+    try {
+      answers = await lookup(name);
+    } catch (e) {
+      const code = (e as { code?: unknown } | null)?.code;
+      const message = e instanceof Error ? e.message : String(e);
+      if (code === "ENOTFOUND" || code === "EAI_NONAME" || code === "ENODATA") {
+        throw nameErr({ kind: "name-unresolvable" }, `resolve-addresses: ${message}`);
+      }
+      if (code === "EAI_AGAIN" || code === "ETIMEOUT" || code === "ETIMEDOUT") {
+        throw nameErr(
+          { kind: "temporary-resolver-failure" },
+          `resolve-addresses: ${message}`,
+        );
+      }
+      if (
+        isDenoError(e, "NotCapable") || isDenoError(e, "PermissionDenied") ||
+        code === "EACCES" || code === "EPERM"
+      ) {
+        throw nameErr({ kind: "access-denied" }, `resolve-addresses: ${message}`);
+      }
+      if (e instanceof TypeError) {
+        throw nameErr({ kind: "invalid-argument" }, `resolve-addresses: ${message}`);
+      }
+      throw nameErr({ kind: "other", value: message }, `resolve-addresses: ${message}`);
+    }
+    try {
+      return answers.map((a) => toIpAddress(a.address));
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      throw nameErr({ kind: "other", value: message }, `resolve-addresses: ${message}`);
+    }
+  };
+
   return {
-    imports: { [SOCKETS_TYPES_INTERFACE]: { UdpSocket, TcpSocket } },
+    imports: {
+      [SOCKETS_TYPES_INTERFACE]: { UdpSocket, TcpSocket },
+      "wasi:sockets/ip-name-lookup@0.3": { resolveAddresses },
+    },
     UdpSocket,
     TcpSocket,
+    resolveAddresses,
   };
 }
 

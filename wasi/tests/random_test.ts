@@ -106,3 +106,15 @@ Deno.test("random: a short-reading source is a loud host error, not guest corrup
   }
   assertTrue(threw instanceof TypeError, `a TypeError names the contract, got ${threw}`);
 });
+
+Deno.test("random@0.3: the same three interfaces ride the 0.3 track", () => {
+  const { imports } = random({ insecureSeed: [7n, 8n] });
+  for (const iface of ["random", "insecure", "insecure-seed"]) {
+    assertTrue(`wasi:random/${iface}@0.3` in imports, `${iface}@0.3 registered`);
+  }
+  const r = imports["wasi:random/random@0.3"] as { getRandomBytes(len: bigint): Uint8Array };
+  // max-len permits short reads; chunk-to-full returns exactly max-len.
+  assertEq(r.getRandomBytes(16n).length, 16);
+  const seed = imports["wasi:random/insecure-seed@0.3"] as { insecureSeed(): [bigint, bigint] };
+  assertEq(seed.insecureSeed()[0], 7n);
+});
