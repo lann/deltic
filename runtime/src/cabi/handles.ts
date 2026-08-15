@@ -10,11 +10,12 @@
 //     which reconstructs the reference's store.lift/store.lower bracket
 //     (may_enter gating + trap poisoning) around the destructor call (#85).
 
-import { assert_, Trap, trapIf } from "./trap.ts";
+import { assert_, Trap, trap, trapIf } from "./trap.ts";
 import {
   NeedsJspi,
   notifyInstancePoisoned,
   PendingCapability,
+  withPoisonCause,
 } from "../task/scheduler.ts";
 import type {
   ComponentInstanceLike,
@@ -260,7 +261,10 @@ export function callDtorGated(
   // reference's `caller = None` (Store.invoke).
   const callerInst = asGate(caller) === null ? null : caller;
 
-  trapIf(!impl.mayEnterFrom(callerInst), "cannot enter component instance");
+  // A poisoned target's refusal names the original trap (deltic#145).
+  if (!impl.mayEnterFrom(callerInst)) {
+    trap(withPoisonCause(impl, "cannot enter component instance"));
+  }
   impl.enterFrom(callerInst);
 
   const poison = (e: unknown): void => {

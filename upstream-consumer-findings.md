@@ -1,7 +1,8 @@
 # Upstream consumer-repo findings
 
 Single source for issues/PRs to file against the **polymorph consumer
-repositories** (docs/consumers.md) discovered while running their artifacts under
+repositories** (docs/consumers.md) — and the upstream toolchains their
+components are built with — discovered while running their artifacts under
 deltic. Mirrors the conventions of
 `upstream-component-model-repo-findings.md`: entries carry status
 (`DRAFT` → `FILED #n` → `RESOLVED`), evidence, and proposed fixes. All
@@ -159,6 +160,61 @@ identical). Filing upstream is the operator's call.
 **Related:** [deltic#74](https://github.com/lann/deltic/issues/74)
 tracks adopting their sockets surface + routing hooks into wasi-shims,
 sequenced after this convergence so they swap once.
+
+---
+
+## CGO-1 — `cabi_realloc` can call clock imports under GC pacing: traps (and poisons) under any conforming CM host (DRAFT)
+
+**Repo:** componentize-go (upstream Go component toolchain; exact repo per
+operator). **Where:** the generated `cabi_realloc` / Go runtime allocation
+path.
+
+**Evidence:** [deltic#145](https://github.com/lann/deltic/issues/145) —
+consistently captured across ~10 reproductions against two
+separately-composed wosh builds (downstream report:
+[wosh#71](https://github.com/lann/wosh/pull/71)):
+
+```
+Trap: cannot leave component instance 1 (may_leave violation)
+    at clock_time_get (wasm)
+    at runtime.clock_time_get (Go runtime)
+    at runtime.walltime1
+    at time.now
+```
+
+from inside `cabi_realloc`, during the copy window of a cross-instance
+`list<u8>` lowering. Under allocation pressure the Go runtime decides an
+allocation crosses a GC-pacing threshold and reads the wall clock — from
+inside the callee's realloc.
+
+**Spec basis (why this is theirs, not a host bug):** the reference sets
+`may_leave = False` around the entire realloc call
+(`definitions.py:670-683` `LiftLowerContext.reallocate`) and `canon_lower`
+traps when it is false (`definitions.py:2244`); CanonicalABI.md's
+"realloc must be called reentrantly…" paragraph makes the guard
+load-bearing — it is what licenses compiling realloc calls as plain
+synchronous calls instead of the specced fresh-thread semantics. Net
+constraint: **`cabi_realloc` must not (transitively) call imports.** A
+Go runtime that reserves the right to read the clock in any allocation
+violates it on every conforming host: deltic instance-poisons
+(verified), wasmtime store-poisons (presumed from shared semantics;
+unverified on wasmtime's host-lowering path — its native gates simply
+never generated the same allocation pressure).
+
+**Proposed fix (at the source, fixes every host):** make the generated
+`cabi_realloc` unable to trigger GC pacing — a pre-reserved arena sized
+per copy, a GC hold across the realloc frame, or a runtime knob
+deferring pacing clock reads while inside the CABI entry. Any of these
+also removes the load-dependent flakiness (deltic#145: the trap needs an
+allocation to cross a GC threshold *inside* the window, so it only shows
+under flood).
+
+**Related:** deltic#145 (asks 1–3; ask 1 — refusals naming the poison
+cause — implemented host-side),
+[deltic#147](https://github.com/lann/deltic/issues/147) (deltic's own
+host-entry lowering runs realloc outside the window — the lenient gap
+that made #145 reproduce only under composition). Filing upstream is the
+operator's call.
 
 ---
 

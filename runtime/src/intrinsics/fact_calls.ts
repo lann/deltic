@@ -66,7 +66,7 @@
 //     is the ordinary "is the callee instance currently executing" one, which
 //     a flat tree answers correctly.
 
-import { assert_, trapIf } from "../cabi/trap.ts";
+import { assert_, trap } from "../cabi/trap.ts";
 import { MAX_FLAT_RESULTS } from "../cabi/mod.ts";
 import type { CoreValue, FuncType, ValType } from "../cabi/types.ts";
 import {
@@ -85,6 +85,7 @@ import {
   Task,
   type TaskOptions,
   Thread,
+  withPoisonCause,
 } from "../task/mod.ts";
 import { blockCurrentActivation, enterWasm } from "../jspi/mod.ts";
 import {
@@ -650,10 +651,13 @@ export function createSyncStartCall(
 
     // Reference `Store.lift`: the reentrance gate, with the *caller* as the
     // entering context (definitions.py `entering_set(caller)`).
-    trapIf(
-      !prepared.calleeInst.mayEnterFrom(prepared.callerInst),
-      "cannot enter component instance",
-    );
+    // A poisoned callee's refusal names the original trap (deltic#145).
+    if (!prepared.calleeInst.mayEnterFrom(prepared.callerInst)) {
+      trap(withPoisonCause(
+        prepared.calleeInst,
+        "cannot enter component instance",
+      ));
+    }
     prepared.calleeInst.enterFrom(prepared.callerInst);
     let ok = false;
     try {
@@ -891,10 +895,13 @@ export function createAsyncStartCall(
     subtask.onCancel = (callerInst) => task.requestCancellation(callerInst);
     subtask.calleeTask = task;
 
-    trapIf(
-      !prepared.calleeInst.mayEnterFrom(prepared.callerInst),
-      "cannot enter component instance",
-    );
+    // A poisoned callee's refusal names the original trap (deltic#145).
+    if (!prepared.calleeInst.mayEnterFrom(prepared.callerInst)) {
+      trap(withPoisonCause(
+        prepared.calleeInst,
+        "cannot enter component instance",
+      ));
+    }
     prepared.calleeInst.enterFrom(prepared.callerInst);
     let ok = false;
     let thread: Thread;

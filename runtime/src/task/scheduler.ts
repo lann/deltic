@@ -145,18 +145,61 @@ export function notifyInstancePoisoned(
   inst: { handles: Iterable<unknown> },
   cause: unknown,
 ): void {
-  poisonedInstances.add(inst);
+  // First cause wins: a poisoned instance can collect follow-on failures
+  // (late settles retired against it, repeated bracket breaks), and the
+  // original trap is the one worth reporting on later entry refusals
+  // (deltic#145 ask 1).
+  if (!poisonedInstances.has(inst)) poisonedInstances.set(inst, cause);
   onInstancePoisoned?.(inst, cause);
 }
 
-/** Poisoned instances, for late-settle retirement (`Thread.resumeWith`):
- * a WeakSet mirror of streams.ts's `retiredInstances`, kept here because
- * thread.ts cannot import streams.ts (the same evaluation-order
- * constraint that made `setOnInstancePoisoned` an injection seam). */
-const poisonedInstances = new WeakSet<object>();
+/** Poisoned instances → poisoning cause, for late-settle retirement
+ * (`Thread.resumeWith`) and entry-refusal diagnostics (`withPoisonCause`,
+ * deltic#145). A WeakMap mirror of streams.ts's `retiredInstances`, kept
+ * here because thread.ts cannot import streams.ts (the same
+ * evaluation-order constraint that made `setOnInstancePoisoned` an
+ * injection seam). */
+const poisonedInstances = new WeakMap<object, unknown>();
 
 export function isInstancePoisoned(inst: object): boolean {
   return poisonedInstances.has(inst);
+}
+
+/**
+ * The recorded cause of an instance's poisoning: the original trap that
+ * broke the enter/leave bracket (deltic#145). `undefined` when the instance
+ * is not poisoned — and, degenerately, when the poisoning cause itself was
+ * a thrown `undefined`; use `isInstancePoisoned` for the predicate.
+ */
+export function instancePoisonCause(inst: object): unknown {
+  return poisonedInstances.get(inst);
+}
+
+/**
+ * Append the recorded poison cause to an entry-refusal trap message
+ * (deltic#145 ask 1). "cannot enter component instance" covers two states
+ * that send an embedder down entirely different debugging paths — a
+ * transient reentrance overlap (retry later, look for caller-side call
+ * overlap) and a permanently poisoned instance (the corpse of an earlier
+ * trap, which this suffix names). Only the poisoned case gets the suffix:
+ * the transient message stays byte-identical, and the suffix is
+ * conformance-safe because the official suite matches trap messages by
+ * substring (harness/src/runner.ts).
+ */
+export function withPoisonCause(inst: object, base: string): string {
+  if (!poisonedInstances.has(inst)) return base;
+  const cause = describeCause(poisonedInstances.get(inst));
+  return `${base} — instance poisoned by: ${cause}`;
+}
+
+function describeCause(cause: unknown): string {
+  try {
+    // String(err) renders "Name: message" — for a `Trap`, exactly the
+    // original trap line the embedder needs to see.
+    return String(cause);
+  } catch {
+    return "(unprintable poison cause)";
+  }
 }
 
 // ---------------------------------------------------------------------------

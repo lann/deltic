@@ -164,4 +164,22 @@ Deno.test("task model: reentrance gate blocks concurrent entry", async () => {
   assert(threw, "number lowered as string must fail");
   assert(!inst.mayEnter, "a failed call must poison the instance");
   assertTrap(() => greet("after-poison"), "cannot enter component instance");
+  // deltic#145 ask 1: the poisoned refusal names the original cause, so the
+  // embedder is not sent chasing transient caller-side call overlap. The
+  // cause here is the host-side lowering error above — non-Trap causes must
+  // surface too.
+  let refusal = "";
+  try {
+    greet("after-poison-again");
+  } catch (e) {
+    refusal = String((e as Error).message ?? e);
+  }
+  assert(
+    refusal.includes("(reentrance forbidden)"),
+    `refusal must keep the base wording, got: ${refusal}`,
+  );
+  assert(
+    refusal.includes("instance poisoned by:"),
+    `refusal must name the poison cause, got: ${refusal}`,
+  );
 });
