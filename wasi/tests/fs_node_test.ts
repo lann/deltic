@@ -12,7 +12,7 @@
 
 import { ComponentException } from "@deltic/runtime/embedder";
 import { filesystemNode } from "../src/filesystem_node.ts";
-import { FsIoError } from "../src/fs_provider.ts";
+import { FsIoError } from "../src/internal/fs_provider.ts";
 import { assertEq, assertThrows, assertTrue } from "./asserts.ts";
 
 // --- structural views of the per-call resource classes -----------------------------

@@ -40,7 +40,7 @@
 // has no symlinks, so the web backend is immune.
 
 import { ComponentException, Stream, suspending } from "@deltic/runtime/embedder";
-import { FedInputStream, IoError, OutputStream, Pollable, SinkOutputStream } from "./io.ts";
+import { FedInputStream, IoError, OutputStream, Pollable, SinkOutputStream } from "../io.ts";
 
 /** `wasi:filesystem/types.error-code` labels. 0.2 (enum): all of these,
  * bare. 0.3 (variant): all but `would-block`, as `{kind}` — this package

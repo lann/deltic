@@ -6,14 +6,15 @@
 // REGISTERED prototypes; these duck-typed impls override behavior only).
 
 import { ComponentException, isSuspending } from "@deltic/runtime/embedder";
-import {
-  cliStdio,
-  STDIO_HIGH_WATER,
-  StdinStream,
-  StdoutStream,
-} from "../src/cli_stdio.ts";
+import { cliStdio } from "../src/cli_stdio.ts";
 import { type CliIoResult, ExitError } from "../src/cli.ts";
-import { InputStream, OutputStream } from "../src/io.ts";
+import {
+  FedInputStream,
+  InputStream,
+  OutputStream,
+  SinkOutputStream,
+  STREAM_HIGH_WATER,
+} from "../src/io.ts";
 import { assertEq, assertThrows, assertTrue } from "./asserts.ts";
 
 const text = (s: string): Uint8Array => new TextEncoder().encode(s);
@@ -78,7 +79,7 @@ Deno.test("cli-stdio: the registered io prototypes carry the A14 marks (the rela
 
 Deno.test("cli-stdio stdin: sync reads never park; empty-open is empty, drained-ended is closed", async () => {
   const f = feeder();
-  const stdin = new StdinStream(f.source);
+  const stdin = new FedInputStream(f.source);
   await new Promise((r) => setTimeout(r, 0)); // let the feed start
   assertEq(stdin.read(16n).length, 0, "open + nothing available = empty list");
   f.feed(text("hello"));
@@ -94,7 +95,7 @@ Deno.test("cli-stdio stdin: sync reads never park; empty-open is empty, drained-
 
 Deno.test("cli-stdio stdin: blocking-read PARKS until fed (the jspi dependence)", async () => {
   const f = feeder();
-  const stdin = new StdinStream(f.source);
+  const stdin = new FedInputStream(f.source);
   await new Promise((r) => setTimeout(r, 0));
   const parked = stdin.blockingRead(16n);
   assertTrue(parked instanceof Promise, "nothing buffered: the call parks");
@@ -111,7 +112,7 @@ Deno.test("cli-stdio stdin: blocking-read PARKS until fed (the jspi dependence)"
 
 Deno.test("cli-stdio stdin: the subscribe pollable flips ready on feed and on EOF", async () => {
   const f = feeder();
-  const stdin = new StdinStream(f.source);
+  const stdin = new FedInputStream(f.source);
   await new Promise((r) => setTimeout(r, 0));
   const p = stdin.subscribe();
   assertEq(p.ready(), false, "nothing buffered");
@@ -132,16 +133,16 @@ Deno.test("cli-stdio stdin: the feed pauses past the high-water mark (no unbound
   const endless: AsyncIterable<Uint8Array> = (async function* () {
     for (;;) {
       pulled++;
-      yield new Uint8Array(STDIO_HIGH_WATER / 4);
+      yield new Uint8Array(STREAM_HIGH_WATER / 4);
     }
   })();
-  const stdin = new StdinStream(endless);
+  const stdin = new FedInputStream(endless);
   await new Promise((r) => setTimeout(r, 10));
   const afterFill = pulled;
   assertTrue(afterFill <= 6, `the feed paused near the mark (pulled ${afterFill})`);
   await new Promise((r) => setTimeout(r, 10));
   assertEq(pulled, afterFill, "…and stays paused while nobody reads");
-  stdin.read(BigInt(STDIO_HIGH_WATER)); // drain -> resume
+  stdin.read(BigInt(STREAM_HIGH_WATER)); // drain -> resume
   await new Promise((r) => setTimeout(r, 10));
   assertTrue(pulled > afterFill, "draining resumes the feed");
   stdin[Symbol.dispose]();
@@ -153,13 +154,13 @@ Deno.test("cli-stdio stdout: budgeted writes; blocking-flush parks until the sin
   const drained: string[] = [];
   let release!: () => void;
   const gate = new Promise<void>((r) => (release = r));
-  const out = new StdoutStream(async (chunk) => {
+  const out = new SinkOutputStream(async (chunk) => {
     await gate; // a slow sink
     drained.push(utf8(chunk));
   });
-  assertEq(out.checkWrite(), BigInt(STDIO_HIGH_WATER));
+  assertEq(out.checkWrite(), BigInt(STREAM_HIGH_WATER));
   out.write(text("queued"));
-  assertEq(out.checkWrite(), BigInt(STDIO_HIGH_WATER - 6), "the permit shrinks by queued bytes");
+  assertEq(out.checkWrite(), BigInt(STREAM_HIGH_WATER - 6), "the permit shrinks by queued bytes");
   const parked = out.blockingFlush();
   assertTrue(parked instanceof Promise, "undrained: the flush parks");
   const sub = out.subscribe();
@@ -167,19 +168,19 @@ Deno.test("cli-stdio stdout: budgeted writes; blocking-flush parks until the sin
   release();
   await parked;
   assertEq(JSON.stringify(drained), JSON.stringify(["queued"]));
-  assertEq(out.checkWrite(), BigInt(STDIO_HIGH_WATER), "drained: full permit back");
+  assertEq(out.checkWrite(), BigInt(STREAM_HIGH_WATER), "drained: full permit back");
   out[Symbol.dispose]();
 });
 
 Deno.test("cli-stdio stdout: writing past the permit is a trap (unbranded), not a stream-error", () => {
-  const out = new StdoutStream(() => {});
-  const e = assertThrows(() => out.write(new Uint8Array(STDIO_HIGH_WATER + 1)));
+  const out = new SinkOutputStream(() => {});
+  const e = assertThrows(() => out.write(new Uint8Array(STREAM_HIGH_WATER + 1)));
   assertTrue(!(e instanceof ComponentException), "an unbranded throw = trap");
   out[Symbol.dispose]();
 });
 
 Deno.test("cli-stdio stdout: a failed sink surfaces as last-operation-failed with an io error resource", async () => {
-  const out = new StdoutStream(() => {
+  const out = new SinkOutputStream(() => {
     throw new Error("EPIPE: broken pipe");
   });
   out.write(text("x"));

@@ -1,4 +1,4 @@
-// Unit tests for the `wasi:sockets@0.2` track (src/sockets_02.ts): the
+// Unit tests for the `wasi:sockets@0.2` track (src/internal/sockets_02.ts): the
 // two-phase state machines, the poll-shaped would-block contracts, and
 // the BARE-STRING enum error payloads (0.2's error-code is an enum, not
 // 0.3's variant — the A10 rule the composed gate can't isolate). The
@@ -6,8 +6,7 @@
 
 import { ComponentException } from "@deltic/runtime/embedder";
 import type { Pollable } from "../src/io.ts";
-import { type IpSocketAddress, sockets } from "../src/sockets.ts";
-import { SocketIoError } from "../src/sockets_02.ts";
+import { type IpSocketAddress, SocketIoError, sockets } from "../src/sockets.ts";
 import { assertEq, assertThrows, assertTrue } from "./asserts.ts";
 
 const { imports } = sockets();

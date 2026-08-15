@@ -16,11 +16,5 @@
 export * from "@deltic/runtime/embedder";
 export { Translator } from "@deltic/runtime/shim";
 export * from "@deltic/ct-runner";
-export { wasi, wasiShims } from "@deltic/wasi";
-export type {
-  WasiImports,
-  WasiOptions,
-  // deprecated aliases, kept through the rename transition
-  WasiShims,
-  WasiShimsOptions,
-} from "@deltic/wasi";
+export { wasi } from "@deltic/wasi";
+export type { WasiImports, WasiOptions } from "@deltic/wasi";

@@ -2,10 +2,7 @@
 // executable check that the embedder conventions
 // (`@deltic/runtime/embedder`) serve WASI (contracts/embedder-api.md C2
 // checklist item 7; docs/architecture.md §2 keeps implementations out of
-// the RUNTIME — this package is where they live). Named `wasi-shims`
-// until 2026-08-14: "shim" described the original thin adapters, not the
-// full providers (sockets; more planned) the package grew into; the
-// deprecated `wasiShims` aliases below cover the transition. Scope: p2
+// the RUNTIME — this package is where they live). Scope: p2
 // baseline + p3 clocks + à la carte sockets on BOTH tracks (the
 // poll-shaped `@0.2` surface std::net links, and `@0.3` UDP + TCP
 // client/listener; one node-builtins backend serving Deno and Node;
@@ -30,8 +27,11 @@
 //    `filesystem-web,http,io,random,sockets}`) and
 //    a plain `{ imports }` record — hand-merge exactly the set you mean:
 //    `{ ...io().imports, ...clocks().imports }`. Fragment dependencies:
-//    cli and clocks import io's Pollable/stream vocabulary; filesystem
-//    and random stand alone. Naming convention as impls multiply: one
+//    io.ts is the package's shared vocabulary (the parking kernel and
+//    the stream classes) — cli, clocks, and the real filesystem and
+//    sockets impls all ride it; random and http stand alone. Impl
+//    machinery that is not itself a fragment lives under src/internal/
+//    (never exported). Naming convention as impls multiply: one
 //    subpath per impl; the unqualified name is the batteries impl
 //    (`./filesystem` = empty preopens), alternatives carry their backend
 //    (`./filesystem-node` = node:fs with explicit preopens,
@@ -63,50 +63,21 @@ import { filesystem } from "./filesystem.ts";
 import { io } from "./io.ts";
 import { random, type RandomOptions } from "./random.ts";
 
-export {
-  cli,
-  type CliCaptured,
-  type CliOptions,
-  type CliResult,
-  ExitError,
-  TerminalInput,
-  TerminalOutput,
-} from "./cli.ts";
-export {
-  clocks,
-  type ClocksOptions,
-} from "./clocks.ts";
-export {
-  Descriptor,
-  DirectoryEntryStream,
-  filesystem,
-} from "./filesystem.ts";
-export {
-  type ByteSink,
-  FedInputStream,
-  InputStream,
-  io,
-  IoError,
-  OutputStream,
-  poll,
-  Pollable,
-  SinkOutputStream,
-  STREAM_HIGH_WATER,
-  type StreamErrorValue,
-} from "./io.ts";
-export {
-  random,
-  type RandomOptions,
-} from "./random.ts";
+// THIS module exports the batteries surface only: `wasi()` plus exactly
+// what consuming it requires — the option types, the captured handle's
+// type, and `ExitError` (thrown through `cli`'s `throwOnExit`, so
+// batteries embedders classify it). Everything else lives at its
+// subpath (composition doc above).
+export { type CliCaptured, type CliOptions } from "./cli.ts";
+export { ExitError } from "./internal/cli_shared.ts";
+export { type ClocksOptions } from "./clocks.ts";
+export { type RandomOptions } from "./random.ts";
 
 export interface WasiOptions {
   cli?: CliOptions;
   clocks?: ClocksOptions;
   random?: RandomOptions;
 }
-
-/** @deprecated Renamed `WasiOptions` with the package (2026-08-14). */
-export type WasiShimsOptions = WasiOptions;
 
 /**
  * The merged imports record plus the one piece of host-observable state a
@@ -121,9 +92,6 @@ export type WasiShimsOptions = WasiOptions;
 export interface WasiImports extends Record<string, unknown> {
   readonly captured: CliCaptured;
 }
-
-/** @deprecated Renamed `WasiImports` with the package (2026-08-14). */
-export type WasiShims = WasiImports;
 
 /**
  * Build the merged `wasi:*` imports fragment for `instantiate`.
@@ -141,6 +109,3 @@ export function wasi(options: WasiOptions = {}): WasiImports {
   };
   return Object.assign(merged, { captured: c.captured }) as WasiImports;
 }
-
-/** @deprecated Renamed `wasi` with the package (2026-08-14). */
-export const wasiShims: (options?: WasiOptions) => WasiImports = wasi;
