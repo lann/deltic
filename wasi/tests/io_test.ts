@@ -91,7 +91,7 @@ Deno.test("io: reading a dropped input stream throws closed stream-error", () =>
 
 Deno.test("io: blockingRead degenerates to read (tier b, never parks)", () => {
   const s = new InputStream(new Uint8Array([7, 8]));
-  assertEq(JSON.stringify([...s.blockingRead(2n)]), JSON.stringify([7, 8]));
+  assertEq(JSON.stringify([...(s.blockingRead(2n) as Uint8Array)]), JSON.stringify([7, 8]));
 });
 
 Deno.test("io: subscribe() yields a tier-a Pollable on both stream kinds", () => {

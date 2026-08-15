@@ -30,10 +30,10 @@ Deno.test("cli: stderr capture is independent of stdout", () => {
 Deno.test("cli: exit() records status without throwing by default", () => {
   const { imports, captured } = cli();
   const exitIface = imports["wasi:cli/exit@0.2"] as {
-    exit(status: { tag: "ok" | "err" }): void;
+    exit(status: { kind: "ok" | "err" }): void;
   };
   assertEq(captured.exited(), false);
-  exitIface.exit({ tag: "ok" });
+  exitIface.exit({ kind: "ok" });
   assertEq(captured.exited(), true);
   assertEq(captured.exitOk(), true);
 });
@@ -41,9 +41,9 @@ Deno.test("cli: exit() records status without throwing by default", () => {
 Deno.test("cli: exit() with throwOnExit throws a named ExitError", () => {
   const { imports } = cli({ throwOnExit: true });
   const exitIface = imports["wasi:cli/exit@0.2"] as {
-    exit(status: { tag: "ok" | "err" }): void;
+    exit(status: { kind: "ok" | "err" }): void;
   };
-  const e = assertThrows(() => exitIface.exit({ tag: "err" }));
+  const e = assertThrows(() => exitIface.exit({ kind: "err" }));
   assertTrue(e instanceof ExitError, "throw is an ExitError");
   assertEq((e as ExitError).ok, false);
 });
@@ -91,4 +91,39 @@ Deno.test("cli: no terminal is ever attached (option collapses to undefined)", (
     getTerminalStdin(): unknown;
   };
   assertEq(stdinTerm.getTerminalStdin(), undefined);
+});
+
+// --- the @0.3 track (capture impl) ---------------------------------------------
+
+Deno.test("cli@0.3: write-via-stream captures; read-via-stream serves the buffer", async () => {
+  const { imports, captured } = cli({ stdinBuffer: new TextEncoder().encode("in") });
+  const stdout = imports["wasi:cli/stdout@0.3"] as {
+    writeViaStream(data: AsyncIterable<Uint8Array>): Promise<{ kind: string }>;
+  };
+  const wrote = await stdout.writeViaStream((async function* () {
+    yield new TextEncoder().encode("captured ");
+    yield new TextEncoder().encode("output");
+  })());
+  assertEq(wrote.kind, "ok");
+  assertEq(captured.stdoutText(), "captured output");
+
+  const stdin = imports["wasi:cli/stdin@0.3"] as {
+    readViaStream(): [Iterable<Uint8Array>, Promise<{ kind: string }>];
+  };
+  const [rx, done] = stdin.readViaStream();
+  const got: number[] = [];
+  for (const chunk of rx) got.push(...chunk);
+  assertEq(new TextDecoder().decode(Uint8Array.from(got)), "in");
+  assertEq((await done).kind, "ok");
+});
+
+Deno.test("cli@0.3: exit-with-code records; get-initial-cwd is the renamed leaf", () => {
+  const { imports, captured } = cli({ cwd: "/w" });
+  const exit = imports["wasi:cli/exit@0.3"] as { exitWithCode(code: number): void };
+  exit.exitWithCode(7);
+  assertEq(captured.exited(), true);
+  assertEq(captured.exitOk(), false);
+  assertEq(captured.exitCode(), 7);
+  const env = imports["wasi:cli/environment@0.3"] as { getInitialCwd(): string | undefined };
+  assertEq(env.getInitialCwd(), "/w");
 });
