@@ -1,0 +1,24 @@
+[package]
+name = "guest-fs-probe"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# No async: std::fs is the point — the sync p2 filesystem surface via
+# wasi-libc (fd_read/fd_write/path_* over descriptor methods and the
+# via-stream pair).
+wit-bindgen = { version = "=0.60.0", default-features = false, features = ["macros", "realloc"] }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = "debuginfo"
+
+# Opt out of the repository's root cargo workspace.
+[workspace]

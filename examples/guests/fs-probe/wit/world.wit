@@ -1,0 +1,12 @@
+package deltic:fs-probe;
+
+/// The wasi:filesystem integration probe. The interesting imports are
+/// NOT declared here: building for wasm32-wasip2 links std::fs through
+/// wasi-libc and the preview1 adapter, so the emitted component imports
+/// the whole `wasi:filesystem@0.2` surface (types + preopens) plus the
+/// p2 baseline — exactly the linkage a real ported CLI program has.
+world fs-probe {
+    /// Runs the std::fs battery against the preopen at "/"; ok = a
+    /// summary string, err = the first failing step.
+    export run: func() -> result<string, string>;
+}

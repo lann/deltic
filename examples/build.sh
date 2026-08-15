@@ -20,7 +20,18 @@ TARGET=wasm32-unknown-unknown
 BUILD_DIR=guests/build
 export CARGO_TARGET_DIR="$PWD/guests/target"
 
-GUESTS="hello values resources async-probe yield-only context-user backpressure-probe stream-echo stream-pass future-user future-import resource-stream tcp-echo http-fetch test-suite"
+GUESTS="hello values resources async-probe yield-only context-user backpressure-probe stream-echo stream-pass future-user future-import resource-stream tcp-echo http-fetch test-suite fs-probe"
+
+# Most guests are pure computational reactors on wasm32-unknown-unknown;
+# fs-probe builds for wasm32-wasip2 ON PURPOSE — std::fs through
+# wasi-libc + the preview1 adapter is the linkage under test, and the
+# wasip2 target emits a finished component (no `component new` step).
+target_for() {
+  case "$1" in
+    fs-probe) echo "wasm32-wasip2" ;;
+    *) echo "$TARGET" ;;
+  esac
+}
 
 # wasm-tools validation features per guest (component-model always on;
 # CM 0.3 async guests additionally need the cm-async feature).
@@ -36,10 +47,15 @@ mkdir -p "$BUILD_DIR"
 
 for guest in $GUESTS; do
   echo "==== $guest"
-  (cd "guests/$guest" && cargo build --release --target "$TARGET")
-  core="$CARGO_TARGET_DIR/$TARGET/release/guest_${guest//-/_}.wasm"
+  tgt=$(target_for "$guest")
+  (cd "guests/$guest" && cargo build --release --target "$tgt")
+  core="$CARGO_TARGET_DIR/$tgt/release/guest_${guest//-/_}.wasm"
   out="$BUILD_DIR/$guest.component.wasm"
-  wasm-tools component new "$core" -o "$out"
+  if [ "$tgt" = "wasm32-wasip2" ]; then
+    cp "$core" "$out" # already a component (see target_for)
+  else
+    wasm-tools component new "$core" -o "$out"
+  fi
   wasm-tools validate --features "$(features_for "$guest")" "$out"
   echo "---- $out ($(wc -c <"$out") bytes), world:"
   wasm-tools component wit "$out"
