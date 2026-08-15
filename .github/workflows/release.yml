@@ -30,7 +30,7 @@ jobs:
           submodules: true
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: wasm32-unknown-unknown
+          targets: wasm32-unknown-unknown,wasm32-wasip2
       - uses: taiki-e/install-action@v2
         with:
           tool: just@1.54.0
