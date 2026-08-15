@@ -402,8 +402,19 @@ export class FedInputStream {
 
   read(len: bigint): Uint8Array {
     if (this.#closed) throw closedError();
-    if (this.#failure !== undefined) throw closedError();
-    if (this.#buffered > 0) return this.#take(Number(len));
+    if (this.#buffered > 0) return this.#take(Number(len)); // drain before failing
+    if (this.#failure !== undefined) {
+      // A SOURCE failure is an error, not a clean end: the
+      // `last-operation-failed` stream-error, carrying the io `error`
+      // resource (an IoError subclass from the feed — e.g. a socket
+      // provider's code-carrying error — is preserved for downcasts).
+      throw new ComponentException({
+        kind: "last-operation-failed",
+        value: this.#failure instanceof IoError ? this.#failure : new IoError(
+          this.#failure instanceof Error ? this.#failure.message : String(this.#failure),
+        ),
+      });
+    }
     if (this.#eof) throw closedError(); // drained + ended = closed
     return new Uint8Array(0); // open, nothing available: p2 non-blocking read
   }

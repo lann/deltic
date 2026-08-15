@@ -1,5 +1,7 @@
-// `wasi:sockets/types@0.3` — UDP and TCP (client + listener), served
-// over ONE backend: the node builtins (`node:dgram` / `node:net`), which
+// `wasi:sockets` — BOTH tracks: `types@0.3` (UDP and TCP, client +
+// listener; this file) and the poll-shaped `@0.2` surface (sockets_02.ts,
+// registered by `sockets()` alongside). One backend serves both: the
+// node builtins (`node:dgram` / `node:net`), which
 // real Node provides natively, Deno serves as STABLE node-compat (no
 // `--unstable-net` needed — that flag gates only the native API's shape,
 // not the capability), and Bun reaches through its compat (findings-only;
@@ -129,6 +131,11 @@
 // and maps to `access-denied`.
 
 import { ComponentException, Stream, suspending } from "@deltic/runtime/embedder";
+// The @0.2 track (poll-shaped two-phase surface) lives in sockets_02.ts;
+// `sockets()` registers both tracks. The import is cyclic on purpose —
+// sockets_02 consumes this module's codec/validators, which are hoisted
+// function declarations, so evaluation order is safe.
+import { sockets02 } from "./sockets_02.ts";
 
 /** `wasi:sockets/types@0.3`'s `ip-address-family` enum. */
 export type IpAddressFamily = "ipv4" | "ipv6";
@@ -366,20 +373,20 @@ function isDeprecatedV4CompatibleV6(groups: Ipv6Address): boolean {
  * Whether `addr` may cross this socket's family boundary: same family, and
  * never an IPv4-mapped or deprecated IPv4-compatible IPv6 address.
  */
-function isValidAddressFamily(family: IpAddressFamily, addr: IpSocketAddress): boolean {
+export function isValidAddressFamily(family: IpAddressFamily, addr: IpSocketAddress): boolean {
   if (family === "ipv4") return addr.kind === "ipv4";
   return addr.kind === "ipv6" &&
     !isV4MappedV6(addr.value.address) &&
     !isDeprecatedV4CompatibleV6(addr.value.address);
 }
 
-function isUnspecified(addr: IpSocketAddress): boolean {
+export function isUnspecified(addr: IpSocketAddress): boolean {
   if (addr.kind === "ipv4") return addr.value.address.every((o) => o === 0);
   return addr.value.address.every((g) => g === 0);
 }
 
 /** Same endpoint: family, address, and port (udp connected-mode filter). */
-function sameSocketAddress(a: IpSocketAddress, b: IpSocketAddress): boolean {
+export function sameSocketAddress(a: IpSocketAddress, b: IpSocketAddress): boolean {
   if (a.kind !== b.kind || a.value.port !== b.value.port) return false;
   return a.value.address.length === b.value.address.length &&
     a.value.address.every((part, i) => part === b.value.address[i]);
@@ -1667,6 +1674,7 @@ export function sockets(options: SocketsOptions = {}): SocketsShim {
     imports: {
       [SOCKETS_TYPES_INTERFACE]: { UdpSocket, TcpSocket },
       "wasi:sockets/ip-name-lookup@0.3": { resolveAddresses },
+      ...sockets02(onCall).imports,
     },
     UdpSocket,
     TcpSocket,
@@ -1692,7 +1700,7 @@ const TRANSIENT_ACCEPT_FAILURES: ReadonlySet<SocketErrorCode["kind"]> = new Set(
 ]);
 
 /** The family's wildcard address, port 0 (tcp listen's implicit bind). */
-function wildcardAddress(family: IpAddressFamily): IpSocketAddress {
+export function wildcardAddress(family: IpAddressFamily): IpSocketAddress {
   return family === "ipv4"
     ? { kind: "ipv4", value: { port: 0, address: [0, 0, 0, 0] } }
     : {

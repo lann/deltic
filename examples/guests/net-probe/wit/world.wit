@@ -1,0 +1,14 @@
+package deltic:net-probe;
+
+/// The wasi:sockets@0.2 integration probe. Like fs-probe, the
+/// interesting imports are NOT declared here: building for wasm32-wasip2
+/// links std::net through wasi-libc, so the emitted component imports the
+/// whole `wasi:sockets@0.2` surface (network, instance-network, tcp,
+/// tcp-create-socket, udp, udp-create-socket, plus wasi:io streams and
+/// pollables) — the exact linkage of a ported networking CLI program.
+world net-probe {
+    /// Runs the std::net battery: a TCP listener + client self-echo over
+    /// loopback and a UDP socket pair, entirely inside the guest. ok = a
+    /// summary string, err = the first failing step.
+    export run: func() -> result<string, string>;
+}

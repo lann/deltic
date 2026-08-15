@@ -1,0 +1,23 @@
+[package]
+name = "guest-net-probe"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# No async: std::net is the point — the sync p2 sockets surface via
+# wasi-libc (two-phase ops, pollable blocking, wasi:io socket streams).
+wit-bindgen = { version = "=0.60.0", default-features = false, features = ["macros", "realloc"] }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = "debuginfo"
+
+# Opt out of the repository's root cargo workspace.
+[workspace]
