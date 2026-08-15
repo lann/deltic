@@ -49,7 +49,7 @@
 //     where it has only a setter, `not-supported` where it has neither.
 
 import { ComponentException } from "@deltic/runtime/embedder";
-import { FedInputStream, IoError, Pollable, SinkOutputStream } from "./io.ts";
+import { FedInputStream, IoError, Pollable, SinkOutputStream } from "../io.ts";
 import {
   type DatagramConn,
   dnsLookup,
@@ -71,7 +71,7 @@ import {
   MAX_UDP_DATAGRAM_SIZE,
   parseNetAddr,
   sameSocketAddress,
-} from "./sockets.ts";
+} from "./sockets_shared.ts";
 
 /** `wasi:sockets/network@0.2`'s `error-code` ENUM: bare strings. */
 export type SocketErrorCode02 =

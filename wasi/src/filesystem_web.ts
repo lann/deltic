@@ -41,7 +41,7 @@ import {
   makeFilesystem,
   type Opened,
   type OpenOptions,
-} from "./fs_provider.ts";
+} from "./internal/fs_provider.ts";
 
 // --- the OPFS surface we consume (structural: works with fakes) -------------------
 

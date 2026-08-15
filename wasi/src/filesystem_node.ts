@@ -36,7 +36,7 @@ import {
   type Opened,
   type OpenOptions,
   type TimeSpec,
-} from "./fs_provider.ts";
+} from "./internal/fs_provider.ts";
 
 // --- the node:fs surface we consume (structural, no @types dependency) ------------
 

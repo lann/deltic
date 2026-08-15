@@ -16,42 +16,25 @@
 // gains `exit-with-code: func(status-code: u8)`, and environment's cwd
 // getter is renamed `get-initial-cwd` (0.2 spells it `initial-cwd`).
 
-import { defineBrand, WASI_EXIT } from "@deltic/protocol";
-import { Stream } from "@deltic/runtime/embedder";
 import { InputStream, OutputStream } from "./io.ts";
+import {
+  type CliByteSource,
+  type CliIoResult,
+  ExitError,
+  TerminalInput,
+  TerminalOutput,
+} from "./internal/cli_shared.ts";
 
-/** `wasi:cli/types@0.3`'s `error-code` ENUM: bare kebab-case strings (the
- * A10 value table — enums are data strings, not `{kind}` variants; this
- * type carried a `{kind}` wrapper until 2026-08-14, a latent bug no err
- * path had exercised). */
-export type CliErrorCode = "io" | "illegal-byte-sequence" | "pipe";
-
-/** `result<_, error-code>` AS A VALUE (the 0.3 stdio futures). */
-export type CliIoResult = { kind: "ok" } | { kind: "err"; value: CliErrorCode };
-
-/** What 0.3 write-via-stream accepts: the lifted handle or any byte producer. */
-export type CliByteSource =
-  | Stream<number>
-  | AsyncIterable<Uint8Array | number[]>
-  | Iterable<Uint8Array | number[]>;
-
-/** Raised by `exit()` when `throwOnExit` is set (contract: "option to throw a named ExitError"). */
-export class ExitError extends Error {
-  constructor(readonly ok: boolean, readonly code?: number) {
-    super(
-      `wasi:cli/exit#exit(${ok ? "success" : "failure"}${code === undefined ? "" : `, code ${code}`})`,
-    );
-    this.name = "ExitError";
-  }
-}
-// A9 brand: an exit unwind propagates out through the embedder and any host
-// frames in between, so it must be recognizable across runtime copies
-// (contracts/embedder-api.md §"Module identity", issue #83).
-defineBrand(ExitError.prototype, WASI_EXIT);
-
-/** `terminal-input`/`terminal-output` are opaque resources; never produced (no terminal). */
-export class TerminalInput {}
-export class TerminalOutput {}
+// The shared `wasi:cli` vocabulary lives in internal/cli_shared.ts (both
+// impls consume it); THIS module is its public home.
+export {
+  type CliByteSource,
+  type CliErrorCode,
+  type CliIoResult,
+  ExitError,
+  TerminalInput,
+  TerminalOutput,
+} from "./internal/cli_shared.ts";
 
 export interface CliOptions {
   /** `get-arguments`; default `[]`. */

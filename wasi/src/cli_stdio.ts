@@ -55,8 +55,8 @@ import {
   ExitError,
   TerminalInput,
   TerminalOutput,
-} from "./cli.ts";
-import { type ByteSink, FedInputStream, SinkOutputStream, STREAM_HIGH_WATER } from "./io.ts";
+} from "./internal/cli_shared.ts";
+import { type ByteSink, FedInputStream, SinkOutputStream } from "./io.ts";
 
 const OK: CliIoResult = { kind: "ok" };
 
@@ -66,16 +66,6 @@ function ioErrorCode(e: unknown): CliErrorCode {
 }
 
 export { type ByteSink } from "./io.ts";
-
-/** The p2 stdin stream: `FedInputStream` (io.ts) over the stdin source. */
-export const StdinStream = FedInputStream;
-export type StdinStream = FedInputStream;
-/** The p2 stdout/stderr stream: `SinkOutputStream` (io.ts) over the sink. */
-export const StdoutStream = SinkOutputStream;
-export type StdoutStream = SinkOutputStream;
-
-/** How many buffered stdin bytes pause the feed (and the p2 write budget). */
-export const STDIO_HIGH_WATER = STREAM_HIGH_WATER;
 
 export interface CliStdioOptions {
   /** stdin bytes; default: the host process's stdin. */
@@ -173,9 +163,9 @@ export function cliStdio(options: CliStdioOptions = {}): CliStdio {
 
   // One p2 stream per stdio channel, shared across get-* calls (the
   // process's stdio is one resource, not one per call).
-  let p2Stdin: StdinStream | undefined;
-  const p2Stdout = new StdoutStream(stdoutSink);
-  const p2Stderr = new StdoutStream(stderrSink);
+  let p2Stdin: FedInputStream | undefined;
+  const p2Stdout = new SinkOutputStream(stdoutSink);
+  const p2Stderr = new SinkOutputStream(stderrSink);
 
   // 0.3 write-via-stream: drain the guest's stream to the sink; the
   // promise is the future source (A12).
@@ -224,10 +214,10 @@ export function cliStdio(options: CliStdioOptions = {}): CliStdio {
       },
     },
     "wasi:cli/stdin@0.2": {
-      getStdin: (): StdinStream => (p2Stdin ??= new StdinStream(stdinSource)),
+      getStdin: (): FedInputStream => (p2Stdin ??= new FedInputStream(stdinSource)),
     },
-    "wasi:cli/stdout@0.2": { getStdout: (): StdoutStream => p2Stdout },
-    "wasi:cli/stderr@0.2": { getStderr: (): StdoutStream => p2Stderr },
+    "wasi:cli/stdout@0.2": { getStdout: (): SinkOutputStream => p2Stdout },
+    "wasi:cli/stderr@0.2": { getStderr: (): SinkOutputStream => p2Stderr },
     "wasi:cli/terminal-input@0.2": { TerminalInput },
     "wasi:cli/terminal-output@0.2": { TerminalOutput },
     "wasi:cli/terminal-stdin@0.2": {
