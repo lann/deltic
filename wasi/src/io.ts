@@ -37,13 +37,14 @@
 //
 // Streams: `read`/`check-write` stay plain (sync, never park), but the
 // `blocking-*` declarations are MARKED park-capable (amendment A14): the
-// buffer-backed base impls below always take the sync fast path, while a
-// genuinely-async stream impl — cli-stdio's host stdin/stdout, where
-// "blocking" cannot be served from a buffer — returns a Promise and
-// parks the frame. Marking follows the WIT declaration on THIS class's
-// prototype (A2: instance-level overrides change behavior, not
-// suspendability), which is what lets cli-stdio's duck-typed streams
-// park through the resource types registered here.
+// buffer-backed base impls below always take the sync fast path, while
+// the genuinely-async impls — `FedInputStream`/`SinkOutputStream` below,
+// serving cli-stdio's host stdin/stdout and filesystem-web's OPFS files,
+// where "blocking" cannot be served from a buffer — return a Promise and
+// park the frame. Marking follows the WIT declaration on the REGISTERED
+// class's prototype (A2: instance-level overrides change behavior, not
+// suspendability), which is what lets the duck-typed async streams park
+// through the resource types registered here.
 
 import { defineBrand, POLLABLE } from "@deltic/protocol";
 import { suspending, ComponentException } from "@deltic/runtime/embedder";
@@ -317,6 +318,268 @@ export class OutputStream {
 
   [Symbol.dispose](): void {
     this.#closed = true;
+  }
+}
+
+/** Default high-water mark for the async-backed streams below: how many
+ * buffered bytes pause a `FedInputStream`'s feed, and the byte budget a
+ * `SinkOutputStream`'s `check-write` reports. */
+export const STREAM_HIGH_WATER = 65536;
+
+/** An async byte sink; the returned promise settling = the chunk drained. */
+export type ByteSink = (chunk: Uint8Array) => void | Promise<void>;
+
+/**
+ * The p2 `input-stream` surface over an asynchronously-fed buffer: the
+ * generic bridge from any `AsyncIterable<Uint8Array>` (host stdin, an
+ * OPFS file read) to p2 stream semantics. `read` on an empty open stream
+ * returns an empty list (p2's non-blocking contract), `blocking-read`
+ * parks until bytes or EOF (A14/A2 mark relay — duck-typed against the
+ * registered `InputStream`, the marks relay from that prototype), and
+ * EOF-with-drained-buffer is the `closed` stream-error. The feed pauses
+ * past the high-water mark (no unbounded buffering).
+ */
+export class FedInputStream {
+  #buffer: Uint8Array[] = [];
+  #buffered = 0;
+  #eof = false;
+  #failure: unknown;
+  #closed = false;
+  #highWater: number;
+  /** Wakes blocking readers and pollables (promise-swap producer shape). */
+  #wake = (): void => {};
+  #wakePromise: Promise<void>;
+  /** Resumes a paused feed once the buffer drains. */
+  #resume = (): void => {};
+
+  constructor(source: AsyncIterable<Uint8Array>, highWater = STREAM_HIGH_WATER) {
+    this.#highWater = highWater;
+    this.#wakePromise = new Promise((r) => (this.#wake = r));
+    void this.#feed(source);
+  }
+
+  #signal(): void {
+    const wake = this.#wake;
+    this.#wakePromise = new Promise((r) => (this.#wake = r));
+    wake();
+  }
+
+  async #feed(source: AsyncIterable<Uint8Array>): Promise<void> {
+    try {
+      for await (const chunk of source) {
+        if (this.#closed) return; // reader gone; stop pulling
+        if (chunk.length === 0) continue;
+        this.#buffer.push(chunk);
+        this.#buffered += chunk.length;
+        this.#signal();
+        while (this.#buffered >= this.#highWater && !this.#closed) {
+          await new Promise<void>((r) => (this.#resume = r));
+        }
+      }
+      this.#eof = true;
+    } catch (e) {
+      this.#failure = e;
+      this.#eof = true;
+    }
+    this.#signal();
+  }
+
+  #take(len: number): Uint8Array {
+    const out = new Uint8Array(Math.min(len, this.#buffered));
+    let at = 0;
+    while (at < out.length) {
+      const head = this.#buffer[0];
+      const take = Math.min(head.length, out.length - at);
+      out.set(head.subarray(0, take), at);
+      at += take;
+      if (take === head.length) this.#buffer.shift();
+      else this.#buffer[0] = head.subarray(take);
+    }
+    this.#buffered -= out.length;
+    if (this.#buffered < this.#highWater) this.#resume();
+    return out;
+  }
+
+  read(len: bigint): Uint8Array {
+    if (this.#closed) throw closedError();
+    if (this.#failure !== undefined) throw closedError();
+    if (this.#buffered > 0) return this.#take(Number(len));
+    if (this.#eof) throw closedError(); // drained + ended = closed
+    return new Uint8Array(0); // open, nothing available: p2 non-blocking read
+  }
+
+  /** Parks (A14/A2 mark relay from the registered prototype). */
+  @suspending
+  blockingRead(len: bigint): Uint8Array | Promise<Uint8Array> {
+    if (this.#buffered > 0 || this.#eof || this.#closed) return this.read(len);
+    return (async () => {
+      while (this.#buffered === 0 && !this.#eof && !this.#closed) {
+        await this.#wakePromise;
+      }
+      return this.read(len);
+    })();
+  }
+
+  skip(len: bigint): bigint {
+    return BigInt(this.read(len).length);
+  }
+
+  @suspending
+  blockingSkip(len: bigint): bigint | Promise<bigint> {
+    const r = this.blockingRead(len);
+    if (r instanceof Uint8Array) return BigInt(r.length);
+    return r.then((bytes) => BigInt(bytes.length));
+  }
+
+  subscribe(): Pollable {
+    return new Pollable(
+      () => this.#buffered > 0 || this.#eof || this.#closed,
+      () => this.#wakePromise,
+    );
+  }
+
+  [Symbol.dispose](): void {
+    this.#closed = true;
+    this.#resume(); // let a parked feed observe the close
+    this.#signal();
+  }
+}
+
+/**
+ * The p2 `output-stream` surface over an async sink, with a real byte
+ * budget: `check-write` reports the remaining permit (writing past it is
+ * the guest's contract violation and traps via unbranded throw),
+ * `blocking-flush`/`blocking-write-and-flush` park until the sink
+ * drained everything (A14/A2 mark relay), `subscribe` wakes when budget
+ * frees. A sink failure surfaces as the `last-operation-failed`
+ * stream-error carrying an `IoError`.
+ */
+export class SinkOutputStream {
+  #sink: ByteSink;
+  #highWater: number;
+  #queued = 0;
+  #closed = false;
+  #failure: unknown;
+  /** The pump: a serialized chain of sink calls. */
+  #tail: Promise<void> = Promise.resolve();
+  #wake = (): void => {};
+  #wakePromise: Promise<void>;
+
+  constructor(sink: ByteSink, highWater = STREAM_HIGH_WATER) {
+    this.#sink = sink;
+    this.#highWater = highWater;
+    this.#wakePromise = new Promise((r) => (this.#wake = r));
+  }
+
+  #signal(): void {
+    const wake = this.#wake;
+    this.#wakePromise = new Promise((r) => (this.#wake = r));
+    wake();
+  }
+
+  #checkOpen(): void {
+    if (this.#closed) throw closedError();
+    if (this.#failure !== undefined) {
+      // stream-error.last-operation-failed carries the io `error` RESOURCE.
+      // A sink that already threw an `IoError` (subclass) keeps it — that
+      // is how filesystem sinks smuggle an error-code to
+      // `filesystem-error-code`'s downcast.
+      throw new ComponentException({
+        kind: "last-operation-failed",
+        value: this.#failure instanceof IoError ? this.#failure : new IoError(
+          this.#failure instanceof Error ? this.#failure.message : String(this.#failure),
+        ),
+      });
+    }
+  }
+
+  checkWrite(): bigint {
+    this.#checkOpen();
+    return BigInt(Math.max(0, this.#highWater - this.#queued));
+  }
+
+  write(contents: Uint8Array): void {
+    this.#checkOpen();
+    if (contents.length > this.#highWater - this.#queued) {
+      // Writing past the permit is the guest's contract violation: a
+      // trap (unbranded throw), not a stream-error.
+      throw new Error(
+        "wasi:io/streams.write: contents exceed the check-write permit",
+      );
+    }
+    this.#queued += contents.length;
+    this.#tail = this.#tail.then(async () => {
+      try {
+        if (this.#failure === undefined) await this.#sink(contents);
+      } catch (e) {
+        this.#failure = e;
+      } finally {
+        this.#queued -= contents.length;
+        this.#signal();
+      }
+    });
+  }
+
+  flush(): void {
+    this.#checkOpen();
+  }
+
+  /** Parks until the sink drained everything (A14/A2 mark relay). */
+  @suspending
+  blockingFlush(): void | Promise<void> {
+    this.#checkOpen();
+    if (this.#queued === 0) return;
+    return (async () => {
+      while (this.#queued > 0 && this.#failure === undefined) {
+        await this.#wakePromise;
+      }
+      this.#checkOpen();
+    })();
+  }
+
+  /** Parks until this write (and everything before it) drained. */
+  @suspending
+  blockingWriteAndFlush(contents: Uint8Array): void | Promise<void> {
+    this.write(contents);
+    return this.blockingFlush();
+  }
+
+  subscribe(): Pollable {
+    return new Pollable(
+      () => this.#closed || this.#failure !== undefined || this.#queued < this.#highWater,
+      () => this.#wakePromise,
+    );
+  }
+
+  writeZeroes(len: bigint): void {
+    this.write(new Uint8Array(Number(len)));
+  }
+
+  @suspending
+  blockingWriteZeroesAndFlush(len: bigint): void | Promise<void> {
+    return this.blockingWriteAndFlush(new Uint8Array(Number(len)));
+  }
+
+  splice(src: { read(len: bigint): Uint8Array }, len: bigint): bigint {
+    const chunk = src.read(len);
+    this.write(chunk);
+    return BigInt(chunk.length);
+  }
+
+  @suspending
+  blockingSplice(
+    src: { read(len: bigint): Uint8Array },
+    len: bigint,
+  ): bigint | Promise<bigint> {
+    const n = this.splice(src, len);
+    const flushed = this.blockingFlush();
+    if (flushed === undefined) return n;
+    return flushed.then(() => n);
+  }
+
+  [Symbol.dispose](): void {
+    this.#closed = true;
+    this.#signal();
   }
 }
 

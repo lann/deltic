@@ -10,6 +10,7 @@
 
 import { type IpSocketAddress, type SocketResult, sockets } from "../src/sockets.ts";
 import { http, type TrailersResult } from "../src/http.ts";
+import { filesystemNode } from "../src/filesystem_node.ts";
 
 function assert(cond: boolean, what: string): void {
   if (!cond) throw new Error(`FAIL: ${what}`);
@@ -308,6 +309,63 @@ async function main(): Promise<void> {
     await new Promise<void>((r) => server.close(() => r()));
   }
 
+  // --- filesystem-node: the sync 0.2 track on real node:fs ---------------------
+  {
+    const nodeFs = (globalThis as unknown as {
+      process: { getBuiltinModule: (n: string) => unknown };
+    }).process.getBuiltinModule("node:fs") as {
+      mkdtempSync(prefix: string): string;
+      rmSync(path: string, opts: { recursive: boolean; force: boolean }): void;
+    };
+    const nodeOs = (globalThis as unknown as {
+      process: { getBuiltinModule: (n: string) => unknown };
+    }).process.getBuiltinModule("node:os") as { tmpdir(): string };
+    const dir = nodeFs.mkdtempSync(`${nodeOs.tmpdir()}/deltic-fs-smoke-`);
+    try {
+      const { imports } = filesystemNode({ preopens: { "/": dir } });
+      const [[root]] = (imports["wasi:filesystem/preopens@0.2"] as {
+        // deno-lint-ignore no-explicit-any
+        getDirectories(): [any, string][];
+      }).getDirectories();
+
+      // Sync-ness is the load-bearing claim on real Node: plain values.
+      const f = root.openAt({ symlinkFollow: true }, "smoke.txt", { create: true }, {
+        read: true,
+        write: true,
+      });
+      assert(!(f instanceof Promise), "fs open-at returns a plain value on node");
+      assertEq(f.getType(), "regular-file", "fs get-type");
+      assertEq(Number(f.write(Uint8Array.from([104, 105]), 0n)), 2, "fs positional write");
+      const [bytes, eof] = f.read(8n, 0n);
+      assertEq([...bytes], [104, 105], "fs positional read");
+      assertEq(eof, false, "fs read eof flag");
+
+      const out = f.writeViaStream(2n);
+      out.write(Uint8Array.from([33]));
+      out.blockingFlush();
+      const src = f.readViaStream(0n);
+      assertEq([...src.blockingRead(16n)], [104, 105, 33], "fs via-stream round-trip");
+
+      const listing = root.readDirectory();
+      assertEq(listing.readDirectoryEntry()?.name, "smoke.txt", "fs listing");
+      root.renameAt("smoke.txt", root, "renamed.txt");
+      root.unlinkFileAt("renamed.txt");
+      try {
+        root.statAt({ symlinkFollow: true }, "renamed.txt");
+        assert(false, "fs stat-at on removed file must fail");
+      } catch (e) {
+        // 0.2 error-code is an ENUM: the payload is the bare string.
+        assertEq(
+          (e as { payload?: unknown })?.payload,
+          "no-entry",
+          "fs 0.2 bare-string error payload",
+        );
+      }
+    } finally {
+      nodeFs.rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
   const version = (globalThis as unknown as { process: { version: string } }).process.version;
   // --- tcp listen: deferred bind, accept, echo, cancellation -------------------
   {
@@ -360,7 +418,7 @@ async function main(): Promise<void> {
     socket[Symbol.dispose]();
   }
 
-  console.log(`wasi node smoke: OK (udp + tcp + listen + http on ${version})`);
+  console.log(`wasi node smoke: OK (udp + tcp + listen + http + fs on ${version})`);
 }
 
 main().catch((e) => {

@@ -12,25 +12,29 @@
 // deliberately not merged here: this root module stays host-agnostic
 // web-platform code, and `wasi()` merges only AMBIENT, side-effect-
 // benign capabilities (time, entropy, stdio capture, an empty
-// filesystem). Anything granting network egress is opt-in regardless of
-// how portable it is — sockets, the fetch-backed http fragment, and the
-// host-stdio cli impl (`./cli-stdio` — real stdin/stdout/terminal access;
-// the unqualified `./cli` stays the capture impl).
+// filesystem). Anything granting network egress or host storage is
+// opt-in regardless of how portable it is — sockets, the fetch-backed
+// http fragment, the host-stdio cli impl (`./cli-stdio` — real
+// stdin/stdout/terminal access; the unqualified `./cli` stays the
+// capture impl), and the real filesystem impls (`./filesystem-node` =
+// node:fs, `./filesystem-web` = OPFS; the unqualified `./filesystem`
+// stays the empty-preopens stub).
 //
 // COMPOSITION — three forms, coarsest to finest (virtualization scenarios
 // pinned by tests/version_resolution_test.ts):
 //
 // 1. Batteries: `instantiate(a, { ...wasi() })`.
 // 2. À la carte fragments: every IMPL is its own subpath export
-//    (`@deltic/wasi/{cli,cli-stdio,clocks,filesystem,http,io,random,sockets}`)
-//    and
+//    (`@deltic/wasi/{cli,cli-stdio,clocks,filesystem,filesystem-node,`
+//    `filesystem-web,http,io,random,sockets}`) and
 //    a plain `{ imports }` record — hand-merge exactly the set you mean:
 //    `{ ...io().imports, ...clocks().imports }`. Fragment dependencies:
 //    cli and clocks import io's Pollable/stream vocabulary; filesystem
 //    and random stand alone. Naming convention as impls multiply: one
 //    subpath per impl; the unqualified name is the batteries impl
 //    (`./filesystem` = empty preopens), alternatives carry their backend
-//    (a future OPFS-backed `./filesystem-web`).
+//    (`./filesystem-node` = node:fs with explicit preopens,
+//    `./filesystem-web` = OPFS).
 // 3. Per-interface override: the merged record is a plain object keyed by
 //    TRACK keys (`wasi:random/random@0.2`), so later spreads replace
 //    single interfaces wholesale:
@@ -77,12 +81,16 @@ export {
   filesystem,
 } from "./filesystem.ts";
 export {
+  type ByteSink,
+  FedInputStream,
   InputStream,
   io,
   IoError,
   OutputStream,
   poll,
   Pollable,
+  SinkOutputStream,
+  STREAM_HIGH_WATER,
   type StreamErrorValue,
 } from "./io.ts";
 export {

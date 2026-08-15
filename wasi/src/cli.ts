@@ -20,8 +20,11 @@ import { defineBrand, WASI_EXIT } from "@deltic/protocol";
 import { Stream } from "@deltic/runtime/embedder";
 import { InputStream, OutputStream } from "./io.ts";
 
-/** `wasi:cli/types@0.3`'s `error-code` enum, as kind-only values. */
-export type CliErrorCode = { kind: "io" | "illegal-byte-sequence" | "pipe" };
+/** `wasi:cli/types@0.3`'s `error-code` ENUM: bare kebab-case strings (the
+ * A10 value table — enums are data strings, not `{kind}` variants; this
+ * type carried a `{kind}` wrapper until 2026-08-14, a latent bug no err
+ * path had exercised). */
+export type CliErrorCode = "io" | "illegal-byte-sequence" | "pipe";
 
 /** `result<_, error-code>` AS A VALUE (the 0.3 stdio futures). */
 export type CliIoResult = { kind: "ok" } | { kind: "err"; value: CliErrorCode };

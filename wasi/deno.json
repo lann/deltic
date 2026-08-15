@@ -7,13 +7,15 @@
     "./cli-stdio": "./src/cli_stdio.ts",
     "./clocks": "./src/clocks.ts",
     "./filesystem": "./src/filesystem.ts",
+    "./filesystem-node": "./src/filesystem_node.ts",
+    "./filesystem-web": "./src/filesystem_web.ts",
     "./http": "./src/http.ts",
     "./io": "./src/io.ts",
     "./random": "./src/random.ts",
     "./sockets": "./src/sockets.ts"
   },
   "tasks": {
-    "test": "deno test --allow-read --allow-net tests/",
+    "test": "deno test --allow-read --allow-write --allow-net tests/",
     "check": "deno check src tests"
   },
   "publish": {

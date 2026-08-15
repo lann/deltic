@@ -47,7 +47,7 @@
 //   * terminals: reported from the real streams' `isTTY` (injectable).
 //   * environment/arguments/cwd: the host process's, overridable.
 
-import { ComponentException, Stream, suspending } from "@deltic/runtime/embedder";
+import { Stream } from "@deltic/runtime/embedder";
 import {
   type CliByteSource,
   type CliErrorCode,
@@ -56,22 +56,26 @@ import {
   TerminalInput,
   TerminalOutput,
 } from "./cli.ts";
-import { IoError, Pollable } from "./io.ts";
+import { type ByteSink, FedInputStream, SinkOutputStream, STREAM_HIGH_WATER } from "./io.ts";
 
 const OK: CliIoResult = { kind: "ok" };
 
-/** p2 stream-error `closed`, branded. */
-function closedError(): ComponentException<{ kind: "closed" }> {
-  return new ComponentException({ kind: "closed" });
-}
-
 function ioErrorCode(e: unknown): CliErrorCode {
   const m = (e instanceof Error ? e.message : String(e)).toLowerCase();
-  return { kind: m.includes("epipe") || m.includes("broken pipe") ? "pipe" : "io" };
+  return m.includes("epipe") || m.includes("broken pipe") ? "pipe" : "io";
 }
 
-/** An async byte sink; the returned promise settling = the chunk drained. */
-export type ByteSink = (chunk: Uint8Array) => void | Promise<void>;
+export { type ByteSink } from "./io.ts";
+
+/** The p2 stdin stream: `FedInputStream` (io.ts) over the stdin source. */
+export const StdinStream = FedInputStream;
+export type StdinStream = FedInputStream;
+/** The p2 stdout/stderr stream: `SinkOutputStream` (io.ts) over the sink. */
+export const StdoutStream = SinkOutputStream;
+export type StdoutStream = SinkOutputStream;
+
+/** How many buffered stdin bytes pause the feed (and the p2 write budget). */
+export const STDIO_HIGH_WATER = STREAM_HIGH_WATER;
 
 export interface CliStdioOptions {
   /** stdin bytes; default: the host process's stdin. */
@@ -95,9 +99,6 @@ export interface CliStdioOptions {
 export interface CliStdio {
   imports: Record<string, unknown>;
 }
-
-/** How many buffered stdin bytes pause the feed (and the p2 write budget). */
-export const STDIO_HIGH_WATER = 65536;
 
 // --- the host-process defaults (structural; node-builtins-everywhere) ---------
 
@@ -131,249 +132,6 @@ function processSink(stream: NodeProcessStream): ByteSink {
       if (flushed) resolve();
       else stream.once("drain", resolve);
     });
-}
-
-// --- p2 stdin: a fed input stream ----------------------------------------------
-
-/**
- * The p2 `input-stream` surface over an asynchronously-fed buffer.
- * Duck-typed against io.ts's registered `InputStream` (the runtime's
- * resource dispatch is per-call and by identity, and the A14 suspending
- * marks relay from the registered prototype — A2).
- */
-export class StdinStream {
-  #buffer: Uint8Array[] = [];
-  #buffered = 0;
-  #eof = false;
-  #failure: unknown;
-  #closed = false;
-  /** Wakes blocking readers and pollables (promise-swap producer shape). */
-  #wake = (): void => {};
-  #wakePromise: Promise<void>;
-  /** Resumes a paused feed once the buffer drains. */
-  #resume = (): void => {};
-
-  constructor(source: AsyncIterable<Uint8Array>) {
-    this.#wakePromise = new Promise((r) => (this.#wake = r));
-    void this.#feed(source);
-  }
-
-  #signal(): void {
-    const wake = this.#wake;
-    this.#wakePromise = new Promise((r) => (this.#wake = r));
-    wake();
-  }
-
-  async #feed(source: AsyncIterable<Uint8Array>): Promise<void> {
-    try {
-      for await (const chunk of source) {
-        if (this.#closed) return; // reader gone; stop pulling
-        if (chunk.length === 0) continue;
-        this.#buffer.push(chunk);
-        this.#buffered += chunk.length;
-        this.#signal();
-        while (this.#buffered >= STDIO_HIGH_WATER && !this.#closed) {
-          await new Promise<void>((r) => (this.#resume = r));
-        }
-      }
-      this.#eof = true;
-    } catch (e) {
-      this.#failure = e;
-      this.#eof = true;
-    }
-    this.#signal();
-  }
-
-  #take(len: number): Uint8Array {
-    const out = new Uint8Array(Math.min(len, this.#buffered));
-    let at = 0;
-    while (at < out.length) {
-      const head = this.#buffer[0];
-      const take = Math.min(head.length, out.length - at);
-      out.set(head.subarray(0, take), at);
-      at += take;
-      if (take === head.length) this.#buffer.shift();
-      else this.#buffer[0] = head.subarray(take);
-    }
-    this.#buffered -= out.length;
-    if (this.#buffered < STDIO_HIGH_WATER) this.#resume();
-    return out;
-  }
-
-  read(len: bigint): Uint8Array {
-    if (this.#closed) throw closedError();
-    if (this.#failure !== undefined) throw closedError();
-    if (this.#buffered > 0) return this.#take(Number(len));
-    if (this.#eof) throw closedError(); // drained + ended = closed
-    return new Uint8Array(0); // open, nothing available: p2 non-blocking read
-  }
-
-  /** Parks (A14/A2 mark relay from io.ts's registered prototype). */
-  @suspending
-  blockingRead(len: bigint): Uint8Array | Promise<Uint8Array> {
-    if (this.#buffered > 0 || this.#eof || this.#closed) return this.read(len);
-    return (async () => {
-      while (this.#buffered === 0 && !this.#eof && !this.#closed) {
-        await this.#wakePromise;
-      }
-      return this.read(len);
-    })();
-  }
-
-  skip(len: bigint): bigint {
-    return BigInt(this.read(len).length);
-  }
-
-  @suspending
-  blockingSkip(len: bigint): bigint | Promise<bigint> {
-    const r = this.blockingRead(len);
-    if (r instanceof Uint8Array) return BigInt(r.length);
-    return r.then((bytes) => BigInt(bytes.length));
-  }
-
-  subscribe(): Pollable {
-    return new Pollable(
-      () => this.#buffered > 0 || this.#eof || this.#closed,
-      () => this.#wakePromise,
-    );
-  }
-
-  [Symbol.dispose](): void {
-    this.#closed = true;
-    this.#resume(); // let a parked feed observe the close
-    this.#signal();
-  }
-}
-
-// --- p2 stdout/stderr: a budgeted async-sink output stream ----------------------
-
-/**
- * The p2 `output-stream` surface over an async sink, with a real byte
- * budget: `check-write` reports the remaining permit, blocking ops park
- * until the sink drained (A14/A2 mark relay).
- */
-export class StdoutStream {
-  #sink: ByteSink;
-  #queued = 0;
-  #closed = false;
-  #failure: unknown;
-  /** The pump: a serialized chain of sink calls. */
-  #tail: Promise<void> = Promise.resolve();
-  #wake = (): void => {};
-  #wakePromise: Promise<void>;
-
-  constructor(sink: ByteSink) {
-    this.#sink = sink;
-    this.#wakePromise = new Promise((r) => (this.#wake = r));
-  }
-
-  #signal(): void {
-    const wake = this.#wake;
-    this.#wakePromise = new Promise((r) => (this.#wake = r));
-    wake();
-  }
-
-  #checkOpen(): void {
-    if (this.#closed) throw closedError();
-    if (this.#failure !== undefined) {
-      // stream-error.last-operation-failed carries the io `error` RESOURCE.
-      throw new ComponentException({
-        kind: "last-operation-failed",
-        value: new IoError(
-          this.#failure instanceof Error ? this.#failure.message : String(this.#failure),
-        ),
-      });
-    }
-  }
-
-  checkWrite(): bigint {
-    this.#checkOpen();
-    return BigInt(Math.max(0, STDIO_HIGH_WATER - this.#queued));
-  }
-
-  write(contents: Uint8Array): void {
-    this.#checkOpen();
-    if (contents.length > STDIO_HIGH_WATER - this.#queued) {
-      // Writing past the permit is the guest's contract violation: a
-      // trap (unbranded throw), not a stream-error.
-      throw new Error(
-        "wasi:io/streams.write: contents exceed the check-write permit",
-      );
-    }
-    this.#queued += contents.length;
-    this.#tail = this.#tail.then(async () => {
-      try {
-        if (this.#failure === undefined) await this.#sink(contents);
-      } catch (e) {
-        this.#failure = e;
-      } finally {
-        this.#queued -= contents.length;
-        this.#signal();
-      }
-    });
-  }
-
-  flush(): void {
-    this.#checkOpen();
-  }
-
-  /** Parks until the sink drained everything (A14/A2 mark relay). */
-  @suspending
-  blockingFlush(): void | Promise<void> {
-    this.#checkOpen();
-    if (this.#queued === 0) return;
-    return (async () => {
-      while (this.#queued > 0 && this.#failure === undefined) {
-        await this.#wakePromise;
-      }
-      this.#checkOpen();
-    })();
-  }
-
-  /** Parks until this write (and everything before it) drained. */
-  @suspending
-  blockingWriteAndFlush(contents: Uint8Array): void | Promise<void> {
-    this.write(contents);
-    return this.blockingFlush();
-  }
-
-  subscribe(): Pollable {
-    return new Pollable(
-      () => this.#closed || this.#failure !== undefined || this.#queued < STDIO_HIGH_WATER,
-      () => this.#wakePromise,
-    );
-  }
-
-  writeZeroes(len: bigint): void {
-    this.write(new Uint8Array(Number(len)));
-  }
-
-  @suspending
-  blockingWriteZeroesAndFlush(len: bigint): void | Promise<void> {
-    return this.blockingWriteAndFlush(new Uint8Array(Number(len)));
-  }
-
-  splice(src: { read(len: bigint): Uint8Array }, len: bigint): bigint {
-    const chunk = src.read(len);
-    this.write(chunk);
-    return BigInt(chunk.length);
-  }
-
-  @suspending
-  blockingSplice(
-    src: { read(len: bigint): Uint8Array },
-    len: bigint,
-  ): bigint | Promise<bigint> {
-    const n = this.splice(src, len);
-    const flushed = this.blockingFlush();
-    if (flushed === undefined) return n;
-    return flushed.then(() => n);
-  }
-
-  [Symbol.dispose](): void {
-    this.#closed = true;
-    this.#signal();
-  }
 }
 
 /**
