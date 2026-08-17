@@ -76,24 +76,33 @@ README](tools/translate/README.md) shows the build-time deploy recipe, and
 the full decision record is the design note on
 [#16](https://github.com/lann/deltic/issues/16).
 
-## Consuming the unstable prereleases
+## Consuming
 
-Every green `main` commit publishes
-`@deltic/{runtime,translator,wasi,ct-runner}` to JSR as
-`0.1.0-pre.g<shorthash>` — the same short hash as the corresponding
-`pre-<shorthash>` [GitHub release](https://github.com/lann/deltic/releases),
-so a version names an exact commit. There is no stable line yet
-([#16](https://github.com/lann/deltic/issues/16)): **pin exactly and bump
-deliberately** (hash versions are not ordered, and plain semver ranges
-never resolve to prereleases anyway).
+Everything here is **unstable** (0.x, [#16](https://github.com/lann/deltic/issues/16)):
+no compatibility promise across minor lines. But releases are
+**caret-honest**: within a minor line they stay backward-compatible, and
+anything breaking bumps the minor — so caret constraints are the intended
+way to consume:
 
 ```ts
-import { instantiate } from "jsr:@deltic/runtime@0.1.0-pre.g66727e5/embedder";
-import { defaultTranslator } from "jsr:@deltic/translator@0.1.0-pre.g66727e5";
+import { instantiate } from "jsr:@deltic/runtime@^0.1.0/embedder";
+import { defaultTranslator } from "jsr:@deltic/translator@^0.1.0";
 ```
 
+`@deltic/{runtime,translator,wasi,ct-runner}` release in lockstep — one
+version, cut from one green commit, matching the `vX.Y.Z`
+[GitHub release](https://github.com/lann/deltic/releases) that carries the
+same commit's artifacts. (`@deltic/protocol` versions independently; the
+others depend on it by caret.)
+
+Between releases, every green `main` commit still publishes
+`<next>-pre.g<shorthash>` prereleases to JSR — the same short hash as the
+corresponding `pre-<shorthash>` GitHub release, so a version names an
+exact commit. Hash versions are not ordered, and semver ranges never
+resolve to prereleases: **pin prereleases exactly and bump deliberately**.
+
 Deno's [minimum-dependency-age](https://docs.deno.com/runtime/packages/supply_chain/#minimum-dependency-age)
-gate (24 h by default) applies even to exactly-pinned prereleases, so a
+gate (24 h by default) applies to releases and prereleases alike, so a
 fresh publish won't resolve on day zero. To consume same-day publishes
 while keeping the gate for the rest of your graph, exempt the scope
 (wildcard excludes work as of Deno 2.9):

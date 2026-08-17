@@ -1,19 +1,43 @@
 name: Release
 
-# Interim release scheme (issue #16): every release is a PRERELEASE; the tag
-# is derived from the main commit short hash (`pre-<shorthash>`). Artifacts:
-# the prebuilt translator wasm (standard release build — the exact artifact
-# every test suite runs against — plus the size-tuned variant documented in
-# crates/translator-shim/README.md) and SHA256SUMS, so consumers do not need
-# a Rust toolchain.
+# Release scheme (issue #16): one workflow, two modes. Everything is still
+# 0.x/UNSTABLE, but releases are caret-honest (README §Consuming): within a
+# minor line releases stay compatible; anything breaking bumps the minor.
 #
-# Invoked two ways: automatically from ci.yml's `release` job on every GREEN
-# main ref update (workflow_call, gated on the same run's core+browser jobs),
-# and manually (workflow_dispatch) as the escape hatch. The tag-exists guard
-# makes re-runs no-ops-by-failure rather than duplicate releases.
+# PRERELEASE (default; invoked automatically from ci.yml's `release` job on
+# every GREEN main ref update via workflow_call, and manually via
+# workflow_dispatch as the escape hatch): tag `pre-<shorthash>`, JSR
+# versions `<next>-pre.g<shorthash>` where <next> is the lockstep version
+# in the package manifests. The manifests always carry the NEXT release —
+# bumped to the next patch right after each cut, or to the next minor by
+# the PR that lands a breaking change — so prereleases order after the
+# last release and never collide with a cut version.
+#
+# RELEASE (workflow_dispatch with release=true): cuts the manifest version
+# — JSR publish at exactly <next>, tag `v<next>`, GitHub release without
+# the prerelease mark, same artifact set. Guards: the four manifests agree
+# (lockstep), the tag does not exist, and the commit already carries its
+# `pre-<shorthash>` release — proof this exact commit went green through
+# the full core+browser pipeline (the automatic path only fires on green
+# main). Cut, then land the manifest-bump PR; until it lands, further
+# prereleases stamp `<cut>-pre.*` (unordered but exact-pin-only, harmless).
+#
+# Artifacts (both modes): the prebuilt translator wasm (standard release
+# build — the exact artifact every test suite runs against — with the
+# size tuning documented in crates/translator-shim/README.md) and the
+# embedder bundle, plus SHA256SUMS, so consumers do not need a Rust
+# toolchain. The tag-exists guard makes re-runs no-ops-by-failure rather
+# than duplicate releases.
 
 on:
   workflow_dispatch:
+    inputs:
+      release:
+        description: >-
+          Cut the manifest version as a release (tag v<version>, exact JSR
+          publish) instead of a pre-<shorthash> prerelease.
+        type: boolean
+        default: false
   workflow_call:
 
 permissions:
@@ -38,19 +62,45 @@ jobs:
         with:
           deno-version: "2.9.5"
 
-      - name: compute tag
+      - name: compute tag and version
         id: tag
+        # The manifest version is the single source of truth (the NEXT
+        # release); the lockstep guard keeps a half-bumped workspace from
+        # publishing a torn version set. @deltic/protocol is deliberately
+        # outside the lockstep: it versions independently (embedder-api
+        # A10), publishes as-is on the first green run after its manifest
+        # bumps (prerelease cross-deps rewrite to caret of the manifest
+        # version, so it must exist on JSR), and is skipped as
+        # already-published on every other run.
         run: |
+          VERSION=$(jq -r '.version' runtime/deno.json)
+          for p in translator wasi ct-runner; do
+            v=$(jq -r '.version' "$p/deno.json")
+            if [ "$v" != "$VERSION" ]; then
+              echo "lockstep violation: runtime=$VERSION $p=$v" >&2
+              exit 1
+            fi
+          done
           SHORT=$(git rev-parse --short HEAD)
-          TAG="pre-$SHORT"
+          if [ "$RELEASE" = "true" ]; then
+            TAG="v$VERSION"
+            if ! gh release view "pre-$SHORT" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              echo "no pre-$SHORT prerelease exists: this commit has not passed the green-main pipeline" >&2
+              exit 1
+            fi
+          else
+            TAG="pre-$SHORT"
+            VERSION="$VERSION-pre.g$SHORT"
+          fi
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "release $TAG already exists" >&2
             exit 1
           fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "short=$SHORT" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE: ${{ inputs.release }}
 
       - name: build the release artifacts
         # `just release-artifacts` (root justfile): the standard shim, the
@@ -59,8 +109,8 @@ jobs:
         # bundle_test.ts in the core matrix), and SHA256SUMS.
         run: just release-artifacts
 
-      - name: publish unstable prereleases to JSR
-        # Version scheme (issue #16, interim): 0.1.0-pre.g<shorthash> —
+      - name: publish to JSR
+        # Prerelease version scheme (issue #16): <next>-pre.g<shorthash> —
         # correlates 1:1 with this run's `pre-<shorthash>` release tag. The
         # `g` prefix (git-describe's convention) is load-bearing: a bare
         # short hash can be all-digits-with-leading-zero, which is INVALID
@@ -71,6 +121,11 @@ jobs:
         # ordering: unstable prereleases are pinned exactly, never ranged.
         # The stamped versions are CI-working-tree-only (never committed);
         # cross-package workspace deps are rewritten by `deno publish`.
+        # Release mode publishes the manifests exactly as committed — no
+        # stamping. --allow-dirty in both modes: the working tree holds the
+        # untracked release artifacts (and, in prerelease mode, the stamped
+        # manifests); checkout-at-sha plus the tag guard carry the actual
+        # integrity.
         # Auth: OIDC (permissions.id-token) — the @deltic packages must
         # exist on jsr.io and be linked to this repository (one-time
         # manual setup; see the #16 checklist). The scope's "actor must be
@@ -84,38 +139,51 @@ jobs:
         # instead of stranding a release that claims unpublished JSR
         # versions.
         run: |
-          VERSION="0.1.0-pre.g${SHORT}"
           echo "publishing @deltic/* ${VERSION}"
-          for p in runtime translator wasi ct-runner; do
-            jq --arg v "$VERSION" '.version = $v' "$p/deno.json" > "$p/deno.json.tmp"
-            mv "$p/deno.json.tmp" "$p/deno.json"
-          done
+          if [ "$RELEASE" != "true" ]; then
+            for p in runtime translator wasi ct-runner; do
+              jq --arg v "$VERSION" '.version = $v' "$p/deno.json" > "$p/deno.json.tmp"
+              mv "$p/deno.json.tmp" "$p/deno.json"
+            done
+          fi
           deno publish --allow-dirty
         env:
-          SHORT: ${{ steps.tag.outputs.short }}
+          VERSION: ${{ steps.tag.outputs.version }}
+          RELEASE: ${{ inputs.release }}
 
-      - name: create prerelease
+      - name: create release
         run: |
           {
-            echo "Prerelease \`${TAG}\` at ${GITHUB_SHA}."
+            if [ "$RELEASE" = "true" ]; then
+              echo "Release \`${VERSION}\` at ${GITHUB_SHA}."
+              echo
+              echo "Published to JSR as \`@deltic/{runtime,translator,wasi,ct-runner}@${VERSION}\`."
+              echo "Still 0.x/unstable, but caret-honest: releases within a minor line stay"
+              echo "compatible; breaking changes bump the minor. See README.md §Consuming."
+            else
+              echo "Prerelease \`${TAG}\` at ${GITHUB_SHA}."
+              echo
+              echo "The same commit is published to JSR as an unstable prerelease"
+              echo "of \`@deltic/{runtime,translator,wasi,ct-runner}\` (\`${VERSION}\`,"
+              echo "exact-pin-only); see README.md for usage."
+            fi
             echo
             echo "Artifacts: the prebuilt translator shim wasm (size-tuned — the"
             echo "exact artifact every test suite runs against) and the embedder"
             echo "bundle deltic-embedder.mjs (one platform-neutral ES module:"
             echo "embedder API + Translator + ct-runner + the wasi package — browsers"
             echo "and plain Node, no flags). Consumers need no Rust toolchain."
-            echo "The same commit is published to JSR as an unstable prerelease"
-            echo "of @deltic/{runtime,translator,wasi,ct-runner}; see"
-            echo "README.md for usage."
             echo
             echo '```'
             cat SHA256SUMS
             echo '```'
           } > notes.md
+          PRERELEASE_FLAG="--prerelease"
+          if [ "$RELEASE" = "true" ]; then PRERELEASE_FLAG=""; fi
           gh release create "$TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
-            --prerelease \
+            $PRERELEASE_FLAG \
             --title "deltic $TAG" \
             --notes-file notes.md \
             deltic-translator-shim.wasm \
@@ -123,3 +191,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.tag.outputs.tag }}
+          VERSION: ${{ steps.tag.outputs.version }}
+          RELEASE: ${{ inputs.release }}
