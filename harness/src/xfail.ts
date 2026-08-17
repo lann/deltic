@@ -304,6 +304,157 @@ export const XFAIL: XfailEntry[] = [
   // --- async/drop-subtask.json: GREEN under jspi auto-detection (M2 flip);
   // entry pruned. ---
   // --- async/drop-waitable-set.json: root cause: FACT-ASYNC ---
+  // --- async/during-sync-call-*.json (3 files, upstream #691): all three
+  // pin 🧵 sync-call-blocking semantics and are built entirely from thread
+  // built-ins (thread.new-indirect / resume-later / suspend-then-resume /
+  // suspend) — the deferred-threads class,
+  // https://github.com/lann/deltic/issues/12 — and their components fail
+  // TRANSLATION first, in the wasmparser-pin-drift class documented at
+  // trap-if-block-and-sync.json:5: wasmparser 0.252 predates the
+  // 0.253-0.255 re-arity of the thread built-in opcodes (0x28
+  // thread.resume-later doesn't exist; 0x29/0x2a read no cancel? byte), so
+  // the decoder misparses the canonical section. Upstream lists all three
+  // in test/nyi.txt (wasmtime's own runner skips them). ---
+  {
+    file: "async/during-sync-call-may-block-if-other-ready-threads.json",
+    line: 12,
+    reason:
+      "translator error [validation]: invalid boolean value (at offset " +
+      "0x3eb) — wasmparser pin drift (class of trap-if-block-and-sync." +
+      "json:5): the $Tester definition's canonical section uses 🧵 " +
+      "thread.new-indirect/resume-later/suspend-then-resume encodings that " +
+      "wasmparser 0.252 misparses; deferred-threads anyway, " +
+      "https://github.com/lann/deltic/issues/12 " +
+      "(pending-capability: wasmparser/wast pin alignment)",
+  },
+  {
+    file: "async/during-sync-call-may-block-if-other-ready-threads.json",
+    line: 110,
+    reason:
+      "cascade of line 12: the Tester definition failed translation, so " +
+      "there is no definition named 'Tester' to instantiate",
+  },
+  {
+    file: "async/during-sync-call-may-block-if-other-ready-threads.json",
+    line: 111,
+    reason: "cascade of line 12 via line 110: no current instance",
+  },
+  {
+    file: "async/during-sync-call-may-block-if-other-ready-threads.json",
+    line: 112,
+    reason: "cascade of line 12 via line 110: no current instance",
+  },
+  {
+    file: "async/during-sync-call-may-block-if-other-ready-threads.json",
+    line: 114,
+    reason:
+      "cascade of line 12: the Tester definition failed translation, so " +
+      "there is no definition named 'Tester' to instantiate",
+  },
+  {
+    file: "async/during-sync-call-may-block-if-other-ready-threads.json",
+    line: 115,
+    reason: "cascade of line 12 via line 114: no current instance",
+  },
+  {
+    file: "async/during-sync-call-no-exclusive-resume.json",
+    line: 8,
+    reason:
+      "translator error [validation]: invalid leading byte (0x28) for " +
+      "canonical function lift (at offset 0x322) — wasmparser pin drift " +
+      "(class of trap-if-block-and-sync.json:5): 0x28 is 🧵 " +
+      "thread.resume-later in the wast-255 encoding but has no production " +
+      "in wasmparser 0.252; deferred-threads anyway, " +
+      "https://github.com/lann/deltic/issues/12 " +
+      "(pending-capability: wasmparser/wast pin alignment)",
+  },
+  {
+    file: "async/during-sync-call-no-exclusive-resume.json",
+    line: 115,
+    reason:
+      "cascade of this file's first failure (line 8): the component failed " +
+      "translation, so no current instance exists",
+  },
+  {
+    file: "async/during-sync-call-no-exclusive-resume.json",
+    line: 116,
+    reason: "cascade of line 8, see line 115",
+  },
+  {
+    file: "async/during-sync-call-no-exclusive-resume.json",
+    line: 117,
+    reason: "cascade of line 8, see line 115",
+  },
+  {
+    file: "async/during-sync-call-no-exclusive-resume.json",
+    line: 118,
+    reason: "cascade of line 8, see line 115",
+  },
+  {
+    file: "async/during-sync-call-no-exclusive-resume.json",
+    line: 119,
+    reason: "cascade of line 8, see line 115",
+  },
+  {
+    file: "async/during-sync-call-no-exclusive-resume.json",
+    line: 162,
+    reason:
+      "cascade of the line-124 component declining at instantiation " +
+      "(🧵 host trampoline, deferred-threads " +
+      "https://github.com/lann/deltic/issues/12, classified " +
+      "pending-runtime, the values/post-return.json precedent): no current " +
+      "instance exists for this command",
+  },
+  {
+    file: "async/during-sync-call-no-exclusive-resume.json",
+    line: 163,
+    reason: "same line-124 instantiation-decline cascade as line 162",
+  },
+  {
+    file: "async/during-sync-call-no-sibling-resume.json",
+    line: 16,
+    reason:
+      "translator error [validation]: invalid leading byte (0x28) for " +
+      "canonical function lift (at offset 0x30c) — same wasmparser " +
+      "pin-drift class as during-sync-call-no-exclusive-resume.json:8; " +
+      "deferred-threads anyway, https://github.com/lann/deltic/issues/12 " +
+      "(pending-capability: wasmparser/wast pin alignment)",
+  },
+  {
+    file: "async/during-sync-call-no-sibling-resume.json",
+    line: 155,
+    reason:
+      "cascade of this file's first failure (line 16): the component " +
+      "failed translation, so no current instance exists",
+  },
+  {
+    file: "async/during-sync-call-no-sibling-resume.json",
+    line: 156,
+    reason: "cascade of line 16, see line 155",
+  },
+  {
+    file: "async/during-sync-call-no-sibling-resume.json",
+    line: 162,
+    reason:
+      "translator error [validation]: unexpected end-of-file (at offset " +
+      "0x291) — same wasmparser pin-drift class: 0.252 reads no cancel? " +
+      "byte for 🧵 thread.suspend (0x29), walks the canonical section out " +
+      "of alignment and off the end; deferred-threads anyway, " +
+      "https://github.com/lann/deltic/issues/12 " +
+      "(pending-capability: wasmparser/wast pin alignment)",
+  },
+  {
+    file: "async/during-sync-call-no-sibling-resume.json",
+    line: 214,
+    reason:
+      "cascade of the line-162 module failure: no current instance " +
+      "exists for this command",
+  },
+  {
+    file: "async/during-sync-call-no-sibling-resume.json",
+    line: 215,
+    reason: "same line-162 cascade as line 214",
+  },
   // --- async/empty-wait.json: GREEN under jspi auto-detection (M2 flip);
   // entry pruned. ---
   // --- async/futures-must-write.json: root cause: STREAMS ---

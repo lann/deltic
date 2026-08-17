@@ -414,7 +414,7 @@ export class SharedFutureImpl implements SharedBase {
    * definitions.py keeps this state unreachable: `WritableFutureEnd.drop`
    * traps unless the end is DONE (definitions.py:1183-1184), so a readable
    * future end can never observe DROPPED (`future_copy`'s `on_copy_done`
-   * assertion, definitions.py:2614). Our two teardown paths deliberately
+   * assertion, definitions.py:2607). Our two teardown paths deliberately
    * bypass that trap — a poisoned instance cannot be asked to trap again, and
    * the host `drop()` is a public API door — so the state exists here and has
    * to be *total*: an unwritten future whose writer died can never satisfy
@@ -758,7 +758,7 @@ export function dropSharedForTeardown(
  *
  *  1. FUTURES ARE NOT STREAMS. A `stream`'s reader may legitimately observe
  *     DROPPED (that is end-of-stream), but a `future`'s reader may not
- *     (definitions.py:2614) — the reference keeps the state unreachable by
+ *     (definitions.py:2607) — the reference keeps the state unreachable by
  *     trapping an early writable-end drop (definitions.py:1183-1184), which
  *     a poisoned instance can no longer be made to do. So an unwritten
  *     writable future end in this table marks its shared object *abandoned*
@@ -831,7 +831,7 @@ export function retireInstanceAsyncEnds(
 setOnInstancePoisoned(retireInstanceAsyncEnds);
 
 // ---------------------------------------------------------------------------
-// error-context (definitions.py `class ErrorContext`, line 2782)
+// error-context (definitions.py `class ErrorContext`, line 2775)
 // ---------------------------------------------------------------------------
 
 /**

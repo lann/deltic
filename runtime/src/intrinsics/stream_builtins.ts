@@ -1,6 +1,6 @@
 // The stream / future / error-context canonical built-ins
-// (definitions.py `canon_stream_new` line 2511 through `canon_error_context_drop`
-// line 2810).
+// (definitions.py `canon_stream_new` line 2504 through `canon_error_context_drop`
+// line 2803).
 //
 // The copy built-ins all share one shape, which is worth stating once:
 //
@@ -87,7 +87,7 @@ export interface StreamTrampolineContext {
 // ---------------------------------------------------------------------------
 
 /**
- * definitions.py `canon_stream_new` (line 2511) / `canon_future_new` (2519).
+ * definitions.py `canon_stream_new` (line 2504) / `canon_future_new` (2512).
  * Returns both handles packed into an i64: `ri | (wi << 32)`.
  */
 export function createStreamNew(
@@ -129,7 +129,7 @@ function packEnds(ri: number, wi: number): bigint {
 
 type EndCtor = new (shared: never) => CopyEnd;
 
-/** definitions.py `stream_copy` (line 2537). */
+/** definitions.py `stream_copy` (line 2530). */
 function streamCopy(input: {
   EndT: EndCtor;
   reading: boolean;
@@ -208,7 +208,7 @@ function streamCopy(input: {
 // future.{read,write}
 // ---------------------------------------------------------------------------
 
-/** definitions.py `future_copy` (line 2591). */
+/** definitions.py `future_copy` (line 2584). */
 function futureCopy(input: {
   EndT: EndCtor;
   reading: boolean;
@@ -268,7 +268,7 @@ function futureCopy(input: {
     // #84/#90: an unwritten future whose writable side was torn down (a
     // trap-poisoned instance's table, or the host's `drop()` door) can never
     // satisfy this reader. definitions.py keeps that state unreachable
-    // (:1183-1184 traps the early writable drop, so :2614 may assert a
+    // (:1183-1184 traps the early writable drop, so :2607 may assert a
     // readable end never sees DROPPED); where we bypass the trap we owe the
     // reader a *trap at its rendezvous point* instead of a DROPPED answer.
     //
@@ -391,7 +391,7 @@ function takeCancelEvent(
   );
   // UPSTREAM DIVERGENCE (definitions.py is wrong here; wasmtime is right).
   //
-  // `cancel_copy` (definitions.py line 2652) returns an already-armed pending
+  // `cancel_copy` (definitions.py line 2645) returns an already-armed pending
   // event verbatim, so cancelling a stream write that had been partially
   // satisfied yields COMPLETED with the copied count. wasmtime instead
   // *supersedes* an undelivered stream COMPLETED with CANCELLED, keeping the
@@ -418,7 +418,7 @@ function takeCancelEvent(
   return payload;
 }
 
-/** definitions.py `cancel_copy` (line 2643). */
+/** definitions.py `cancel_copy` (line 2636). */
 function cancelCopy(input: {
   EndT: EndCtor;
   eventCode: EventCode;
@@ -475,7 +475,7 @@ function cancelCopy(input: {
 // drop-{readable,writable}
 // ---------------------------------------------------------------------------
 
-/** definitions.py `drop` (line 2677). */
+/** definitions.py `drop` (line 2670). */
 function dropEnd(
   EndT: EndCtor,
   elem: ValType | null,
@@ -496,7 +496,7 @@ function dropEnd(
 // ---------------------------------------------------------------------------
 
 /**
- * definitions.py `canon_error_context_new` (line 2785).
+ * definitions.py `canon_error_context_new` (line 2778).
  *
  * The reference is deliberately non-committal about the message: under
  * `DETERMINISTIC_PROFILE` it stores the empty string, otherwise it may apply a
@@ -518,7 +518,7 @@ export function createErrorContextNew(
   };
 }
 
-/** definitions.py `canon_error_context_debug_message` (line 2799). */
+/** definitions.py `canon_error_context_debug_message` (line 2792). */
 export function createErrorContextDebugMessage(
   decl: { options: number },
   ctx: StreamTrampolineContext,
@@ -540,7 +540,7 @@ export function createErrorContextDebugMessage(
   };
 }
 
-/** definitions.py `canon_error_context_drop` (line 2810). */
+/** definitions.py `canon_error_context_drop` (line 2803). */
 export function createErrorContextDrop(
   inst: ComponentInstanceState,
 ): CoreFn {

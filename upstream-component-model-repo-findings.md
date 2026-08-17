@@ -72,9 +72,9 @@ commit `1c42aeb02` ("Remove TODO from tests, remove stale backpressure.set
 definition", PR [#690]) deleted the block from definitions.py; verified
 absent at `main` 2026-08-14. Our runtime's annotations referencing the dead
 code (`runtime/src/intrinsics/async_builtins.ts`, `intrinsics/mod.ts`,
-`runtime/README.md`) describe the **pinned** submodule (`73b7ad5`), where it
-still exists — they come out with the next submodule bump, per the filing
-checklist.
+`runtime/README.md`) came out with the submodule bump to `4142913`
+(2026-08-17), which also rebased the runtime's definitions.py line
+citations across the deleted block (−7).
 **Found:** 2026-08-08, during the canonical-ABI reference-test port
 
 [#690]: https://github.com/WebAssembly/component-model/pull/690

@@ -80,8 +80,8 @@ export function chooseMode(
  *
  * Sharper than a kind list, and it must be: the async *form* of every copy /
  * cancel built-in NEVER blocks — it returns `BLOCKED` and delivers the result
- * through an event (definitions.py `stream_copy` line 2537 / `cancel_copy`
- * 2643 / `canon_subtask_cancel` 2476, each `if not async_: ... else return
+ * through an event (definitions.py `stream_copy` line 2530 / `cancel_copy`
+ * 2636 / `canon_subtask_cancel` 2469, each `if not async_: ... else return
  * BLOCKED`). Classifying by kind alone marked every instance that imports an
  * async-form built-in as suspension-capable, which promising-wrapped its
  * eagerly-completing FACT callees — and a wrapped eager callee reports

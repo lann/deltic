@@ -84,7 +84,7 @@ export interface AsyncTrampolineContext {
 }
 
 /**
- * `BLOCKED` sentinel of `canon_subtask_cancel` (definitions.py line 2474).
+ * `BLOCKED` sentinel of `canon_subtask_cancel` (definitions.py line 2467).
  */
 export const BLOCKED = 0xffff_ffff;
 
@@ -92,7 +92,7 @@ export const BLOCKED = 0xffff_ffff;
 // task.return / task.cancel
 // ---------------------------------------------------------------------------
 
-/** definitions.py `canon_task_return` (line 2391). */
+/** definitions.py `canon_task_return` (line 2384). */
 export function createTaskReturn(
   decl: { results: number; resultType: number | null; options: number },
   ctx: AsyncTrampolineContext,
@@ -113,7 +113,7 @@ export function createTaskReturn(
       "task.return: cannot leave component instance (may_leave violation)",
     );
     trapIf(!task.opts.async_, "task.return from a non-async task");
-    // `trap_if(result_type != task.ft.result)` (definitions.py:2395): the
+    // `trap_if(result_type != task.ft.result)` (definitions.py:2388): the
     // trampoline's interned result tuple must be the lifted function's result
     // type. Compared structurally — the plan's type table interns by
     // structure, so identity comparison would reject valid components.
@@ -131,7 +131,7 @@ export function createTaskReturn(
         !valTypesEqual(resultTypes, task.ft.results),
       "task.return with a result type that is not the task's result type",
     );
-    // `trap_if(not LiftOptions.equal(opts, task.opts))` (definitions.py:2396).
+    // `trap_if(not LiftOptions.equal(opts, task.opts))` (definitions.py:2389).
     // The MEMORY half stays skipped for FACT tasks, and plan v3 does NOT
     // change that: the relaxation was never about the type mapping. The
     // task's memory is reconstructed from `prepare-call`'s `memory` field,
@@ -192,7 +192,7 @@ export function createTaskReturn(
   };
 }
 
-/** definitions.py `canon_task_cancel` (line 2404). */
+/** definitions.py `canon_task_cancel` (line 2397). */
 export function createTaskCancel(): CoreFn {
   return () => {
     const task = currentTask() as Task;
@@ -209,14 +209,14 @@ export function createTaskCancel(): CoreFn {
 // backpressure
 // ---------------------------------------------------------------------------
 
-// `canon_backpressure_set` (definitions.py line 2368) is deliberately not
-// ported: wasmtime 47 emits no `BackpressureSet` trampoline
-// (`component/info.rs` has only `BackpressureInc`/`BackpressureDec`), and the
-// reference's own copy is unreachable — see
-// upstream-component-model-repo-findings.md CM-2. The counter below is the
-// live interface.
+// `canon_backpressure_set` is not ported: wasmtime 47 emits no
+// `BackpressureSet` trampoline (`component/info.rs` has only
+// `BackpressureInc`/`BackpressureDec`), and the reference's own copy was
+// unreachable dead code until upstream removed it (CM PR #690; see
+// upstream-component-model-repo-findings.md CM-2, RESOLVED). The counter
+// below is the live interface.
 
-/** definitions.py `canon_backpressure_inc` (line 2375). */
+/** definitions.py `canon_backpressure_inc` (line 2368). */
 export function createBackpressureInc(inst: ComponentInstanceState): CoreFn {
   return () => {
     assert_(
@@ -228,7 +228,7 @@ export function createBackpressureInc(inst: ComponentInstanceState): CoreFn {
   };
 }
 
-/** definitions.py `canon_backpressure_dec` (line 2382). */
+/** definitions.py `canon_backpressure_dec` (line 2375). */
 export function createBackpressureDec(inst: ComponentInstanceState): CoreFn {
   return () => {
     assert_(
@@ -244,7 +244,7 @@ export function createBackpressureDec(inst: ComponentInstanceState): CoreFn {
 // waitable sets
 // ---------------------------------------------------------------------------
 
-/** definitions.py `canon_waitable_set_new` (line 2413). */
+/** definitions.py `canon_waitable_set_new` (line 2406). */
 export function createWaitableSetNew(inst: ComponentInstanceState): CoreFn {
   return () => {
     trapIf(
@@ -256,7 +256,7 @@ export function createWaitableSetNew(inst: ComponentInstanceState): CoreFn {
 }
 
 /**
- * definitions.py `canon_waitable_set_wait` (line 2421).
+ * definitions.py `canon_waitable_set_wait` (line 2414).
  *
  * The reference blocks the calling thread until the set has an event. From a
  * stackless (callback-ABI) guest there is no wasm stack to suspend, so this
@@ -279,7 +279,7 @@ export function createWaitableSetWait(
   // (wasmtime-environ 47.0.3 `component/info.rs:815`), while
   // `CanonicalOptions.cancellable` (info.rs:540) is what the guest declared.
   // It reaches definitions.py as `canon_waitable_set_wait`'s first parameter
-  // (line 2421).
+  // (line 2414).
   const cancellable = opts.cancellable;
   return (si?: number, ptr?: number) => {
     trapIf(!inst.mayLeave, "waitable-set.wait: cannot leave component instance");
@@ -346,7 +346,7 @@ export function createWaitableSetWait(
   };
 }
 
-/** definitions.py `canon_waitable_set_poll` (line 2438). */
+/** definitions.py `canon_waitable_set_poll` (line 2431). */
 export function createWaitableSetPoll(
   decl: { options: number },
   ctx: AsyncTrampolineContext,
@@ -363,7 +363,7 @@ export function createWaitableSetPoll(
   };
 }
 
-/** definitions.py `canon_waitable_set_drop` (line 2448). */
+/** definitions.py `canon_waitable_set_drop` (line 2441). */
 export function createWaitableSetDrop(inst: ComponentInstanceState): CoreFn {
   return (i?: number) => {
     trapIf(!inst.mayLeave, "waitable-set.drop: cannot leave component instance");
@@ -376,7 +376,7 @@ export function createWaitableSetDrop(inst: ComponentInstanceState): CoreFn {
   };
 }
 
-/** definitions.py `canon_waitable_join` (line 2458). */
+/** definitions.py `canon_waitable_join` (line 2451). */
 export function createWaitableJoin(inst: ComponentInstanceState): CoreFn {
   return (wi?: number, si?: number) => {
     trapIf(!inst.mayLeave, "waitable.join: cannot leave component instance");
@@ -399,7 +399,7 @@ export function createWaitableJoin(inst: ComponentInstanceState): CoreFn {
 // subtasks
 // ---------------------------------------------------------------------------
 
-/** definitions.py `canon_subtask_drop` (line 2501). */
+/** definitions.py `canon_subtask_drop` (line 2494). */
 export function createSubtaskDrop(inst: ComponentInstanceState): CoreFn {
   return (i?: number) => {
     trapIf(!inst.mayLeave, "subtask.drop: cannot leave component instance");
@@ -410,7 +410,7 @@ export function createSubtaskDrop(inst: ComponentInstanceState): CoreFn {
 }
 
 /**
- * definitions.py `canon_subtask_cancel` (line 2476).
+ * definitions.py `canon_subtask_cancel` (line 2469).
  *
  * The synchronous form blocks (`subtask.wait_for_pending_event()`) when the
  * callee does not resolve promptly; from a stackless guest that is JSPI
@@ -450,7 +450,7 @@ export function createSubtaskCancel(
   return (i?: number) => {
     // The handle table is the **declared** instance's, not
     // `current_thread().task.inst`. definitions.py `canon_subtask_cancel`
-    // (line 2476) uses the latter because the reference has no fused
+    // (line 2469) uses the latter because the reference has no fused
     // adapters, so the running task and the subtask's owner always coincide.
     // With FACT they do not: `async-start-call` adds the subtask to
     // `prepare-call`'s `caller_instance`, which for a nested component is a
@@ -531,7 +531,7 @@ export function createSubtaskCancel(
         }
         // The ASYNC form answers "did the cancellation resolve the callee
         // promptly?" — BLOCKED only when it genuinely did not
-        // (definitions.py line 2493). Under jspi "promptly" is invisible at
+        // (definitions.py line 2486). Under jspi "promptly" is invisible at
         // this instant: `request_cancellation` delivered TASK_CANCELLED by
         // settling the callee's suspension, and the engine runs the resumed
         // activation (whose `task.cancel` resolves this subtask) on a LATER
@@ -584,7 +584,7 @@ export function createSubtaskCancel(
 // ---------------------------------------------------------------------------
 
 /**
- * definitions.py `canon_thread_yield` (line 2735).
+ * definitions.py `canon_thread_yield` (line 2728).
  *
  * Yielding blocks the calling wasm frame until the scheduler comes back to
  * it. A callback-ABI guest expresses the same intent by returning the `YIELD`
@@ -644,7 +644,7 @@ function requireWaitableSet(
 }
 
 /**
- * definitions.py `unpack_event` (line 2429): store the two payload words at
+ * definitions.py `unpack_event` (line 2422): store the two payload words at
  * `ptr` and return the event code.
  */
 function unpackEvent(

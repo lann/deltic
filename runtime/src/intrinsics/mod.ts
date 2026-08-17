@@ -661,10 +661,9 @@ function createTrampolineBody(
     // `Trampoline::BackpressureInc` / `BackpressureDec`
     // (`component/info.rs:775,781`) — there is no `BackpressureSet` variant to
     // dispatch, so a case for it would be unreachable code implying a wire
-    // shape that cannot occur. definitions.py still carries
-    // `canon_backpressure_set` (line 2368), but it is dead there too; see
-    // upstream-component-model-repo-findings.md CM-2, where we propose its
-    // removal upstream.
+    // shape that cannot occur. definitions.py's own dead
+    // `canon_backpressure_set` was removed upstream (CM PR #690); see
+    // upstream-component-model-repo-findings.md CM-2, RESOLVED.
     case "backpressure-inc":
       return createBackpressureInc(declaredInstance(decl, ctx));
     case "backpressure-dec":

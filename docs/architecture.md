@@ -444,8 +444,8 @@ decide deliberately and document here.
     while lent; a backstop dtor trap poisons the implementing instance and
     lands on the host-failure channel (never `catch {}`-swallowed).
   - Upstream spec findings related to drops and backpressure (vestigial
-    `$async?` on `resource.drop`; dead `canon_backpressure_set` in
-    definitions.py) are tracked in
+    `$async?` on `resource.drop`; the dead `canon_backpressure_set` in
+    definitions.py, since removed upstream) are tracked in
     [upstream-component-model-repo-findings.md](../upstream-component-model-repo-findings.md),
     the single source for component-model issue/PR filing. Implementation is
     sync-only drop regardless of upstream timing.

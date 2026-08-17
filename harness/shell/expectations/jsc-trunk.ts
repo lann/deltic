@@ -60,13 +60,17 @@ export const jscTrunk: ShellLaneExpectation = {
     "trip, multi-memory, wasm-GC, EH, memory64, tail-calls, relaxed-simd). " +
     "Trunk drift is a finding to triage, never a gate.",
   deltas: [],
+  // +21 commands / +20 xfail / +1 pending-runtime vs the seed measurement:
+  // upstream during-sync-call-* tests (CM submodule bump to 4142913) fail
+  // at TRANSLATION (wasmparser pin drift, engine-independent — see
+  // harness/src/xfail.ts), so the shift is uniform across lanes.
   totals: {
-    commands: 1395,
-    executed: 1349,
+    commands: 1416,
+    executed: 1369,
     passed: 1254,
     failed: 0,
-    xfail: 95,
-    pendingRuntime: 41,
+    xfail: 115,
+    pendingRuntime: 42,
     pendingCapability: 0,
     unsupportedDirective: 5,
   },

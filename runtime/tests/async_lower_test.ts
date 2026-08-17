@@ -269,7 +269,7 @@ Deno.test("sync lower of a Promise-returning host import needs JSPI", () => {
 });
 
 Deno.test("async lower: subtask.cancel on a pending host call returns BLOCKED", async () => {
-  // definitions.py `canon_subtask_cancel` (line 2476): the request is passed
+  // definitions.py `canon_subtask_cancel` (line 2469): the request is passed
   // to the callee's `on_cancel`; if the callee does not resolve promptly, the
   // async form returns BLOCKED and the subtask stays live.
   //
@@ -309,7 +309,7 @@ Deno.test("async lower: subtask.cancel on a pending host call returns BLOCKED", 
 });
 
 Deno.test("async lower: a second subtask.cancel traps", () => {
-  // definitions.py line 2482: `trap_if(subtask.cancellation_requested)`.
+  // definitions.py line 2475: `trap_if(subtask.cancellation_requested)`.
   const f = mkFixture(() => new Promise<number>(() => {}));
   const packed = f.asGuest(() => f.call(1, 64)) as number;
   const [, subtaski] = unpackSubtaskResult(packed);

@@ -3,7 +3,7 @@
 // component, and where a silent wrong answer is the failure mode.
 //
 // Reference: definitions.py `canon_waitable_set_wait` / `canon_waitable_set_poll`
-// (lines 2421/2438), `unpack_callback_result` (line 2226) and `canon_lift`'s
+// (lines 2414/2431), `unpack_callback_result` (line 2226) and `canon_lift`'s
 // callback loop (lines 2183-2214).
 
 import { assertEq } from "./support/asserts.ts";
@@ -172,7 +172,7 @@ Deno.test("waitable-set.wait: a cancellable wait delivers TASK_CANCELLED", () =>
   assertEq(code, EventCode.TASK_CANCELLED);
   // definitions.py `Task.deliver_pending_cancel`: delivery moves the task on.
   assertEq(f.task.state, "cancel-delivered");
-  // `unpack_event` (line 2429) stores the two payload words; both are 0 for
+  // `unpack_event` (line 2422) stores the two payload words; both are 0 for
   // TASK_CANCELLED.
   const dv = new DataView(f.memory.buffer);
   assertEq(dv.getUint32(64, true), 0);
@@ -304,7 +304,7 @@ Deno.test("stream.cancel-write supersedes an undelivered COMPLETED", () => {
   //   cancel-write -> CANCELLED | 4
   //
   // The third step is where definitions.py and wasmtime disagree.
-  // `cancel_copy` (line 2652) returns the writer's already-armed pending event
+  // `cancel_copy` (line 2645) returns the writer's already-armed pending event
   // verbatim, which is COMPLETED|4; wasmtime converts an *undelivered* stream
   // COMPLETED into CANCELLED with the count preserved
   // (`futures_and_streams.rs:4004-4015`), and the suite asserts wasmtime's
@@ -465,7 +465,7 @@ Deno.test(
     assertEq(f.subtask.hasSyncWaiter, true);
 
     // A concurrent `waitable.join` on the same subtask must trap — this is
-    // the reference's `canon_waitable_join` (definitions.py:2463) admitting
+    // the reference's `canon_waitable_join` (definitions.py:2456) admitting
     // the trap the repo's own join-time check exists for
     // (async_builtins.ts:362-365), which SITE 5 used to make unreachable.
     const wset = new WaitableSet();

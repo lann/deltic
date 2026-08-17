@@ -188,7 +188,7 @@ export interface ResolvedOptions {
    * It lives in the options, not in the trampoline: `Trampoline::
    * WaitableSetWait`/`WaitableSetPoll` carry only `{instance, options}`
    * (info.rs:815-831). definitions.py takes it as the first parameter of
-   * `canon_waitable_set_wait` / `canon_waitable_set_poll` (lines 2421/2438),
+   * `canon_waitable_set_wait` / `canon_waitable_set_poll` (lines 2414/2431),
    * which is the same information arriving by a different route.
    *
    * (`thread.yield` and `subtask.cancel` are the exceptions: wasmtime puts
@@ -1811,7 +1811,7 @@ export function createLoweredImport(input: {
     // A host import is a plain JS function and offers no cancellation
     // channel — there is nothing to forward a request to. The faithful model
     // is therefore a handler that *accepts and ignores* the request, which is
-    // exactly what the reference permits: `canon_subtask_cancel` (line 2476)
+    // exactly what the reference permits: `canon_subtask_cancel` (line 2469)
     // calls `on_cancel` and then re-checks `subtask.resolved()`; a callee that
     // declines to cancel promptly leaves the subtask unresolved, and the async
     // form returns BLOCKED while the sync form waits. The subtask still

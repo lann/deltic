@@ -55,7 +55,7 @@
 ;;     `(event_code, p1, p2)` (line 2205), and for a SUBTASK event
 ;;     p1 = subtask index, p2 = subtask state (line 2299).
 ;;   * `waitable-set.wait` returns the event code and stores p1 at `ptr`,
-;;     p2 at `ptr + 4` (`unpack_event`, line 2429).
+;;     p2 at `ptr + 4` (`unpack_event`, line 2422).
 (component
   ;; An async host import. The test binds it to a JS function returning a
   ;; promise that settles on a macrotask (setTimeout), so both of $Callee's
