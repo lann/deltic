@@ -117,6 +117,16 @@ Standing rules:
   job is deliberately NOT a required PR check (it runs post-merge only,
   gating the prerelease) — do not add it to the protection contexts or
   PRs will never merge.
+- Versioning (README §Consuming): `@deltic/{runtime,translator,wasi,
+  ct-runner}` version in **lockstep**, and the manifests always carry the
+  NEXT release. Still 0.x/unstable but caret-honest: a PR that breaks the
+  published surface bumps the lockstep minor in the same PR; compatible
+  work leaves the version alone. Releases are cut from a green `main`
+  commit via release.yml `workflow_dispatch` with `release=true` (guards:
+  lockstep, tag-exists, green `pre-<shorthash>` present), followed
+  immediately by a manifest-bump PR to the next patch. `@deltic/protocol`
+  versions independently; bumping its manifest publishes it for real on
+  the next green run.
 - Consumer checkouts (the polymorph family, under `~/p/polymorph/`) are
   **strictly read-only**: verify `git status` in any consumer tree you ran
   commands near, before and after. Build artifacts go to `/tmp` or a
