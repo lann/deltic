@@ -142,10 +142,11 @@ minimal, the store path can be re-deferred by ignoring the fixture subset again.
 
 ## Upstream discrepancies found (definitions.py vs CanonicalABI.md)
 
-- `canon_backpressure_set` exists in definitions.py (~line 2368) but
-  CanonicalABI.md documents only `backpressure.inc`/`backpressure.dec`; the
-  repo's own `diff.py` flags it. Vestigial back-compat shim — worth an upstream
-  issue alongside the one docs/architecture.md §7 already notes (stale `$async?` immediate on
-  `resource.drop`, CanonicalABI.md ~line 4013).
+- `canon_backpressure_set` existed in definitions.py but CanonicalABI.md
+  documents only `backpressure.inc`/`backpressure.dec`; the repo's own
+  `diff.py` flagged it. Vestigial back-compat shim — resolved upstream
+  independently (CM PR #690 removed it; findings tracker CM-2). The stale
+  `$async?` immediate on `resource.drop` (CanonicalABI.md ~line 4013,
+  noted in docs/architecture.md §7) is still open.
 - `python3 run_tests.py` passes upstream unmodified (Python 3.13.7), so no
   reference-snapshot copy was needed.

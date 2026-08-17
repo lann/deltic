@@ -4,7 +4,7 @@
 // Background. `SharedStreamImpl` and `SharedFutureImpl` share a rendezvous
 // shape, but they do NOT share this outcome: a stream reader may observe
 // `CopyResult.DROPPED` (that is end-of-stream), a future reader may not
-// (definitions.py:2614 asserts it). The reference keeps the state unreachable
+// (definitions.py:2607 asserts it). The reference keeps the state unreachable
 // by trapping an early writable-future drop (definitions.py:1183-1184) — a
 // guarantee a *trap-poisoned* instance can no longer be asked to honour, and
 // one the host's public `drop()` door bypasses too. Both are handled by the

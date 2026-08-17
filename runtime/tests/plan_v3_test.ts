@@ -12,7 +12,7 @@
 //      alongside its interned `plan.types` entry (`resultType`). That pair is
 //      the dictionary a FACT callee task needs to know its own declared result
 //      type, which re-enables `canon_task_return`'s
-//      `trap_if(result_type != task.ft.result)` (definitions.py:2395) for FACT
+//      `trap_if(result_type != task.ft.result)` (definitions.py:2388) for FACT
 //      tasks.
 
 import { assertEq } from "./support/asserts.ts";

@@ -1293,18 +1293,24 @@ export const webkit: LaneExpectation = {
     },
   ],
   totals: {
-    commands: 1395,
-    executed: 1349,
+    commands: 1416,
+    executed: 1369,
     // 18 commands moved from xfail to passed when FINDING M3A-1 was fixed in
     // the runtime and its entries left this file.
     // +4 more (async/drop-cross-task-borrow:305,307, async/passing-resources
     // :175,176) when the #18 tls-smoke fixes pruned their shared xfail
     // entries — arithmetic update, NOT re-measured (webkit is not runnable
     // on this dev host); the post-merge webkit lane is the check.
+    // +21 commands / +20 xfail / +1 pending-runtime from the upstream
+    // during-sync-call-* tests (submodule bump to CM 4142913): all three
+    // fail at TRANSLATION (wasmparser pin drift, engine-independent — see
+    // harness/src/xfail.ts), so the shift is uniform across lanes —
+    // arithmetic update, NOT re-measured; the post-merge webkit lane is
+    // the check.
     passed: 1080,
     failed: 0,
-    xfail: 269,
-    pendingRuntime: 41,
+    xfail: 289,
+    pendingRuntime: 42,
     pendingCapability: 0,
     unsupportedDirective: 5,
   },
