@@ -124,7 +124,10 @@ Standing rules:
   work leaves the version alone. Releases are cut from a green `main`
   commit via release.yml `workflow_dispatch` with `release=true` (guards:
   lockstep, tag-exists, green `pre-<shorthash>` present), followed
-  immediately by a manifest-bump PR to the next patch. `@deltic/protocol`
+  immediately by a manifest-bump PR to the next patch — the four manifests
+  plus runtime's A9 copy-identity constant `RUNTIME_VERSION`
+  (runtime/src/embedder/copy.ts; `just test-runtime` pins the sync).
+  `@deltic/protocol`
   versions independently; bumping its manifest publishes it for real on
   the next green run.
 - Consumer checkouts (the polymorph family, under `~/p/polymorph/`) are
