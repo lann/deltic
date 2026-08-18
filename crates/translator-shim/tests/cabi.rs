@@ -89,12 +89,34 @@ fn cabi_error_envelope() {
 /// an invalid one: phase `unsupported`, never `validation`.
 #[test]
 fn cabi_unsupported_phase_is_distinct() {
-    // Module exports are rejected by plan v0 (`Export::ModuleStatic`).
+    // Re-exporting an *imported* module is rejected (`Export::ModuleImport`,
+    // plan-format.md v4 amendment 3). The former specimen — exporting an own
+    // embedded module (`Export::ModuleStatic`) — translates since plan v4;
+    // see `cabi_module_export_translates`.
+    let comp = wat::parse_str(
+        r#"(component (import "m" (core module $m)) (export "m2" (core module $m)))"#,
+    )
+    .unwrap();
+    let json = roundtrip_bytes(&comp);
+    let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(v["errorDetail"]["phase"], "unsupported", "{json}");
+}
+
+/// A component exporting one of its own embedded core modules translates
+/// (plan-format.md v4 amendment 2, deltic#13) and the plan carries the
+/// `module`-kind export pointing into the static module space.
+#[test]
+fn cabi_module_export_translates() {
     let comp = wat::parse_str(
         r#"(component (core module $m) (export "m" (core module $m)))"#,
     )
     .unwrap();
     let json = roundtrip_bytes(&comp);
     let v: serde_json::Value = serde_json::from_str(&json).unwrap();
-    assert_eq!(v["errorDetail"]["phase"], "unsupported", "{json}");
+    assert!(v["error"].is_null(), "{json}");
+    let exports = v["plan"]["exports"].as_array().unwrap();
+    assert_eq!(exports.len(), 1, "{json}");
+    assert_eq!(exports[0]["kind"], "module", "{json}");
+    assert_eq!(exports[0]["name"], "m", "{json}");
+    assert_eq!(exports[0]["module"], 0, "{json}");
 }

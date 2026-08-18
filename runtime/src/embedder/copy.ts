@@ -26,7 +26,7 @@ export const COPY_URL: string = import.meta.url;
  * INVARIANT: keep in sync with `version` in runtime/deno.json — pinned by
  * runtime/tests/embedder/cross_copy_test.ts.
  */
-export const RUNTIME_VERSION = "0.1.1";
+export const RUNTIME_VERSION = "0.2.0";
 
 /**
  * Compose a cross-copy diagnostic: what was foreign, which copy is speaking,

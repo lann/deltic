@@ -568,13 +568,16 @@ fn verdict_phase_validation() {
 /// `validation`, which would be a false claim about the component.
 #[test]
 fn verdict_phase_unsupported() {
+    // Re-exporting an *imported* module (`Export::ModuleImport`) is the
+    // remaining unsupported module-export shape; exporting an own embedded
+    // module translates since plan v4 (plan-format.md v4, deltic#13).
     let bytes = wat::parse_str(
-        r#"(component (core module $m) (export "m" (core module $m)))"#,
+        r#"(component (import "m" (core module $m)) (export "m2" (core module $m)))"#,
     )
     .unwrap();
     let e = translate(&bytes).unwrap_err();
     assert_eq!(e.phase, Phase::Unsupported, "{e}");
-    assert!(e.message.contains("module exports"), "{e}");
+    assert!(e.message.contains("imported module"), "{e}");
 }
 
 // ---------------------------------------------------------------------------
@@ -672,7 +675,7 @@ fn error_context_tables_are_emitted() {
     let bytes = build("error-context");
     let t = translate(&bytes).unwrap();
 
-    assert_eq!(t.plan.format_version, 3);
+    assert_eq!(t.plan.format_version, translator_shim::plan::FORMAT_VERSION);
     // One table, owned by the single runtime component instance.
     assert_eq!(t.plan.error_context_tables.len(), 1);
     assert_eq!(t.plan.error_context_tables[0].instance, 0);

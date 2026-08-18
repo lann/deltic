@@ -65,7 +65,12 @@ use wasmtime_environ::{EntityIndex, ModuleInternedTypeIndex, PrimaryMap, WasmVal
 /// Per the contract's compat rule ("changes require updating both producer
 /// and consumer in the same commit and bumping `formatVersion`") the bump is
 /// unconditional even though the change is additive.
-pub const FORMAT_VERSION: u32 = 3;
+///
+/// v4 (2026-08-17, deltic#13): additive — `exports[]` gained the `"module"`
+/// kind (`Export::ModuleStatic`, a component exporting one of its own
+/// embedded core modules; previously a hard `unsupported` rejection).
+/// `Export::ModuleImport` remains rejected, now with a precise message.
+pub const FORMAT_VERSION: u32 = 4;
 
 // ---------------------------------------------------------------------------
 // Plan schema (serde structs; field order == emission order == contract order)
@@ -566,6 +571,12 @@ pub enum ExportDecl {
         name: String,
         r#type: TypeExportJson,
     },
+    /// An exported embedded core module; `module` indexes the static module
+    /// space (`plan.modules`). plan-format.md v4 amendment 2.
+    Module {
+        name: String,
+        module: u32,
+    },
 }
 
 impl ExportDecl {
@@ -573,7 +584,8 @@ impl ExportDecl {
         match self {
             ExportDecl::LiftedFunc { name, .. }
             | ExportDecl::Instance { name, .. }
-            | ExportDecl::Type { name, .. } => name,
+            | ExportDecl::Type { name, .. }
+            | ExportDecl::Module { name, .. } => name,
         }
     }
 }
@@ -1342,9 +1354,18 @@ impl<'a> PlanBuilder<'a> {
                     r#type: ty,
                 }
             }
-            Export::ModuleStatic { .. } | Export::ModuleImport { .. } => unsupported!(
-                "module exports are not supported in plan v0 (export '{name}'); \
-                 report this component"
+            // A component exporting one of its own embedded core modules:
+            // the StaticModuleIndex is the plan's static module space
+            // directly (plan-format.md v4 amendment 2; conformance pin
+            // binary.wast:1421).
+            Export::ModuleStatic { index, .. } => ExportDecl::Module {
+                name: name.to_string(),
+                module: index.as_u32(),
+            },
+            Export::ModuleImport { .. } => unsupported!(
+                "re-exporting an imported module is not supported (export \
+                 '{name}'); module imports have no instantiation story yet \
+                 (plan-format.md v4 amendment 3)"
             ),
         })
     }

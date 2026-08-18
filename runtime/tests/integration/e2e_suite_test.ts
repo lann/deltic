@@ -457,9 +457,10 @@ Deno.test({
   name: "suite binary+validation: valid components are not mis-rejected",
   ignore: !ready,
   fn: async () => {
-    // Known plan-v0 gaps, kept explicit so a regression elsewhere is visible.
-    // See the M1-A track report's triage table.
-    const knownUnsupported = new Set(["binary.json:1421"]);
+    // Known plan gaps, kept explicit so a regression elsewhere is visible.
+    // Empty since plan v4 (core-module exports, deltic#13); binary.json:1421
+    // was the last entry.
+    const knownUnsupported = new Set<string>([]);
     const bad: string[] = [];
     let ok = 0;
     for (const dir of ["binary", "validation", "linking", "resources"]) {
@@ -496,6 +497,27 @@ Deno.test({
     }
     assertEq(ok > 190, true, `only ${ok} components translated`);
     assertEq(bad.length, 0, `unexpected verdicts:\n${bad.join("\n")}`);
+  },
+});
+
+// test/binary/binary.wast:1421 — a component exporting one of its own
+// embedded core modules (plan-format.md v4 amendment 2, deltic#13). The
+// export surfaces as the already-compiled `WebAssembly.Module`, and it is
+// the *embedded* module: instantiating it works and its export list matches
+// the wast source (an empty module).
+Deno.test({
+  name: "suite binary.115: a core-module export surfaces as WebAssembly.Module",
+  ignore: !ready,
+  fn: async () => {
+    const c = await instantiate("binary", "binary.115.wasm");
+    const m = c.exports["m"];
+    assertEq(
+      m instanceof WebAssembly.Module,
+      true,
+      `export 'm' should be a WebAssembly.Module, got ${typeof m}`,
+    );
+    const inst = new WebAssembly.Instance(m as WebAssembly.Module);
+    assertEq(Object.keys(inst.exports).length, 0); // binary.wast:1423: empty module
   },
 });
 

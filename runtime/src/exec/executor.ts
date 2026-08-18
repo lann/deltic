@@ -852,6 +852,19 @@ class Executor {
           kind: "omitted",
           reason: "type export: no runtime surface",
         };
+      case "module": {
+        // plan-format.md v4 amendment 2: an exported embedded core module
+        // surfaces as the already-compiled `WebAssembly.Module` — the same
+        // compilation `instantiate-module` initializers use.
+        const module = this.modules[exp.module];
+        if (module === undefined) {
+          throw new PlanError(
+            `export '${path}': no module ${exp.module} in the static ` +
+              `module space (${this.modules.length} modules)`,
+          );
+        }
+        return { kind: "value", value: module };
+      }
       default: {
         const exhaustive: never = exp;
         throw new PlanError(

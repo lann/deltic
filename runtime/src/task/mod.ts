@@ -538,7 +538,12 @@ export class Task {
   /** definitions.py `Task.return_` (line 547). */
   return_(result: ComponentValue[]): void {
     trapIf(this.state === "resolved", "task.return on a resolved task");
-    trapIf(this.numBorrows > 0, "task returned with live borrows");
+    // Wording parity with wasmtime's exit-time check, pinned by
+    // drop-cross-task-borrow.wast:309.
+    trapIf(
+      this.numBorrows > 0,
+      "borrow handles still remain at the end of the call",
+    );
     this.onResolve(result);
     this.state = "resolved";
   }
@@ -549,7 +554,12 @@ export class Task {
       this.state !== "cancel-delivered",
       "task.cancel without a delivered cancellation request",
     );
-    trapIf(this.numBorrows > 0, "task cancelled with live borrows");
+    // Same definitions.py check as `return_` (num_borrows at exit); same
+    // call-end wording.
+    trapIf(
+      this.numBorrows > 0,
+      "borrow handles still remain at the end of the call",
+    );
     this.onResolve(null);
     this.state = "resolved";
   }

@@ -1307,9 +1307,15 @@ export const webkit: LaneExpectation = {
     // harness/src/xfail.ts), so the shift is uniform across lanes —
     // arithmetic update, NOT re-measured; the post-merge webkit lane is
     // the check.
-    passed: 1080,
+    // +3 passed / -3 xfail when #13 closed drop-stream:158 +
+    // drop-cross-task-borrow:309 (trap-wording parity, engine-independent;
+    // neither file has a webkit delta) and binary:1421 (plan v4 core-module
+    // exports; translation + an empty-module compile, engine-independent) —
+    // arithmetic update, NOT re-measured; the post-merge webkit lane is
+    // the check.
+    passed: 1083,
     failed: 0,
-    xfail: 289,
+    xfail: 286,
     pendingRuntime: 42,
     pendingCapability: 0,
     unsupportedDirective: 5,
