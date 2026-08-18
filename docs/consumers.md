@@ -88,22 +88,29 @@ Their jco blockers map one-for-one onto this project's proven strengths
 
 Operator ruling (2026-08-10, recorded on
 [#14](https://github.com/lann/deltic/issues/14)): **jco support/coverage is
-retained in polymorph-webcrypto only.** Every other repo's jco legs come out
-once its deltic coverage twin exists — on operator signal, not autonomously.
+retained in polymorph-webcrypto only.** The cutover is **delivered** — every
+other repo's jco legs are gone, each removal landing only after its deltic
+coverage twin existed and the [#17](https://github.com/lann/deltic/issues/17)
+first-order measurements were recorded (the ordering rule, honored: tls's
+early removal was reverted, then re-landed post-measurement; the
+leg-wall-time table lives on
+[#14](https://github.com/lann/deltic/issues/14), 2026-08-10).
 
-| Repo | deltic twin | jco legs |
+| Repo | deltic legs | jco end state |
 |---|---|---|
-| webcrypto | deno legs merged ([#352](https://github.com/polymorph-components/polymorph-webcrypto/pull/352)); no browser twin needed | **retained indefinitely** — the Chromium side of the Deno platform-gap ledger, and the standing venue for [#17](https://github.com/lann/deltic/issues/17) |
-| tls | deno + browser merged (their [#36](https://github.com/polymorph-components/polymorph-tls/pull/36), [#39](https://github.com/polymorph-components/polymorph-tls/pull/39)) | removed (their [#40](https://github.com/polymorph-components/polymorph-tls/pull/40)), then **reverted for the [#17](https://github.com/lann/deltic/issues/17) measurements** (their [#41](https://github.com/polymorph-components/polymorph-tls/pull/41)); re-lands on operator signal |
-| iroh | `host-deltic` merged (their [#36](https://github.com/polymorph-components/polymorph-iroh/pull/36)) | removal prepared, parked as **draft** (their [#39](https://github.com/polymorph-components/polymorph-iroh/pull/39); closes their #10 on landing; follow-ups: their #37 polling retirement, #38 bench call counts) |
-| websocket | deno merged (their [#40](https://github.com/polymorph-components/polymorph-websocket/pull/40)); browser in review (their [#41](https://github.com/polymorph-components/polymorph-websocket/pull/41)) | queued behind their #41 |
-| webrtc-datachannels | deno merged (their [#149](https://github.com/polymorph-components/polymorph-webrtc-datachannels/pull/149)); browser twin needs a page-context runner (no `RTCPeerConnection` in workers) | blocked on the page runner |
-| test | n/a — already jco-free as a gate | keeps publishing the jco-era compat surface webcrypto's retained lanes pin |
+| webcrypto | deno ([#352](https://github.com/polymorph-components/polymorph-webcrypto/pull/352)) + browser ([#355](https://github.com/polymorph-components/polymorph-webcrypto/pull/355)) | **retained indefinitely by design** — the Chromium side of the Deno platform-gap ledger and the venue where [#17](https://github.com/lann/deltic/issues/17)'s head-to-head ran (closed); docs present deltic as the primary JS path ([#358](https://github.com/polymorph-components/polymorph-webcrypto/pull/358)) |
+| tls | deno + browser (their [#36](https://github.com/polymorph-components/polymorph-tls/pull/36), [#39](https://github.com/polymorph-components/polymorph-tls/pull/39)) | removed (their [#42](https://github.com/polymorph-components/polymorph-tls/pull/42); the earlier [#40](https://github.com/polymorph-components/polymorph-tls/pull/40)→[#41](https://github.com/polymorph-components/polymorph-tls/pull/41) revert honored the measurement ordering); head-to-head stays reproducible at the pre-removal SHA |
+| iroh | `host-deltic` (their [#36](https://github.com/polymorph-components/polymorph-iroh/pull/36)) | removed (their [#40](https://github.com/polymorph-components/polymorph-iroh/pull/40); the parked draft #39 closed superseded); their #10 closed as superseded; the polling-workaround retirement landed too (their #37/#42 — the ~5× handshake-latency win); still open there: #38 bench call counts |
+| websocket | deno (their [#40](https://github.com/polymorph-components/polymorph-websocket/pull/40)) + browser (their [#41](https://github.com/polymorph-components/polymorph-websocket/pull/41)) | removed (their [#42](https://github.com/polymorph-components/polymorph-websocket/pull/42)); WPT parity carrier ported to deltic with empty loss sets; demo runs runtime-linked |
+| webrtc-datachannels | deno (their [#149](https://github.com/polymorph-components/polymorph-webrtc-datachannels/pull/149)) + browser page-runner (their [#150](https://github.com/polymorph-components/polymorph-webrtc-datachannels/pull/150) — `RTCPeerConnection` is Window-only) | removed (their [#151](https://github.com/polymorph-components/polymorph-webrtc-datachannels/pull/151)); interop directions preserved on deltic children — vs libwebrtc reference and wasmtime, both orders, 13 directions × 12 pair cases |
+| test | n/a — already jco-free as a gate ([#77](https://github.com/polymorph-components/polymorph-test/pull/77)) | keeps publishing the jco-era compat surface webcrypto's retained lanes pin |
 
-Ordering rule (operator, 2026-08-10): the
-[#17](https://github.com/lann/deltic/issues/17) perf comparison runs
-**before** a repo's jco legs are deleted — tls's removal was reverted to
-honor it. webcrypto stays measurable indefinitely either way.
+Every standing matrix runs deltic as its JS host (webcrypto additionally
+retains jco rows). Consumer pins date from the cutover
+(`pre-58b2404`-era); moving the family onto JSR caret pins post-#16 is
+[#108](https://github.com/lann/deltic/issues/108)-adjacent follow-up work,
+minding that 0.2.0 is a breaking line (plan formatVersion) — runtime and
+translator move together.
 
 ## Deno substitutes for Node (C0 evidence)
 
@@ -128,16 +135,21 @@ needs no JSPI flag), not a test lane, until someone needs it.
 
 ## In-repo consumer artifacts
 
-Reference implementations developed here; the host modules and the iroh exam
-now have consumer-owned upstreamed copies, and the long-term disposition of
-the in-repo references is
-[#14](https://github.com/lann/deltic/issues/14)'s remaining open item:
+Reference implementations developed here. The host modules and the iroh exam
+concluded their dispositions — upstreamed as consumer-owned copies, in-repo
+trees retired (rows below). `ct-runner`'s disposition is
+[#14](https://github.com/lann/deltic/issues/14)'s remaining open item: the
+original plan said "move to polymorph-test", but it has since become one of
+the four lockstep-published packages (`@deltic/ct-runner`), an in-repo gate
+dependency (`tools/smoke-tls` imports it as source), and the thing
+polymorph-test's own glue *pins* — closing that bullet as
+resolved-differently is an operator ruling.
 
 | Path | What | Gate |
 |---|---|---|
 | `ports/{websocket,webcrypto,webrtc}` (retired) | the `polymorph:{websocket/connections,webcrypto,webrtc-datachannels/connections}` host modules | served and retired (2026-08-14): developed here as the reference implementations of the embedder conventions, upstreamed as the consumers' own host modules — websocket ([#40](https://github.com/polymorph-components/polymorph-websocket/pull/40)/[#41](https://github.com/polymorph-components/polymorph-websocket/pull/41)), webcrypto ([#352](https://github.com/polymorph-components/polymorph-webcrypto/pull/352)), webrtc ([#149](https://github.com/polymorph-components/polymorph-webrtc-datachannels/pull/149) — their driver-ct loopback matrix 37/37) — whose repos run their suites (incl. websocket's 55/55 conformance) under those copies as the living gates; the in-repo `test-ports`/`test-webrtc`/`websocket-conformance` recipes retired with the trees. History: `git log -- ports` |
 | `exams/iroh-endpoint` (retired) | the endpoint exit exam | served and retired (2026-08-11, in-repo through 5/5 + IROH-1): upstreamed as their `host-deltic/` + `just exam-deltic` ([polymorph-iroh#36](https://github.com/polymorph-components/polymorph-iroh/pull/36), merged), after which the in-repo copy was re-testing deltic against a staling guest snapshot — the consumer's own deltic leg is the living exam; the runtime defects it caught are pinned in deltic's suites (R-1/R-2, entry-deferral). History: `git log -- exams/iroh-endpoint` |
-| `ct-runner` | L3 runner for the polymorph-test L1 contract | golden-tested L4 JSONL; drives the websocket suite |
+| `ct-runner` | L3 runner for the polymorph-test L1 contract; published in the lockstep set as `@deltic/ct-runner` | golden/schema/shard/tags battery + CLI tests (`just test-ct-runner`); translate-only import analysis against the websocket consumer checkout; `tools/smoke-tls` drives it as source (the in-repo websocket suite left with `ports/`) |
 | `tools/smoke-c0` | C0 smoke legs + report | legs 1–4 (`REPORT.md`) |
 | `tools/smoke-tls` | polymorph-tls conformance under deltic ([#18](https://github.com/lann/deltic/issues/18)) | translate 8/8; suites: zero failures, zero xfails on every composition — tag gating ([#25](https://github.com/lann/deltic/issues/25), `ct-runner/src/tags.ts`) schedules the per-target inapplicable cases to `not-applicable` exactly like their harness legs; the callback-null-context defect it found ([#24](https://github.com/lann/deltic/issues/24)) is fixed — attribution sentinels, `runtime/src/jspi/bridge.ts` |
 
