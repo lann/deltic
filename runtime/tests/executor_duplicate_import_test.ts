@@ -18,7 +18,7 @@
 
 import { assertEq } from "./support/asserts.ts";
 import { instantiateComponent } from "../src/exec/mod.ts";
-import { PlanError } from "../src/plan/mod.ts";
+import { PlanError, SUPPORTED_FORMAT_VERSION } from "../src/plan/mod.ts";
 import type { WirePlan } from "../src/plan/format.ts";
 
 /**
@@ -38,7 +38,7 @@ const DUP_IMPORT_MODULE = new Uint8Array([
 
 function planFor(args: WirePlan["initializers"][0] & { op: "instantiate-module" }): WirePlan {
   return {
-    formatVersion: 3,
+    formatVersion: SUPPORTED_FORMAT_VERSION,
     producer: { shimVersion: "test", wasmtimeEnviron: "47.0.3", features: [] },
     component: { sha256: "0".repeat(64), len: DUP_IMPORT_MODULE.length },
     modules: [{ kind: "embedded", offset: 0, len: DUP_IMPORT_MODULE.length }],

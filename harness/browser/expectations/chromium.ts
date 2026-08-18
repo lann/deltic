@@ -45,12 +45,15 @@ export const chromium: LaneExpectation = {
   // upstream during-sync-call-* tests (CM submodule bump to 4142913) fail
   // at TRANSLATION (wasmparser pin drift, engine-independent — see
   // harness/src/xfail.ts), so the shift is uniform across lanes.
+  // +3 passed / -3 xfail when #13 closed drop-stream:158 +
+  // drop-cross-task-borrow:309 (trap-wording parity, engine-independent)
+  // and binary:1421 (plan v4 core-module exports).
   totals: {
     commands: 1416,
     executed: 1369,
-    passed: 1254,
+    passed: 1257,
     failed: 0,
-    xfail: 115,
+    xfail: 112,
     pendingRuntime: 42,
     pendingCapability: 0,
     unsupportedDirective: 5,

@@ -217,6 +217,14 @@ function canonExportItem(
       ),
     };
   }
+  if (exp.kind === "module") {
+    // digest.md's item rule: only functions and resources contribute as
+    // export items. A module export is not WIT-expressible (bindgen can
+    // never emit a digest containing one) and does not affect
+    // positional-calling ABI shape, so it is excluded — plan-format.md v4
+    // amendment 2.
+    return null;
+  }
   // exp.kind === "type"
   if (exp.type.kind === "resource") {
     return { kind: "resource", name: exp.name };

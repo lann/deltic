@@ -908,6 +908,12 @@ class Facade {
         }
         continue;
       }
+      if (exp.kind === "module") {
+        // Not WIT-expressible, digest-excluded (plan-format.md v4 amendment
+        // 2): the WIT-shaped facade skips it, the type-export precedent. The
+        // raw executor export surface still carries the compiled module.
+        continue;
+      }
       if (exp.kind === "instance") {
         // The plan flattens the world's instance exports at the top level; a
         // nested one would need a nested facade, which nothing produces today.

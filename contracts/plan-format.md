@@ -323,6 +323,35 @@ Additions/corrections from the M0 integration, normative as of v0.1:
    construction. Reopens only if a future upstream shape makes nesting
    depth observable.
 
+## v4 amendments (2026-08-17, deltic#13)
+
+1. **`formatVersion` is now `4`** (strict equality both sides, same-commit
+   bump rule as v1/v2/v3).
+2. **`exports[]` gains the `module` kind**:
+   `{"kind": "module", "name": "…", "module": n}`, where `n` indexes the
+   static module space (`plan.modules`). Emitted for wasmtime
+   `Export::ModuleStatic` — a component exporting one of its own embedded
+   core modules (`binary.wast:1421` is the conformance pin). The index names
+   an *embedded* entry by construction: FACT adapters are appended to the
+   static space after translation and are never component exports.
+   - **Executor obligation**: surface the export as the platform's
+     compiled-module value — `WebAssembly.Module` in the JS runtime —
+     reusing the compilation the instantiation path already performs.
+   - **Digest**: module exports are **excluded** from the canonical world
+     digest. digest.md's item rule already decides this ("only functions
+     and resources contribute as export/import *items*"); a module export
+     is not WIT-expressible and does not affect positional-calling ABI
+     shape, so a digest match stays ABI-sound.
+   - **Conventions layer** (embedder-api.md): not surfaced by the
+     WIT-shaped facade (skipped, the type-export precedent); available on
+     the raw executor export surface only.
+3. **`Export::ModuleImport` (re-export of an *imported* module) remains
+   rejected at translation**, now with a precise message (previously folded
+   into a blanket "module exports are not supported in plan v0"). No
+   conformance test exercises it, and module *imports* have no
+   instantiation story in the runtime yet; lift both together if a consumer
+   ever needs them.
+
 ## Documentation amendments (C2)
 
 1. **Type exports index into `resourceTables`, not the `ResourceIndex`

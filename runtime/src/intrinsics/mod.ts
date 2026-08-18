@@ -574,10 +574,12 @@ function createTrampolineBody(
           "exit-sync-call with an empty sync-call stack",
         );
         // definitions.py `Task.return_`: the callee may not return while it
-        // still holds borrow handles.
+        // still holds borrow handles. Wording parity with wasmtime's
+        // exit-time check (drop-cross-task-borrow.wast:309 pins the async
+        // path; the sync bracket is the same check).
         trapIf(
           scope!.numBorrows > 0,
-          "cannot return from a call with outstanding borrow handles",
+          "borrow handles still remain at the end of the call",
         );
         scope!.releaseLenders();
       };

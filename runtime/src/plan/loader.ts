@@ -62,6 +62,9 @@ export class TranslateError extends Error {
 /**
  * The single formatVersion this executor understands.
  *
+ * v4 (2026-08-17, deltic#13): `exports[]` gained the `"module"` kind — a
+ * component exporting one of its own embedded core modules, surfaced as the
+ * already-compiled `WebAssembly.Module`.
  * v3 (2026-08-10, deltic#89): `errorContextTables` — the index space the
  * `error-context-transfer` trampoline actually uses (it was resolved through
  * the *resource*-table mapping before, a different space) — and
@@ -76,7 +79,7 @@ export class TranslateError extends Error {
  * rather than best-effort accepted — a stale cached artifact must be a loud
  * failure, not a subtly different execution.
  */
-export const SUPPORTED_FORMAT_VERSION = 3;
+export const SUPPORTED_FORMAT_VERSION = 4;
 
 /** A types-table entry after conversion. */
 export type LoadedType =

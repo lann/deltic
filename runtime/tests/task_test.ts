@@ -592,7 +592,7 @@ Deno.test("task: returning with live borrows traps", () => {
   const task = mkTask(inst, SYNC_FT, SYNC_OPTS);
   task.start();
   task.numBorrows = 1;
-  assertThrows(() => task.return_([]), "live borrows");
+  assertThrows(() => task.return_([]), "borrow handles still remain");
 });
 
 Deno.test("task: task.return twice traps", () => {

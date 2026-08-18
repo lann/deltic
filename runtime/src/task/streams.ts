@@ -523,19 +523,37 @@ export abstract class CopyEnd extends Waitable {
     super();
   }
 
+  /** "stream" | "future" — trap-wording parity with wasmtime. */
+  abstract readonly kind: "stream" | "future";
+  /**
+   * Which end this is. Wasmtime words a busy READABLE-end drop as a table
+   * removal ("cannot remove busy stream") and a busy WRITABLE-end drop as a
+   * drop ("cannot drop busy stream") — the suite pins both spellings side by
+   * side (drop-stream.wast:158 read end vs :160 / builtin-trap-poisons-
+   * instance.wast:38 write end).
+   */
+  abstract readonly side: "readable" | "writable";
+
   copying(): boolean {
     return this.state === CopyState.COPYING ||
       this.state === CopyState.CANCELLING_COPY;
   }
 
   override drop(): void {
-    trapIf(this.copying(), "cannot drop busy stream");
+    trapIf(
+      this.copying(),
+      this.side === "readable"
+        ? `cannot remove busy ${this.kind}`
+        : `cannot drop busy ${this.kind}`,
+    );
     this.shared.drop();
     super.drop();
   }
 }
 
 export class ReadableStreamEnd extends CopyEnd {
+  override readonly kind = "stream";
+  override readonly side = "readable";
   declare readonly shared: SharedStreamImpl;
   copy(
     inst: unknown,
@@ -548,6 +566,8 @@ export class ReadableStreamEnd extends CopyEnd {
 }
 
 export class WritableStreamEnd extends CopyEnd {
+  override readonly kind = "stream";
+  override readonly side = "writable";
   declare readonly shared: SharedStreamImpl;
   copy(
     inst: unknown,
@@ -560,6 +580,8 @@ export class WritableStreamEnd extends CopyEnd {
 }
 
 export class ReadableFutureEnd extends CopyEnd {
+  override readonly kind = "future";
+  override readonly side = "readable";
   declare readonly shared: SharedFutureImpl;
   copy(inst: unknown, dst: GuestBuffer, onCopyDone: OnCopyDone): void {
     this.shared.read(inst, dst, onCopyDone);
@@ -567,6 +589,8 @@ export class ReadableFutureEnd extends CopyEnd {
 }
 
 export class WritableFutureEnd extends CopyEnd {
+  override readonly kind = "future";
+  override readonly side = "writable";
   declare readonly shared: SharedFutureImpl;
   copy(inst: unknown, src: GuestBuffer, onCopyDone: OnCopyDone): void {
     this.shared.write(inst, src, onCopyDone);

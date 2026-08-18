@@ -265,7 +265,12 @@ export type WireExport =
     type: number;
   }
   | { kind: "instance"; name: string; exports: WireExport[] }
-  | { kind: "type"; name: string; type: WireTypeExport };
+  | { kind: "type"; name: string; type: WireTypeExport }
+  /**
+   * An exported embedded core module; `module` indexes the static module
+   * space (`modules`). plan-format.md v4 amendment 2.
+   */
+  | { kind: "module"; name: string; module: number };
 
 export type WireTypeExport =
   | { kind: "resource"; resource: number }
