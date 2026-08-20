@@ -203,7 +203,7 @@ export class SyncCallScope {
     this.lenders.push(h);
   }
 
-  /** definitions.py `Subtask.release_lenders`. */
+  /** definitions.py `Subtask.deliver_resolve` (lines 902-906): releases lenders at delivery time. */
   releaseLenders(): void {
     for (const h of this.lenders) h.numLends -= 1;
     this.lenders.length = 0;

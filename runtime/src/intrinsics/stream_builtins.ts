@@ -171,6 +171,12 @@ function streamCopy(input: {
   const cx = new LiftLowerContext(cabiOptions(opts), inst, null);
   const buffer = new GuestBuffer(elem, cx, ptr, n);
 
+  // definitions.py `stream_copy`: `assert(not isinstance(stream_t, CharType))`
+  // — plan validation is expected to reject a char-typed stream before this
+  // point (streams of `char` are not a representable component type), so this
+  // documents that invariant rather than defending against a reachable case.
+  assert_(elem === null || elem.kind !== "char", "stream copy: char element");
+
   // definitions.py `stream_event`: the payload is computed at *delivery* time,
   // so `buffer.progress` reflects everything copied by the time the guest
   // looks — including copies that happened after the event was armed.
@@ -186,6 +192,12 @@ function streamCopy(input: {
     assert_(
       buffer.progress <= BUFFER_MAX_LENGTH,
       "stream progress out of packing range",
+    );
+    // definitions.py `stream_copy`/`stream_event`: `assert(0 <= result < 2**4)`.
+    // `CopyResult` is a fixed 0..2 enum so this can't fire; kept for parity.
+    assert_(
+      result >= 0 && result < 2 ** 4,
+      "stream event: packed result out of 4-bit range",
     );
     return [eventCode, i, (result | (buffer.progress << 4)) >>> 0];
   };
@@ -391,7 +403,7 @@ function takeCancelEvent(
   );
   // UPSTREAM DIVERGENCE (definitions.py is wrong here; wasmtime is right).
   //
-  // `cancel_copy` (definitions.py line 2645) returns an already-armed pending
+  // `cancel_copy` (definitions.py line 2654) returns an already-armed pending
   // event verbatim, so cancelling a stream write that had been partially
   // satisfied yields COMPLETED with the copied count. wasmtime instead
   // *supersedes* an undelivered stream COMPLETED with CANCELLED, keeping the

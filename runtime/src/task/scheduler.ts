@@ -744,7 +744,6 @@ export interface SchedulableThread {
  */
 export class Store {
   readonly waiting: SchedulableThread[] = [];
-  nestingDepth = 0;
 
   /**
    * Host-import promises this store is waiting on. Non-empty means progress

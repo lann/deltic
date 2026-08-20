@@ -144,10 +144,16 @@ export class Subtask extends Waitable {
 
   /**
    * definitions.py `canon_lower`'s `on_progress`/`subtask_event` closure
-   * (line 2296). The event payload is computed **at delivery time** and
+   * (lines 2297-2298). The event payload is computed **at delivery time** and
    * delivering it is what runs `deliver_resolve` — so the lent handles are
    * released exactly when the guest observes the resolution, not when it
    * happens.
+   *
+   * The `!this.resolveDelivered()` guard has no reference analogue: it exists
+   * so this can coexist with `unwindLenders()` (which may itself have already
+   * delivered the resolve on an abandoned path). The reference's
+   * `subtask_event` calls `deliver_resolve()` unconditionally and would
+   * assert on a double delivery.
    */
   setSubtaskPendingEvent(subtaski: number): void {
     this.setPendingEvent(() => {
@@ -159,7 +165,7 @@ export class Subtask extends Waitable {
 
 /**
  * Pack a `canon_lower` async return value: `state | (subtaski << 4)`
- * (definitions.py line 2308, with the accompanying asserts on the ranges).
+ * (definitions.py line 2306, with the accompanying asserts on the ranges).
  */
 export function packSubtaskResult(
   state: SubtaskState,

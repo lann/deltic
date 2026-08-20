@@ -1847,6 +1847,12 @@ const CALLBACK_CODE_MAX = 2;
 export function unpackCallbackResult(
   packed: number,
 ): [code: CallbackCode, waitableSetIndex: number] {
+  // Reference parity insurance only: callers already guarantee this range via
+  // core-result normalization before calling in.
+  assert_(
+    packed >= 0 && packed < 2 ** 32,
+    `unpack-callback-result: packed out of range: ${packed}`,
+  );
   const code = packed & 0xf;
   trapIf(code > CALLBACK_CODE_MAX, `invalid callback code ${code}`);
   return [code as CallbackCode, packed >>> 4];
