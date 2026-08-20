@@ -166,6 +166,23 @@ export function isInstancePoisoned(inst: object): boolean {
 }
 
 /**
+ * May a settled activation tail for parked thread `t` be DISPATCHED now
+ * (issue #156)? True iff its instance is host-enterable — `Thread.resumeWith`
+ * brackets the resumption with `enterFrom(null)` — or POISONED, in which case
+ * `resumeWith`'s early return retires it and deferring would leak forever.
+ *
+ * CONTRACT: a parked entry without a reachable `task.inst` (the partial
+ * thread doubles the host-pump tests park in `Store.awaiting`) holds no
+ * reentrance state, so there is nothing to defer on: dispatchable.
+ */
+// deno-lint-ignore no-explicit-any
+export function dispatchableTail(t: any): boolean {
+  const inst = t?.task?.inst;
+  if (inst === undefined || inst === null) return true;
+  return isInstancePoisoned(inst) || inst.mayEnterFrom(null);
+}
+
+/**
  * The recorded cause of an instance's poisoning: the original trap that
  * broke the enter/leave bracket (deltic#145). `undefined` when the instance
  * is not poisoned — and, degenerately, when the poisoning cause itself was
@@ -818,25 +835,77 @@ export class Store {
   }
 
   /**
-   * Service every settled activation tail, in settle order. Returns whether
-   * anything ran. EVERY driving loop must call this before (and interleaved
-   * with) `tick` — the queue gates `tick`, so a driver that never services
-   * it wedges the store (observed: host-stream pumping between export
-   * calls). A `resumeWith` may throw (trap unwinding); callers propagate or
-   * park it exactly as they do for `tick`.
+   * Service settled activation tails. Returns whether anything ran. EVERY
+   * driving loop must call this before (and interleaved with) `tick` — the
+   * queue gates `tick`, so a driver that never services it wedges the store
+   * (observed: host-stream pumping between export calls). A `resumeWith` may
+   * throw (trap unwinding); callers propagate or park it exactly as they do
+   * for `tick`.
+   *
+   * A tail whose instance is NOT host-enterable is DEFERRED IN PLACE — left
+   * in the queue, skipped here — until the lock releases (issue #156).
+   * `resumeWith` brackets the resumption with `enterFrom(null)`, and under
+   * the shared synthetic per-instantiation root a host entry into ANY
+   * instance of the graph locks the root, so while one instance is entered a
+   * sibling's tail cannot be dispatched: dispatching it tripped
+   * `resumeWith`'s enterability assert (which, mutating before asserting,
+   * also stranded the thread and lost the settle).
+   *
+   * Deferral is safe because `!inst.mayEnterFrom(null)` is EXACTLY `tick`'s
+   * candidate-filter predicate on the same instance: while a tail of `inst`
+   * is deferred, `tick` cannot resume any thread of `inst` either, so the
+   * phantom-state gate the queue exists to enforce is preserved per-instance
+   * by construction.
+   *
+   * The ordering discipline is therefore per-instance settle order. Cross-
+   * instance order relaxes only when enterability defers a tail, which is
+   * conforming schedule nondeterminism: in definitions.py the tail runs
+   * atomically inside the entered bracket, so a host entry admitted during a
+   * park necessarily orders before the parked activation's tail there.
+   *
+   * A POISONED instance's tail is still dispatched: `resumeWith`'s poison
+   * early-return retires it, and deferring it would leak forever — a
+   * poisoned leaf keeps its lock permanently.
    */
   serviceSettled(): boolean {
     let did = false;
-    while (this.settled.length > 0) {
-      const s = this.settled.shift()!;
-      if (this.awaiting.has(s.t)) {
+    // Rescan from the head after every dispatch: a dispatched tail runs guest
+    // code synchronously, which can change lock/poison state and can re-enter
+    // `serviceSettled` (mutating the queue under us).
+    scan: for (;;) {
+      for (let i = 0; i < this.settled.length; i++) {
+        const s = this.settled[i];
+        // Stale: the thread was resumed elsewhere (driveAsync's race-winner
+        // path). Drop it regardless of enterability; it is not progress.
+        if (!this.awaiting.has(s.t)) {
+          this.settled.splice(i, 1);
+          continue scan;
+        }
+        if (!dispatchableTail(s.t)) continue;
+        this.settled.splice(i, 1);
         (s.t as {
           resumeWith(v: unknown, f?: { error: unknown }): void;
         }).resumeWith(s.value, s.failure);
         did = true;
+        continue scan;
       }
+      // A full scan found nothing stale and nothing serviceable.
+      return did;
     }
-    return did;
+  }
+
+  /**
+   * "Would a `serviceSettled` call make progress right now?" — i.e. some
+   * entry is stale (would be removed) or serviceable (would be dispatched).
+   * A queue holding ONLY deferred tails (issue #156) answers false: `tick`
+   * must not be gated by them, and the driving loops must not spin on them.
+   */
+  hasServiceableSettled(): boolean {
+    for (const s of this.settled) {
+      if (!this.awaiting.has(s.t)) return true;
+      if (dispatchableTail(s.t)) return true;
+    }
+    return false;
   }
 
   /**
@@ -931,7 +1000,14 @@ export class Store {
     // Same discipline, other edge: a settled-but-unserviced activation tail
     // (see `settled`) is mid-"atomic resume" from the reference's point of
     // view; scheduling anything before servicing it acts on phantom state.
-    if (this.settled.length > 0) return false;
+    //
+    // Only a SERVICEABLE tail gates: a tail DEFERRED on a non-enterable
+    // instance (issue #156) cannot be dispatched now, and gating on it would
+    // wedge the store (and hot-spin the drivers). It does not need to gate,
+    // because its instance is self-excluded from the candidate set by the
+    // enterability filter below — the same predicate on the same instance —
+    // so no thread of that instance can be resumed while its tail waits.
+    if (this.hasServiceableSettled()) return false;
     // Ready is not sufficient: the thread's instance must also be enterable
     // from the host. The reference *asserts* this in `Store.tick` — a waiting
     // thread's instance is always re-enterable there, because its host entry
