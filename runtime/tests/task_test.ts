@@ -18,6 +18,7 @@ import {
   packSubtaskResult,
   schedulerPolicy,
   schedulerSeedForTesting,
+  notifyInstancePoisoned,
   Store,
   Subtask,
   SubtaskState,
@@ -309,6 +310,180 @@ Deno.test("root: tick skips a sibling whose instance is locked by a host entry",
   assertEq(order.join(","), "b ran");
   assertEq(bTask.state, "resolved");
   assertEq(store.waiting.length, 0);
+});
+
+// --- issue #156: settled activation tails defer while the root is locked ----
+//
+// `Store.settled` tails are dispatched through `Thread.resumeWith`, which
+// brackets the resumption with `enterFrom(null)`. Under the shared synthetic
+// root a host entry into ANY instance locks every sibling, so dispatching a
+// sibling's tail in that window used to trip `resumeWith`'s enterability
+// assert (and, mutating before asserting, strand the thread and lose the
+// settle). The fix defers such tails IN PLACE.
+
+/** Settle a park promise and let `noteAwaiting`'s eager continuation run. */
+async function queueSettledTail(settle: () => void): Promise<void> {
+  settle();
+  // Two hops: `noteAwaiting`'s `.then` pushes onto `settled`.
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
+Deno.test("root: serviceSettled defers a sibling tail while a host entry holds the root", async () => {
+  const store = new Store();
+  const a = new ComponentInstanceState(0, store);
+  const b = new ComponentInstanceState(1, store);
+
+  let settle!: () => void;
+  const p = new Promise<void>((r) => {
+    settle = r;
+  });
+  const order: string[] = [];
+  const bTask = mkTask(b, SYNC_FT, SYNC_OPTS);
+  const bThread = spawn(bTask, function* (thread) {
+    yield* bTask.enterImplicitThread(thread);
+    bTask.start();
+    const v = yield { readyFunc: null, cancellable: false, awaitValue: p };
+    void v;
+    order.push("b tail ran");
+    bTask.return_([]);
+    bTask.exitImplicitThread(thread);
+  });
+  bThread.resume();
+  assertEq(store.awaiting.has(bThread), true, "B is promise-parked");
+
+  await queueSettledTail(settle);
+  assertEq(store.settled.length, 1, "the tail is queued");
+
+  // A host entry into the sibling locks the shared root.
+  a.enterFrom(null);
+  assertEq(b.mayEnterFrom(null), false);
+  assertEq(store.serviceSettled(), false, "deferred: no dispatch, no throw");
+  assertEq(store.settled.length, 1, "the entry stays queued, in place");
+  assertEq(store.awaiting.has(bThread), true, "and the thread is not stranded");
+  assertEq(order.length, 0);
+  assertEq(store.tick(), false, "a deferred-only queue does not gate tick open");
+
+  a.leaveTo(null);
+  assertEq(store.serviceSettled(), true, "the lock released: dispatch");
+  assertEq(order.join(","), "b tail ran");
+  assertEq(bTask.state, "resolved");
+  assertEq(store.settled.length, 0);
+});
+
+Deno.test("root: the phantom-state gate holds for a serviceable tail", async () => {
+  // The tick gate relaxes ONLY for deferred tails: a serviceable unserviced
+  // tail still refuses tick, preserving the reference's atomic-resume
+  // discipline.
+  const store = new Store();
+  const a = new ComponentInstanceState(0, store);
+  const b = new ComponentInstanceState(1, store);
+
+  let settle!: () => void;
+  const p = new Promise<void>((r) => {
+    settle = r;
+  });
+  const bTask = mkTask(b, SYNC_FT, SYNC_OPTS);
+  const bThread = spawn(bTask, function* (thread) {
+    yield* bTask.enterImplicitThread(thread);
+    bTask.start();
+    yield { readyFunc: null, cancellable: false, awaitValue: p };
+    bTask.return_([]);
+    bTask.exitImplicitThread(thread);
+  });
+  bThread.resume();
+
+  // A ready sibling thread, exactly as the #155 test constructs one.
+  let flag = false;
+  const order: string[] = [];
+  const aTask = mkTask(a, SYNC_FT, SYNC_OPTS);
+  const aThread = spawn(aTask, function* (thread) {
+    yield* aTask.enterImplicitThread(thread);
+    aTask.start();
+    yield* thread.waitUntil(() => flag, false);
+    order.push("a ran");
+    aTask.return_([]);
+    aTask.exitImplicitThread(thread);
+  });
+  aThread.resume();
+  flag = true;
+  assertEq(aThread.ready(), true);
+
+  await queueSettledTail(settle);
+  assertEq(store.settled.length, 1);
+  assertEq(a.mayEnterFrom(null), true, "nothing is entered: the tail is serviceable");
+  assertEq(store.tick(), false, "a serviceable tail gates tick");
+  assertEq(order.length, 0);
+
+  assertEq(store.serviceSettled(), true);
+  assertEq(store.tick(), true, "with the queue drained, tick proceeds");
+  assertEq(order.join(","), "a ran");
+});
+
+Deno.test("root: poisoned tails retire even while the root is locked", async () => {
+  // A poisoned leaf stays locked forever, so deferring its tail would leak.
+  // `resumeWith`'s poison early-return retires it instead: the queue drains
+  // and the body does NOT run.
+  const store = new Store();
+  const a = new ComponentInstanceState(0, store);
+  const b = new ComponentInstanceState(1, store);
+
+  let settle!: () => void;
+  const p = new Promise<void>((r) => {
+    settle = r;
+  });
+  const order: string[] = [];
+  const bTask = mkTask(b, SYNC_FT, SYNC_OPTS);
+  const bThread = spawn(bTask, function* (thread) {
+    yield* bTask.enterImplicitThread(thread);
+    bTask.start();
+    yield { readyFunc: null, cancellable: false, awaitValue: p };
+    order.push("b tail ran");
+    bTask.return_([]);
+    bTask.exitImplicitThread(thread);
+  });
+  bThread.resume();
+  await queueSettledTail(settle);
+  assertEq(store.settled.length, 1);
+
+  notifyInstancePoisoned(b, undefined);
+  a.enterFrom(null);
+  assertEq(store.serviceSettled(), true, "poisoned tails dispatch, locked or not");
+  assertEq(store.settled.length, 0, "and the queue drains");
+  assertEq(order.length, 0, "retired quietly: the body never ran");
+  a.leaveTo(null);
+});
+
+Deno.test("root: stale settled entries are removed regardless of enterability", async () => {
+  // "Stale" = the thread was resumed elsewhere (driveAsync's race-winner
+  // path), i.e. it is gone from `store.awaiting`. Such entries are dropped
+  // whenever encountered, and dropping one is not progress.
+  const store = new Store();
+  const a = new ComponentInstanceState(0, store);
+  const b = new ComponentInstanceState(1, store);
+
+  let settle!: () => void;
+  const p = new Promise<void>((r) => {
+    settle = r;
+  });
+  const bTask = mkTask(b, SYNC_FT, SYNC_OPTS);
+  const bThread = spawn(bTask, function* (thread) {
+    yield* bTask.enterImplicitThread(thread);
+    bTask.start();
+    yield { readyFunc: null, cancellable: false, awaitValue: p };
+    bTask.return_([]);
+    bTask.exitImplicitThread(thread);
+  });
+  bThread.resume();
+  await queueSettledTail(settle);
+  assertEq(store.settled.length, 1);
+
+  // Simulate the elsewhere-resumption.
+  store.awaiting.delete(bThread);
+  a.enterFrom(null);
+  assertEq(store.serviceSettled(), false, "removing a stale entry is not progress");
+  assertEq(store.settled.length, 0, "but it is removed");
+  a.leaveTo(null);
 });
 
 Deno.test("root: trap poisoning stays per-instance (documented divergence)", () => {

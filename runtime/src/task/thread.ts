@@ -165,6 +165,14 @@ export class Thread implements SchedulableThread {
     // Retire quietly: the abandoned call's own driver reports, via its
     // deadlock trap naming the export.
     if (isInstancePoisoned(inst)) return;
+    // The enterability check below is an internal BACKSTOP, not a live gate:
+    // every dispatch site (`Store.serviceSettled`, `driveAsync`'s race-winner
+    // path) now guards enterable-or-poisoned before calling and DEFERS the
+    // tail otherwise (issue #156) — under the shared synthetic root, a host
+    // entry into any instance of the graph makes every sibling
+    // non-enterable, so this assert was reachable, and (mutating before
+    // asserting) it stranded the thread and lost the settle. It stays to
+    // protect the invariant for any future caller.
     assert_(
       inst.mayEnterFrom(null),
       "resumeWith: parked thread's instance is not enterable from the host",
