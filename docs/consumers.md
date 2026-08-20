@@ -106,11 +106,19 @@ leg-wall-time table lives on
 | test | n/a — already jco-free as a gate ([#77](https://github.com/polymorph-components/polymorph-test/pull/77)) | keeps publishing the jco-era compat surface webcrypto's retained lanes pin |
 
 Every standing matrix runs deltic as its JS host (webcrypto additionally
-retains jco rows). Consumer pins date from the cutover
-(`pre-58b2404`-era); moving the family onto JSR caret pins post-#16 is
-[#108](https://github.com/lann/deltic/issues/108)-adjacent follow-up work,
-minding that 0.2.0 is a breaking line (plan formatVersion) — runtime and
-translator move together.
+retains jco rows). Pin state (2026-08-20, the v0.2.0 family upgrade): the
+whole family consumes deltic from **JSR** — exact `@deltic/*@0.2.0` pins
+in repo tooling, `^0.2.0` ranges in the published host modules
+(`@polymorph/{websocket,webcrypto,webrtc-datachannels,iroh}`, each
+published at 0.2.0 with its deltic line; `@polymorph/test` at 0.1.1 is
+deltic-version-agnostic by design — its worker takes the engine by
+injection). Every repo gates module identity on ONE resolved deltic
+version (pin gates + iroh's identity gate: "one runtime, no raw URLs"),
+which is [#108](https://github.com/lann/deltic/issues/108)'s
+"alternative" resolution realized for the family; #108's remaining scope
+is the wosh-side raw-URL pattern. Upgrades ride the lockstep line:
+0.2.0 is breaking (plan formatVersion 4), and runtime + translator move
+together by construction.
 
 ## Deno substitutes for Node (C0 evidence)
 
