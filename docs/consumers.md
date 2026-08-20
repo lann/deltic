@@ -115,8 +115,10 @@ deltic-version-agnostic by design — its worker takes the engine by
 injection). Every repo gates module identity on ONE resolved deltic
 version (pin gates + iroh's identity gate: "one runtime, no raw URLs"),
 which is [#108](https://github.com/lann/deltic/issues/108)'s
-"alternative" resolution realized for the family; #108's remaining scope
-is the wosh-side raw-URL pattern. Upgrades ride the lockstep line:
+"alternative" resolution realized for the family; wosh (the issue's
+exemplar consumer) has since moved to JSR pins as well, so whether #108
+retains live scope is the operator's call on that issue. Upgrades ride
+the lockstep line:
 0.2.0 is breaking (plan formatVersion 4), and runtime + translator move
 together by construction.
 
