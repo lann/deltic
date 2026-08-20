@@ -1062,8 +1062,18 @@ export class Store {
         // in this entry's entering set but must not turn per-instance
         // poisoning into store-wide poisoning. See
         // `ComponentInstanceState.releaseSyntheticRootOnPoison`.
+        //
+        // Routed through `notifyInstancePoisoned` (not the raw hook) so the
+        // poison MARKER is recorded too (deltic#145): `Thread.resumeWith`'s
+        // quiet-retire of late settled tails and `dispatchableTail`'s
+        // dispatch-or-defer decision (#156) both read it, and without the
+        // marker a settled tail of this instance would hit the backstop
+        // assert or defer forever.
         inst.releaseSyntheticRootOnPoison?.();
-        onInstancePoisoned?.(inst, e);
+        notifyInstancePoisoned(
+          inst as unknown as { handles: Iterable<unknown> },
+          e,
+        );
       }
       throw e;
     }

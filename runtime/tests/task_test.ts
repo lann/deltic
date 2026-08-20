@@ -18,7 +18,9 @@ import {
   packSubtaskResult,
   schedulerPolicy,
   schedulerSeedForTesting,
+  isInstancePoisoned,
   notifyInstancePoisoned,
+  PendingCapability,
   Store,
   Subtask,
   SubtaskState,
@@ -27,6 +29,7 @@ import {
   Thread,
   unpackSubtaskResult,
   WaitableSet,
+  withPoisonCause,
 } from "../src/task/mod.ts";
 import type { FuncType } from "../src/cabi/types.ts";
 
@@ -806,6 +809,112 @@ Deno.test("cancellation: with no cancellable thread it becomes pending", () => {
   gate.open = true;
   while (store.tick());
   assertEq(task.state, "resolved");
+});
+
+Deno.test("tick: a trap under tick records the poison marker", async () => {
+  // A trap escaping `thread.resume()` under `Store.tick` breaks the
+  // enter/leave bracket (definitions.py `Store.tick`, line 597) — and must
+  // also record the poison MARKER, which `Thread.resumeWith`'s quiet-retire
+  // and `dispatchableTail` read (deltic#145, #156).
+  const store = new Store();
+  const b = new ComponentInstanceState(0, store);
+
+  // A second thread of B, parked on a host promise BEFORE the trap.
+  let settle!: () => void;
+  const p = new Promise<void>((r) => {
+    settle = r;
+  });
+  const order: string[] = [];
+  const parkedTask = mkTask(b, SYNC_FT, SYNC_OPTS);
+  const parkedThread = spawn(parkedTask, function* (thread) {
+    yield* parkedTask.enterImplicitThread(thread);
+    parkedTask.start();
+    yield { readyFunc: null, cancellable: false, awaitValue: p };
+    order.push("parked tail ran");
+    parkedTask.return_([]);
+    parkedTask.exitImplicitThread(thread);
+  });
+  parkedThread.resume();
+  assertEq(store.awaiting.has(parkedThread), true, "the sibling is parked");
+
+  // A waiting+ready thread of B whose resumption traps.
+  let flag = false;
+  const trapTask = mkTask(b, ASYNC_FT, STACKFUL_OPTS);
+  const trapThread = spawn(trapTask, function* (thread) {
+    yield* trapTask.enterImplicitThread(thread);
+    trapTask.start();
+    yield* thread.waitUntil(() => flag, false);
+    throw new Trap("boom under tick");
+  });
+  trapThread.resume();
+  flag = true;
+  assertEq(trapThread.ready(), true);
+
+  assertThrows(() => store.tick(), "boom under tick");
+
+  assertEq(isInstancePoisoned(b), true, "the poison marker is recorded");
+  assertEq(b.mayEnterFrom(null), false, "and the bracket stays broken");
+  assert(
+    withPoisonCause(b, "x").includes("boom under tick"),
+    "the cause is available for entry-refusal diagnostics",
+  );
+
+  // #156 interaction: the settled tail of the poisoned instance drains
+  // quietly instead of hitting `resumeWith`'s backstop assert (or deferring
+  // forever, which is what `dispatchableTail` would do without the marker).
+  await queueSettledTail(settle);
+  assertEq(store.settled.length, 1, "the tail is queued");
+  assertEq(store.serviceSettled(), true, "poisoned tails dispatch");
+  assertEq(store.settled.length, 0, "the queue drains");
+  assertEq(order.length, 0, "retired quietly: the body never ran");
+});
+
+Deno.test("request_cancellation: a trap during delivery poisons the callee", () => {
+  // definitions.py `Task.request_cancellation` (lines 519-532) wraps the
+  // delivery `resume(Cancelled.TRUE)` in no handler: a Trap skips `leave_to`.
+  const store = new Store();
+  const callerInst = new ComponentInstanceState(0, store);
+  const b = new ComponentInstanceState(1, store);
+  const task = mkTask(b, ASYNC_FT, STACKFUL_OPTS);
+  const thread = spawn(task, function* (thread) {
+    yield* task.enterImplicitThread(thread);
+    task.start();
+    const cancelled = yield* thread.waitUntil(() => false, true);
+    if (cancelled) throw new Trap("boom during cancel delivery");
+  });
+  thread.resume();
+  assertEq(task.state, "started");
+
+  assertThrows(
+    () => task.requestCancellation(callerInst),
+    "boom during cancel delivery",
+  );
+  assertEq(b.mayEnterFrom(callerInst), false, "the callee stays locked");
+  assertEq(isInstancePoisoned(b), true);
+  assertEq(task.state, "cancel-delivered", "parity: the state is set first");
+});
+
+Deno.test("request_cancellation: a capability signal releases the gate", () => {
+  // Capability signals mark the RUNTIME incomplete, not the component
+  // faulted: the bracket is released, exactly as in `Store.tick`.
+  const store = new Store();
+  const callerInst = new ComponentInstanceState(0, store);
+  const b = new ComponentInstanceState(1, store);
+  const task = mkTask(b, ASYNC_FT, STACKFUL_OPTS);
+  const thread = spawn(task, function* (thread) {
+    yield* task.enterImplicitThread(thread);
+    task.start();
+    const cancelled = yield* thread.waitUntil(() => false, true);
+    if (cancelled) throw new PendingCapability("x");
+  });
+  thread.resume();
+
+  assertThrows(
+    () => task.requestCancellation(callerInst),
+    "pending-capability: x",
+  );
+  assertEq(b.mayEnterFrom(callerInst), true, "the gate is released");
+  assertEq(isInstancePoisoned(b), false, "and nothing is poisoned");
 });
 
 Deno.test("cancellation: task.cancel without a delivered request traps", () => {
