@@ -29,7 +29,7 @@ import { Translator } from "../shim/mod.ts";
 import { copyCensus, isTrap, isComponentException } from "@deltic/protocol";
 import { NameCollisionError, ComponentException } from "./errors.ts";
 import { type ImportLeaf, requiredImports } from "./imports.ts";
-import { callDtorGated } from "../cabi/handles.ts";
+import { hostDtorCall } from "../exec/boundary.ts";
 import {
   buildGuestResourceClass,
   type GuestResourceSpec,
@@ -452,7 +452,7 @@ class Facade {
           b.registry.dtor(rep);
           return;
         }
-        callDtorGated(t.rt, rep, null, true);
+        hostDtorCall(t.rt, rep);
       },
     };
   }

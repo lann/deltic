@@ -17,7 +17,6 @@ import {
   assertModeConsistent,
   type SuspendingImport,
   chooseMode,
-  enterWasm,
   isSuspending,
   planNeedsSuspension,
   suspendingImport,
@@ -43,6 +42,7 @@ import type { LoadedPlan, LoadedType } from "../plan/loader.ts";
 import {
   CONSTRUCTOR_SYNC_ENTRY,
   type CoreFn,
+  createDtorEntry,
   createLiftedFunction,
   createLoweredImport,
   type ExecutionStats,
@@ -696,35 +696,50 @@ class Executor {
               token.dtor = dtor === null ? null : (rep: number) => {
                 dtor(rep);
               };
-              // #85: the JS-initiated-drop variant. In jspi mode a dtor may
-              // legally reach a `Suspending` import (docs §7), which needs a
-              // `promising` entry — only this module holds the raw export.
-              // Wrapped ONLY when the dtor is suspension-capable
-              // (`suspendableFuncs`: its core instance imports a blocking
-              // trampoline): `promising` settles on a later microtask even
-              // for a non-suspending activation (jspi pin (j)), which would
-              // leave the impl instance entered for a turn after every
-              // drop — a synchronous drop-then-call sequence would trap. A
-              // non-suspendable dtor cannot legally suspend, so the sync
-              // path is exact for it. `WebAssembly.promising` also rejects
-              // non-wasm callables (a dtor CoreDef can resolve to a JS
-              // trampoline) with a TypeError; fall back to the sync closure
-              // — pre-#85 behavior, where a suspension is a deterministic
-              // frame-rule trap. Deliberately does NOT set `wrappedEntries`:
-              // `finish()`'s invariant inventories the two primary wrapping
-              // sites; this is an auxiliary entry.
-              if (
-                dtor !== null && this.suspensionMode === "jspi" &&
-                this.suspendableFuncs.has(dtor as unknown as object)
-              ) {
-                try {
-                  token.dtorHost = enterWasm(
-                    dtor as (rep: number) => unknown,
-                    this.suspensionMode,
-                  );
-                } catch {
-                  token.dtorHost = null;
-                }
+              // #85/#160: the host-initiated-drop entry. A host-initiated
+              // drop is a full canonical LIFT of the dtor (definitions.py
+              // `canon_resource_drop`, line 2319), so it is built here with
+              // the same harness every lifted export uses — that is what
+              // gives the dtor's activation a real Task/Thread, and what
+              // releases the impl instance's entry bracket at the first park
+              // instead of holding it across the whole activation (#160).
+              //
+              // The `promising` entry wrapping (docs §7: in jspi mode a dtor
+              // may legally reach a `Suspending` import) is applied INSIDE
+              // `createLiftedFunction` per `suspensionMode`, and only when
+              // the dtor is suspension-capable (`suspendableFuncs`: its core
+              // instance imports a blocking trampoline). A non-suspendable
+              // dtor cannot legally suspend, so the plain entry is exact for
+              // it and avoids `promising`'s unconditional microtask hop
+              // (jspi pin (j)). The hop no longer risks a drop-then-call
+              // trap either way — the bracket is released before the drive,
+              // and the hop-quiescence entry gate covers the sequence — but
+              // the plain path stays the cheaper and more deterministic one.
+              //
+              // `WebAssembly.promising` rejects non-wasm callables (a dtor
+              // CoreDef can resolve to a JS trampoline) with a TypeError;
+              // fall back to the plain entry, where `awaitCore` still parks
+              // on a returned Promise. Deliberately does NOT set
+              // `wrappedEntries`: `finish()`'s invariant inventories the two
+              // primary wrapping sites; this is an auxiliary entry.
+              const suspendable = dtor !== null &&
+                this.suspensionMode === "jspi" &&
+                this.suspendableFuncs.has(dtor as unknown as object);
+              const mkEntry = (mode: SuspensionMode) =>
+                createDtorEntry({
+                  name: `[dtor] resource ${init.index}`,
+                  dtor,
+                  instance: inst,
+                  suspensionMode: mode,
+                  stats: this.stats,
+                  trapState: this.trapState,
+                  syncCallStack: this.syncCallStack,
+                  allInstances: () => this.componentInstances.values(),
+                });
+              try {
+                token.dtorHost = mkEntry(suspendable ? "jspi" : "plain");
+              } catch {
+                token.dtorHost = mkEntry("plain");
               }
             }
           });

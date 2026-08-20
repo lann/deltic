@@ -17,7 +17,7 @@
 
 import type { ResourceTypeInfo, ValType } from "../cabi/types.ts";
 import { RESOURCE_STATE } from "@deltic/protocol";
-import { callDtorGated } from "../cabi/handles.ts";
+import { hostDtorCall } from "../exec/boundary.ts";
 import { COPY_URL, describeCrossCopy } from "./copy.ts";
 import { InvalidHandleError } from "./errors.ts";
 import { camelCase, pascalCase } from "./casing.ts";
@@ -126,22 +126,22 @@ export function simulateFinalizationForTest(w: object): void {
  *
  * The host holds a rep, never a table index, so there is nothing to remove
  * from a handle table: the observable remainder of definitions.py
- * `canon_resource_drop` for an owning handle is the gated dtor call
- * (`callDtorGated`, cabi/handles.ts), with `caller = None` — a host-initiated
+ * `canon_resource_drop` for an owning handle is the lifted dtor call
+ * (`hostDtorCall`, exec/boundary.ts), with `caller = None` — a host-initiated
  * call, `Store.invoke`'s `caller = None`.
  *
  * Never throws: the two callers are `drop()`/`[Symbol.dispose]()` — where a
  * trap *is* reportable, so it propagates — and the FinalizationRegistry
  * callback, where a throw would be swallowed by the engine with no
  * diagnostic. `runHostDrop` is the latter's form: a trapping dtor poisons the
- * implementing instance (which `callDtorGated` does) and is additionally
+ * implementing instance (which the lift harness does) and is additionally
  * recorded on the store's host-failure channel, so the next driven call
  * surfaces it instead of silently continuing on a half-destroyed instance
  * (#86, second defect: the former `catch {}`).
  */
 function runHostDrop(s: WrapperState): void {
   try {
-    callDtorGated(s.rt, s.rep, null, true);
+    hostDtorCall(s.rt, s.rep);
   } catch (e) {
     recordHostFailure(s.rt, e);
   }
@@ -228,19 +228,19 @@ function dropWrapper(w: GuestResource): void {
     s.pendingDrop = true;
     return;
   }
-  // The dtor is entered through `callDtorGated`, which is also where a dtor
-  // that returns a Promise (a `promising`-entered dtor calling a `Suspending`
-  // import, docs/architecture.md §7) is tracked: the entry bracket is held
-  // until it settles and the promise is registered in the store's
-  // `pendingHostCalls`, so `drop()` itself never blocks.
+  // The dtor runs as an ordinary LIFTED sync call (`hostDtorCall`, #160):
+  // definitions.py `canon_resource_drop` (line 2319) lifts it with
+  // `CanonicalOptions(async_ = False)` rather than calling it bare, and that
+  // is what gives the activation a Task/Thread. A dtor that suspends (a
+  // `promising`-entered dtor calling a `Suspending` import,
+  // docs/architecture.md §7) therefore releases the implementing instance's
+  // entry bracket at its first park, so the scheduler can resume it — the
+  // old held-bracket form wedged exactly there (#160).
   //
-  // The `promising` entry itself is wired by exec/executor.ts (the `resource`
-  // initializer sets `ResourceTypeInfo.dtorHost` from the raw wasm export in
-  // jspi mode); `callDtorGated(allowAsync=true)` prefers it. In non-JSPI mode
-  // — or when the dtor resolved to a non-wasm callable, which `promising`
-  // rejects — this is a direct call, where a `Suspending` import was already
-  // unreachable from a dtor.
-  callDtorGated(s.rt, s.rep, null, true);
+  // `drop(): void` stays non-blocking: an unfinished dtor's tail is driven
+  // by the store like any other parked activation, and a failure that has no
+  // frame to return into is parked on `store.hostFailure`.
+  hostDtorCall(s.rt, s.rep);
 }
 
 /**

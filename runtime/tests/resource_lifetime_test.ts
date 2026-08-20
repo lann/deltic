@@ -7,12 +7,12 @@
 // `canon_resource_drop` (lines 1508, 2325).
 
 import {
-  callDtorGated,
   canonResourceDrop,
   canonResourceNew,
   ResourceTypeInfo,
 } from "../src/cabi/mod.ts";
-import { ComponentInstanceState, Store } from "../src/task/mod.ts";
+import { ComponentInstanceState, Store, storeQuiescent } from "../src/task/mod.ts";
+import { driveStoreAsync, hostDtorCall } from "../src/exec/boundary.ts";
 import { setOnInstancePoisoned } from "../src/task/scheduler.ts";
 // Side-effecting import: registers `retireInstanceAsyncEnds` as the poisoning
 // hook (#66). Without it the seam is null and the poison walk is a no-op.
@@ -182,7 +182,16 @@ Deno.test("#85: a guest-initiated dtor that does not finish synchronously traps"
   });
 });
 
-Deno.test("#85: a host-initiated async dtor holds the gate until it settles", async () => {
+Deno.test("#160: a host-initiated async dtor does NOT hold the gate", async () => {
+  // REVISED from the #85 pin "holds the gate until it settles". That
+  // behaviour was the bug: the held `enterFrom(null)` bracket made the impl
+  // instance non-enterable for the whole activation, so `Store.tick`'s
+  // enterability filter could never resume a suspension point belonging to
+  // the dtor itself (#160). A host-initiated dtor is now a full canonical
+  // lift (definitions.py `canon_resource_drop` line 2319), whose bracket is
+  // released at the first park — so the instance is host-enterable while the
+  // dtor is in flight, and the completion promise is NOT a `pendingHostCalls`
+  // entry (it is not external work).
   const { store, impl } = mkPair();
   let resolveDtor: () => void = () => {};
   const rt = new ResourceTypeInfo(
@@ -191,18 +200,18 @@ Deno.test("#85: a host-initiated async dtor holds the gate until it settles", as
       rep: number,
     ) => void,
   );
-  callDtorGated(rt, 11, null, true);
-  assertEq(impl.mayEnter, false);
-  assertEq(store.pendingHostCalls.size, 1);
+  hostDtorCall(rt, 11);
+  assertEq(impl.mayEnter, true);
+  assertEq(impl.mayEnterFrom(null), true);
+  assertEq(store.pendingHostCalls.size, 0);
   resolveDtor();
-  await Promise.all([...store.pendingHostCalls]);
-  await Promise.resolve();
+  await driveStoreAsync(store, () => storeQuiescent(store), "dtor drain");
   assertEq(impl.mayEnter, true);
   assertEq(store.pendingHostCalls.size, 0);
   assertEq(store.hostFailure, undefined);
 });
 
-Deno.test("#85: a rejected host-initiated dtor poisons and lands on hostFailure", async () => {
+Deno.test("#85/#160: a rejected host-initiated dtor poisons and lands on hostFailure", async () => {
   await withPoisonSpy(async (seen) => {
     const { store, impl } = mkPair();
     const boom = new Error("async dtor trap");
@@ -210,9 +219,14 @@ Deno.test("#85: a rejected host-initiated dtor poisons and lands on hostFailure"
       impl,
       (() => Promise.reject(boom)) as unknown as (rep: number) => void,
     );
-    callDtorGated(rt, 12, null, true);
-    const pending = [...store.pendingHostCalls];
-    await Promise.all(pending);
+    // Substance unchanged by #160; only the timing (microtasks, not the
+    // `pendingHostCalls` promise) and the surfaced error identity move: the
+    // rejection now travels through `awaitCore`'s `mapCoreException`, which
+    // passes a non-`WebAssembly.RuntimeError` through unchanged — so it is
+    // still `boom` itself.
+    hostDtorCall(rt, 12);
+    await driveStoreAsync(store, () => storeQuiescent(store), "dtor drain")
+      .catch(() => {});
     await Promise.resolve();
     assertEq(store.hostFailure === boom, true);
     assertEq(impl.mayEnter, false);

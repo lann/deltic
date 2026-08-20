@@ -9,6 +9,8 @@
 //   - canon_resource_drop routes the dtor through `callDtorGated` below,
 //     which reconstructs the reference's store.lift/store.lower bracket
 //     (may_enter gating + trap poisoning) around the destructor call (#85).
+//     Host-initiated drops do NOT come here: they run the dtor through the
+//     real lift harness (`hostDtorCall`, exec/boundary.ts) — see #160.
 
 import { assert_, Trap, trap, trapIf } from "./trap.ts";
 import {
@@ -170,10 +172,6 @@ interface ReentranceGate {
   enterFrom(caller: unknown): void;
   leaveTo(caller: unknown): void;
   handles: Iterable<unknown>;
-  store?: {
-    pendingHostCalls: Set<Promise<unknown>>;
-    hostFailure: unknown;
-  };
 }
 
 function asGate(x: unknown): ReentranceGate | null {
@@ -225,24 +223,23 @@ function isThenable(v: unknown): v is PromiseLike<unknown> {
  * Capability signals (`NeedsJspi`, `PendingCapability`) are not traps — see
  * `isCapabilitySignal` in exec/boundary.ts — so they release the gate.
  *
- * `allowAsync` covers the host-initiated drop path (embedder/resources.ts):
- * a dtor reached through a `promising` entry settles on a later turn, so the
- * bracket is closed by the settle instead of synchronously. A *guest*-
- * initiated drop must complete synchronously (the reference lifts the dtor
- * with `async_ = False`), so a thenable there is a trap.
+ * SCOPE (#160): this is the **guest-initiated** path only. A guest-initiated
+ * drop must complete synchronously (the reference lifts the dtor with
+ * `async_ = False`), so a thenable here is a trap. The host-initiated path
+ * used to share this function with an `allowAsync` flag that held the entry
+ * bracket across the dtor's promise; it now goes through the full lift
+ * harness instead (`hostDtorCall` in exec/boundary.ts), which is what
+ * definitions.py actually does and what unwedges #160.
  */
 export function callDtorGated(
   rt: ResourceTypeInfo,
   rep: number,
   caller: unknown,
-  allowAsync = false,
 ): void {
   const impl = asGate(rt.impl);
-  // A JS-initiated drop prefers the `promising`-wrapped entry when the
-  // executor wired one (#85: a dtor may legally reach a `Suspending` import
-  // on this path, so it needs a suspension-legal stack). Guest-initiated
-  // drops always take the raw synchronous dtor — see ResourceTypeInfo.
-  const dtorFn = allowAsync ? (rt.dtorHost ?? rt.dtor) : rt.dtor;
+  // Always the raw synchronous dtor: `dtorHost` is the host path's lifted
+  // entry, which is not callable from inside a guest activation.
+  const dtorFn = rt.dtor;
   // No gate available: an imported (host-implemented) resource has
   // `impl === null` by construction (executor.ts `bindImportedResources`),
   // and there is no component instance to gate entry into. Test doubles that
@@ -250,7 +247,7 @@ export function callDtorGated(
   if (impl === null) {
     const r = dtorFn?.(rep) as unknown;
     trapIf(
-      !allowAsync && isThenable(r),
+      isThenable(r),
       "resource destructor did not complete synchronously",
     );
     return;
@@ -288,38 +285,14 @@ export function callDtorGated(
     throw e;
   }
   if (isThenable(out)) {
-    if (!allowAsync) {
-      // A guest-initiated drop is lifted with `async_ = False`: the dtor must
-      // resolve before `canon_resource_drop` returns. Reaching here means the
-      // dtor's activation escaped, which is a trap that poisons the impl.
-      const e = new Trap(
-        "resource destructor did not complete synchronously",
-      );
-      poison(e);
-      throw e;
-    }
-    // Host-initiated async dtor: the entry bracket stays held until the
-    // destructor's activation actually finishes, which is what `Store.lift`
-    // does for a callee that blocks. Registered in `pendingHostCalls` so the
-    // driver counts it as externally-wakeable work and teardown can see it.
-    const store = impl.store;
-    const promise = Promise.resolve(out).then(
-      () => {
-        store?.pendingHostCalls.delete(promise);
-        impl.leaveTo(callerInst);
-      },
-      (e) => {
-        store?.pendingHostCalls.delete(promise);
-        // The failure cannot propagate out of this microtask; the store's
-        // host-failure channel is where the driving call picks it up.
-        if (store !== undefined && store.hostFailure === undefined) {
-          store.hostFailure = e;
-        }
-        poison(e);
-      },
+    // A guest-initiated drop is lifted with `async_ = False`: the dtor must
+    // resolve before `canon_resource_drop` returns. Reaching here means the
+    // dtor's activation escaped, which is a trap that poisons the impl.
+    const e = new Trap(
+      "resource destructor did not complete synchronously",
     );
-    store?.pendingHostCalls.add(promise);
-    return;
+    poison(e);
+    throw e;
   }
   impl.leaveTo(callerInst);
 }
