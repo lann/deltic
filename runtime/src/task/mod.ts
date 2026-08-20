@@ -22,6 +22,9 @@ import {
   chooseCandidate,
   Store,
   dbgId,
+  NeedsJspi,
+  notifyInstancePoisoned,
+  PendingCapability,
 } from "./scheduler.ts";
 import { Thread } from "./thread.ts";
 import { Waitable, WaitableSet } from "./waitable.ts";
@@ -511,9 +514,35 @@ export class Task {
       this.inst.enterFrom(caller);
       try {
         chooseCandidate(candidates).resume(CANCELLED_TRUE);
-      } finally {
-        this.inst.leaveTo(caller);
+      } catch (e) {
+        // Deliberately NOT a `finally`, mirroring `Store.tick`'s
+        // bracket-break discipline (scheduler.ts): the reference wraps the
+        // delivery `resume(Cancelled.TRUE)` in no handler at all
+        // (definitions.py `Task.request_cancellation`, lines 519-532; the
+        // delivery is line 531), so a Trap escaping it never reaches
+        // `leave_to` on line 532 — the entered set stays locked, i.e. the
+        // Component Model's instance poisoning. A `finally` here would
+        // un-poison a half-unwound callee.
+        //
+        // Capability signals are the exception, exactly as in `tick`: they
+        // mark this RUNTIME incomplete, not the component faulted, and in
+        // the reference the blocking operation completes and `leave_to` IS
+        // reached.
+        if (e instanceof NeedsJspi || e instanceof PendingCapability) {
+          this.inst.leaveTo(caller);
+        } else {
+          // The synthetic root is released so the poisoning stays
+          // per-instance (plan v3 amendment 4); for a guest caller the
+          // entering set is the leaf alone and the release is a no-op.
+          this.inst.releaseSyntheticRootOnPoison();
+          notifyInstancePoisoned(
+            this.inst as unknown as { handles: Iterable<unknown> },
+            e,
+          );
+        }
+        throw e;
       }
+      this.inst.leaveTo(caller);
     } else {
       this.state = "pending-cancel";
     }
