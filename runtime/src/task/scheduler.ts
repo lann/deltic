@@ -932,17 +932,33 @@ export class Store {
     // (see `settled`) is mid-"atomic resume" from the reference's point of
     // view; scheduling anything before servicing it acts on phantom state.
     if (this.settled.length > 0) return false;
-    const candidates = this.readyCandidates();
+    // Ready is not sufficient: the thread's instance must also be enterable
+    // from the host. The reference *asserts* this in `Store.tick` — a waiting
+    // thread's instance is always re-enterable there, because its host entry
+    // has either left or is itself a waiting thread. That does not hold here.
+    //
+    // Instances of one linked graph share a Store and, with it, the synthetic
+    // per-instantiation root (plan v3 amendment 4): `enterFrom(null)` locks
+    // the callee AND the root, so while ANY instance is entered from the host
+    // — e.g. a sync export parked on an async host import, which in this
+    // runtime is a real suspension rather than a blocked OS thread — no
+    // instance in the graph is host-enterable. A sibling instance whose
+    // thread goes ready in that window (event-driven wakeups do this on every
+    // clock turn) would then trip the assertion, and the failure escapes
+    // through whatever host-import promise is in flight.
+    //
+    // So "ready but not enterable" is treated as no progress, exactly as the
+    // sync driving loop already does by restricting its candidate set to the
+    // callee instance (`driveSyncLift` below; definitions.py `canon_lift`).
+    // This cannot livelock: the entered call's host import settles from host
+    // JS independently of `tick`, and when that call returns, `leaveTo(null)`
+    // unlocks the root and the skipped threads run on the next turn.
+    const candidates = this.readyCandidates().filter((t) =>
+      t.task.inst.mayEnterFrom(null)
+    );
     if (candidates.length === 0) return false;
     const thread = chooseCandidate(candidates);
     const inst = thread.task.inst;
-    // The reference asserts this precondition in `tick` rather than checking
-    // it: a waiting thread's instance is always re-enterable from the host,
-    // because whoever entered it has since left or is itself waiting.
-    assert_(
-      inst.mayEnterFrom(null),
-      "tick: waiting thread's instance is not enterable from the host",
-    );
     inst.enterFrom(null);
     // Deliberately NOT a `finally`: if the resumed thread traps, the reference
     // never reaches `leave_to` either (definitions.py `Store.tick`, line 597,

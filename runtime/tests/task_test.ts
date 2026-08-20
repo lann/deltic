@@ -254,6 +254,63 @@ Deno.test("root: guest-to-guest entering sets are unchanged ({leaf})", () => {
   assertEq([...a.enteringSet(a)].length, 0);
 });
 
+Deno.test("root: tick skips a sibling whose instance is locked by a host entry", () => {
+  // Regression: `tick` used to select on `ready()` alone and then *assert*
+  // host-enterability, so this shape trapped instead of making no progress.
+  //
+  // Shape: instance A is entered from the host by a sync export that is parked
+  // on an async host import (the import settles from host JS, not from
+  // `tick`). While A is parked, a thread of sibling instance B goes ready —
+  // event-driven wakeups do this on every clock turn. A's host entry locks the
+  // shared synthetic root, so B is not host-enterable in that window.
+  const store = new Store();
+  const a = new ComponentInstanceState(0, store);
+  const b = new ComponentInstanceState(1, store);
+
+  // A's export call: entered from the host, parked awaiting an async import.
+  a.enterFrom(null);
+  let settleImport!: () => void;
+  const pendingImport = new Promise<void>((resolve) => {
+    settleImport = resolve;
+  });
+  store.pendingHostCalls.add(pendingImport);
+
+  // B's thread: waiting, and it becomes ready while A is still entered.
+  let flag = false;
+  const order: string[] = [];
+  const bTask = mkTask(b, SYNC_FT, SYNC_OPTS);
+  const bThread = spawn(bTask, function* (thread) {
+    yield* bTask.enterImplicitThread(thread);
+    bTask.start();
+    yield* thread.waitUntil(() => flag, false);
+    order.push("b ran");
+    bTask.return_([]);
+    bTask.exitImplicitThread(thread);
+  });
+  bThread.resume();
+  assertEq(bThread.waiting(), true);
+
+  flag = true;
+  assertEq(bThread.ready(), true, "B is ready...");
+  assertEq(b.mayEnterFrom(null), false, "...but locked through the shared root");
+  // The window: no throw, and no progress on B.
+  assertEq(store.tick(), false, "ready-but-not-enterable is not progress");
+  assertEq(order.length, 0);
+  assertEq(bThread.done(), false);
+
+  // The host import settles and A's entered call returns.
+  settleImport();
+  store.pendingHostCalls.delete(pendingImport);
+  a.leaveTo(null);
+  assertEq(b.mayEnterFrom(null), true, "the root is unlocked again");
+
+  // B now runs to completion on the next turn.
+  assertEq(store.tick(), true);
+  assertEq(order.join(","), "b ran");
+  assertEq(bTask.state, "resolved");
+  assertEq(store.waiting.length, 0);
+});
+
 Deno.test("root: trap poisoning stays per-instance (documented divergence)", () => {
   const store = new Store();
   const a = new ComponentInstanceState(0, store);
