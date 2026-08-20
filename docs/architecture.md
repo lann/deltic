@@ -380,6 +380,34 @@ the site (`runtime/src/intrinsics/async_builtins.ts`, the determinacy park
 in `createSubtaskCancel`); regression pinned across seeds by
 `runtime/tests/cancel_bracket_race_test.ts`.
 
+Named divergence (2026-08-20, [#165](https://github.com/lann/deltic/issues/165),
+adjudicated-accept): **`enter-sync-call` checks the callee's reentrance gate
+but does not take it.** A FACT sync guest→guest call performs the
+reference's `trap_if(not may_enter_from(caller))` and stops — the
+`enter_from`/`leave_to` bracket around the call body (`Store.lift`,
+definitions.py:578-585) is deliberately omitted, so *host-mediated* reentry
+into the callee while the call is in flight (host → A.f → C.g → host import
+→ host re-enters C.g) is admitted where the pinned reference traps. Pure
+guest→guest cycles remain statically impossible (FACT compile-time traps;
+the instance-import DAG, [#99](https://github.com/lann/deltic/issues/99)/
+[#101](https://github.com/lann/deltic/issues/101)). Accepted on three
+grounds: **wasmtime parity** (`enter_guest_sync_call` performs no reentrance
+check at all, and fused adapters elide it); **architecture** — taking the
+bracket would create a guest→guest lock spanning suspension points,
+reintroducing the await-spanning-lock class that
+[#156](https://github.com/lann/deltic/issues/156)/[#160](https://github.com/lann/deltic/issues/160)
+eliminated; and **upstream trajectory** — CM PR
+[#705](https://github.com/WebAssembly/component-model/pull/705) ("CABI:
+remove the may_enter flag/trap") deletes the trap from the `canon lift`,
+`resource.drop`, and `subtask.cancel` paths and makes previously-trapping
+reentrance valid, retaining only run-to-completion serialization of async
+callback turns. This divergence is therefore a trailing indicator of the
+upstream removal and self-resolves when the submodule pin advances past
+#705; the pin-advance migration map is
+[#173](https://github.com/lann/deltic/issues/173). Until that advance the
+pinned definitions.py remains the tie-breaker everywhere else — every
+reentrance check deltic does enforce stays in force.
+
 ## 7. Canonical ABI decisions
 
 Authority: [CanonicalABI.md] and its executable reference

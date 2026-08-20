@@ -514,12 +514,20 @@ function createTrampolineBody(
         // Deliberately *not* done here: `enter_from` / `leave_to` around the
         // bracket. The reference locks the callee for the duration, which
         // would additionally trap host-mediated reentrance (host -> A.f ->
-        // C.g -> host import -> host invokes C.g). Doing it needs the trap /
-        // capability-signal distinction that only `exec/boundary.ts` has
-        // (a `NeedsJspi` bail out of a sync callee skips `exit-sync-call`
-        // and would poison a healthy instance), and the general form of that
-        // hole is the missing `ComponentInstance.parent` chain already
-        // recorded in `task/mod.ts` `enteringSet`. Reported, not smuggled in.
+        // C.g -> host import -> host invokes C.g).
+        //
+        // ADJUDICATED 2026-08-20 (deltic#165; named divergence in
+        // docs/architecture.md section 6): accepted — the bracket stays
+        // omitted. Three grounds: wasmtime parity (`enter_guest_sync_call`
+        // checks nothing); taking the bracket would create a guest-to-guest
+        // lock spanning suspension points, reintroducing the await-spanning
+        // -lock class removed by #156/#160; and upstream is deleting the
+        // trap outright — CM PR #705 ("CABI: remove the may_enter
+        // flag/trap") makes previously-trapping reentrance valid, so this
+        // divergence is a trailing indicator of the removal and
+        // self-resolves at the submodule pin advance (migration map:
+        // deltic#173). Until that pin advance the reference's checks deltic
+        // DOES enforce stay in force.
         if (
           typeof callerInstance === "number" &&
           typeof calleeInstance === "number"
