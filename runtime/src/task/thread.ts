@@ -42,6 +42,10 @@ export class Thread implements SchedulableThread {
    * write *this*, not per-task state: two threads of the same task have
    * independent context. wit-bindgen 0.60 keeps its async task pointer in
    * slot 0.
+   *
+   * Slots are plain JS numbers: a `context.set` of an i64 value above
+   * 2^53-1 would lose precision. Moot while memory64/threads support is
+   * deferred (issue #12) — revisit this when that issue's closure lands.
    */
   readonly storage: number[] = [0, 0];
 

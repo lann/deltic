@@ -232,16 +232,19 @@ export function storeString(
 ): void {
   const mem = requireMemory(cx.opts);
   const [begin, taggedCodeUnits] = storeStringIntoRange(cx, v);
-  storeInt(
-    mem,
-    mem.ptrSize() === 4 ? Number(taggedCodeUnits) : taggedCodeUnits,
-    ptr + mem.ptrSize(),
-    mem.ptrSize(),
-  );
+  // Write order matches the reference (store_string, definitions.py:1613-1616):
+  // begin pointer first, then tagged length. Unobservable here (no trap can
+  // intervene between the two writes), but kept in step for parity.
   storeInt(
     mem,
     mem.ptrSize() === 4 ? begin : BigInt(begin),
     ptr,
+    mem.ptrSize(),
+  );
+  storeInt(
+    mem,
+    mem.ptrSize() === 4 ? Number(taggedCodeUnits) : taggedCodeUnits,
+    ptr + mem.ptrSize(),
     mem.ptrSize(),
   );
 }

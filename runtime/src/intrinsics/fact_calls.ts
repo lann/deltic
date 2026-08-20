@@ -644,7 +644,13 @@ export function createSyncStartCall(
       mode: ctx.suspensionMode,
       canBlock: ctx.calleeCanBlock?.(callee) ?? false,
       onCallerResults: (r) => {
-        callerResults = r ?? [];
+        // sync-start-call's callee always uses the async ABI (comment above),
+        // but the *caller* side here is the sync `canon_lower` path: the
+        // reference's on_resolve(None) case is reached only when a
+        // cancellation was requested, and a sync-lowered subtask has no
+        // handle and hence no cancel channel — so `r` can never be null here.
+        assert_(r !== null, "sync-start-call: caller results missing");
+        callerResults = r;
       },
       lenderScope,
     });

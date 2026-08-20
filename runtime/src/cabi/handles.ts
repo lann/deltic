@@ -191,9 +191,9 @@ function isThenable(v: unknown): v is PromiseLike<unknown> {
 /**
  * Invoke a resource destructor through the reference's entry bracket.
  *
- * definitions.py `canon_resource_drop` (line 2318) does not call `rt.dtor`
+ * definitions.py `canon_resource_drop` (line 2319) does not call `rt.dtor`
  * directly. It builds the dtor into a function instance and calls it through
- * `Store.lift` / `Store.lower` (lines 2326-2333):
+ * `Store.lift` / `Store.lower` (lines 2330-2333):
  *
  * ```python
  *   dtor = rt.dtor or (lambda rep: [])
@@ -310,7 +310,7 @@ export function canonResourceDrop(
   trapIf(rh.numLends !== 0, "handle still lent out");
   if (rh.own) {
     assert_(rh.borrowScope === null);
-    // definitions.py line 2325-2333: the dtor runs through the store's
+    // definitions.py line 2326-2333: the dtor runs through the store's
     // lift/lower bracket. SCOPE NOTE (#85): the call below is a JS frame
     // inside the drop trampoline, so a *guest*-initiated drop whose dtor
     // suspends traps under the JSPI frame rule. That is deterministic and

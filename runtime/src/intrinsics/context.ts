@@ -19,7 +19,7 @@ import { UnsupportedFeatureError } from "./errors.ts";
 
 /**
  * Number of `i32` context slots per thread. definitions.py `Thread.storage`
- * is initialised `[0,0]` (line 346) and `canon_context_{get,set}` assert
+ * is initialised `[0,0]` (line 347) and `canon_context_{get,set}` assert
  * `i < len(thread.storage)` — so exactly two, matching the intrinsic names
  * `context-*-i32-0` and `context-*-i32-1`.
  */

@@ -18,7 +18,9 @@ export const MAX_FLAT_PARAMS = 16;
 export const MAX_FLAT_ASYNC_PARAMS = 4;
 // Mutable to mirror run_tests.py toggling definitions.MAX_FLAT_RESULTS.
 export let MAX_FLAT_RESULTS = 1;
-export function setMaxFlatResults(n: number): number {
+// Test-only mirror of run_tests.py's constant toggling; not for production
+// use (naming convention: see `schedulerSeedForTesting`).
+export function setMaxFlatResultsForTesting(n: number): number {
   const prev = MAX_FLAT_RESULTS;
   MAX_FLAT_RESULTS = n;
   return prev;

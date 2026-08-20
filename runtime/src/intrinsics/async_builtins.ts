@@ -501,7 +501,8 @@ export function createSubtaskCancel(
             // reports the resolved state through the same tail as the
             // non-blocking path. Mirrors SITE 4 (stream_builtins.ts:305-323)
             // and `Waitable.waitForPendingEvent` (definitions.py:786-790,
-            // reached from canon_subtask_cancel :2491): `hasSyncWaiter` must
+            // reached from canon_subtask_cancel's `subtask.wait_for_pending_event()`
+            // call, :2484): `hasSyncWaiter` must
             // be set for the duration so a concurrent `waitable.join` on
             // this subtask traps (async_builtins.ts:362-365) instead of
             // racing the SUBTASK event away from this resume (#87).

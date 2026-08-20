@@ -469,7 +469,8 @@ export class SharedFutureImpl implements SharedBase {
 
   read(inst: unknown, dstBuffer: GuestBuffer, onCopyDone: OnCopyDone): void {
     // #84 leg (c): the reader arrives AFTER the writable side was abandoned.
-    // definitions.py:1141 asserts `not self.dropped` here because the drop
+    // definitions.py:1154 (SharedFutureImpl.read) asserts `not self.dropped`
+    // here because the drop
     // trap keeps that unreachable; for our abandoned state the honest answer
     // is the same trap the parked reader gets, delivered synchronously.
     if (this.dropped && this.abandonReason !== null) {
