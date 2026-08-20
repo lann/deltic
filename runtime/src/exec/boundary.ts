@@ -21,6 +21,7 @@ import {
   MAX_FLAT_RESULTS,
   type MemInst,
   type PtrType,
+  ResourceTypeInfo,
   trap,
   trapIf,
 } from "../cabi/mod.ts";
@@ -662,11 +663,11 @@ export function whenStoreDriverIdle(store: Store): Promise<void> {
 //
 // Every real `pendingHostCalls` entry is born during guest execution, i.e.
 // inside some driver, so arming at driver exit (`driveAsync`'s finally and
-// `drive`'s synchronous completion) observes every registration. One known
-// exception is documented rather than wired: a HOST-initiated async resource
-// dtor (embedder `drop()` between calls, cabi/handles.ts `callDtorGated`)
-// registers outside any driver; its settlement surfaces at the next drive
-// exactly as before this pump existed.
+// `drive`'s synchronous completion) observes every registration. A
+// HOST-initiated resource dtor (embedder `drop()` between calls) is no
+// exception since #160: it is a lifted call like any other, so it brings its
+// own driver, and any host call its activation makes is registered inside
+// that driver.
 //
 // STALE SNAPSHOTS: the keeper races the real host calls it saw when it
 // parked. A drive it performs can register NEW calls (the keep-alive ticker
@@ -1181,6 +1182,22 @@ export function createLiftedFunction(input: {
    * `may_leave` when a trap unwinds out of a FACT adapter.
    */
   allInstances?: () => Iterable<{ mayLeave: boolean }>;
+  /**
+   * Opt out of the reference's *synchronous* driving loop (`driveSyncLift`,
+   * definitions.py `canon_lift` line 2213) for a sync-typed lift whose caller
+   * does not need a synchronous answer — today only the host-initiated
+   * resource destructor (#160; `createDtorEntry` below, `drop(): void` is
+   * documented non-blocking).
+   *
+   * This is not a weakening of the deadlock trap: `drive` below enforces the
+   * same "no ready thread, no pending host call, nothing awaiting" trap, just
+   * asynchronously — which is exactly the substitution jspi mode already
+   * makes unconditionally (see the comment at the `driveSyncLift` call).
+   * It matters only when a *plain*-mode core returns a thenable, i.e. a
+   * host-supplied JS destructor: the sync loop sees a thread parked on a
+   * Promise, which it can never advance, and declares a bogus deadlock.
+   */
+  allowAsyncCompletion?: boolean;
 }): (...args: ComponentValue[]) => unknown {
   const {
     name,
@@ -1455,7 +1472,9 @@ export function createLiftedFunction(input: {
       // `store.awaiting`, still enforces the deadlock trap (no ready thread,
       // no pending host call, nothing awaiting), and returns a Promise, which
       // a jspi-mode lifted export returns anyway.
-      if (!ft.async && mode !== "jspi") driveSyncLift(task);
+      if (!ft.async && mode !== "jspi" && !input.allowAsyncCompletion) {
+        driveSyncLift(task);
+      }
     } catch (e) {
       unwind();
       if (isCapabilitySignal(e)) leave();
@@ -1606,6 +1625,167 @@ async function awaitHopQuiescence(store: Store, inst: unknown): Promise<void> {
       )),
     );
     store.serviceSettled();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Host-initiated resource destructors (#160)
+// ---------------------------------------------------------------------------
+
+/**
+ * The canonical function type of a destructor: definitions.py
+ * `canon_resource_drop` (line 2326) — `FuncType([U32Type()], [], async_ = False)`.
+ */
+const DTOR_FT: FuncType = {
+  params: [{ kind: "u32" }],
+  results: [],
+  async: false,
+};
+
+/**
+ * `CanonicalOptions(async_ = False)` (definitions.py line 2325): every field
+ * at its inert default. A dtor takes one flat `i32` and returns nothing, so
+ * no memory / realloc / post-return / callback is ever reached.
+ */
+function dtorOptions(instance: ComponentInstanceState): ResolvedOptions {
+  return {
+    stringEncoding: "utf8",
+    memory: null,
+    realloc: null,
+    postReturn: null,
+    callback: null,
+    async: false,
+    cancellable: false,
+    coreType: { params: ["i32"], results: [] },
+    instance,
+  };
+}
+
+/**
+ * Build the host-callable entry for a resource destructor — a full canonical
+ * **lift**, exactly as definitions.py `canon_resource_drop` (line 2319) does:
+ *
+ * ```python
+ *   opts = CanonicalOptions(async_ = False)
+ *   ft = FuncType([U32Type()], [], async_ = False)
+ *   dtor = rt.dtor or (lambda rep: [])
+ *   callee = inst.store.lift(dtor, ft, opts, rt.impl)
+ * ```
+ *
+ * Before #160 the host-initiated path (embedder `drop()`, the GC backstop,
+ * `dropOwn`) hand-rolled the bracket in cabi/handles.ts `callDtorGated`: a
+ * bare call to the dtor with `enterFrom(null)` HELD across the returned
+ * promise. Three defects followed from having no Task/Thread behind the
+ * activation:
+ *
+ *  - **#160 itself**: the held bracket left the impl instance non-enterable,
+ *    so `Store.tick`'s enterability filter (#155) could never resume a
+ *    suspension point belonging to the dtor's own activation. The completion
+ *    promise sat in `pendingHostCalls` looking like external work, and every
+ *    driver parked on it forever.
+ *  - it was the runtime's only `enterFrom(null)` bracket spanning an await —
+ *    the macro-scale reachability window of the #156 class, through which a
+ *    sibling instance looked non-enterable from the synthetic root.
+ *  - built-ins reached inside the dtor had no ambient task (`currentTask()`
+ *    → `PendingCapability`, or a foreign-task misattribution, the #24 class).
+ *
+ * Under the lift harness all three go away structurally: the activation has a
+ * real `Task` + implicit `Thread`, the entry bracket is released when the
+ * first segment parks (`leave()` before `drive`), and settled tails flow
+ * through `serviceSettled` like any other lifted sync call.
+ *
+ * The returned function takes the rep and returns either `undefined` (the
+ * activation completed synchronously — the overwhelmingly common case) or a
+ * Promise, exactly like any lifted sync export in jspi mode.
+ */
+export function createDtorEntry(input: {
+  /** Diagnostic name; appears in deadlock/trap messages. */
+  name?: string;
+  /**
+   * The destructor's core function, unwrapped: `createLiftedFunction` applies
+   * `enterWasm` itself per `suspensionMode`. `null` is the reference's
+   * `rt.dtor or (lambda rep: [])` — the bracket still runs.
+   */
+  dtor: CoreFn | null;
+  /** `rt.impl`, the implementing instance the lift enters. */
+  instance: ComponentInstanceState;
+  suspensionMode?: SuspensionMode;
+  stats?: ExecutionStats;
+  trapState?: { pending: unknown };
+  syncCallStack?: LenderScope[];
+  allInstances?: () => Iterable<{ mayLeave: boolean }>;
+}): (rep: number) => unknown {
+  const mode = input.suspensionMode ?? "plain";
+  const raw: CoreFn = input.dtor ?? (() => undefined);
+  // A dtor's core type is `(i32) -> ()`, but the *host*-supplied dtors this
+  // helper also serves (embedder test doubles, `ResourceTypeInfo` built
+  // directly) are ordinary JS functions whose incidental return value would
+  // otherwise trip `normalizeCoreValues`' arity check. Discard it — except a
+  // thenable, which is the activation itself and must reach `awaitCore`'s
+  // park. Not applied in jspi mode: `WebAssembly.promising` only accepts a
+  // wasm callable, so the core must be passed through untouched there (and a
+  // real wasm dtor returns nothing by construction).
+  const core: CoreFn = mode === "jspi" ? raw : ((rep: number) => {
+    const r = raw(rep);
+    return isPromiseLike(r) ? r : undefined;
+  });
+  const lifted = createLiftedFunction({
+    name: input.name ?? "[resource-dtor]",
+    ft: DTOR_FT,
+    opts: dtorOptions(input.instance),
+    core,
+    stats: input.stats ?? newStats(),
+    suspensionMode: mode,
+    trapState: input.trapState,
+    syncCallStack: input.syncCallStack,
+    allInstances: input.allInstances,
+    // The host does not wait for a destructor: `drop(): void` is
+    // non-blocking, and an unfinished dtor's tail is driven by the store.
+    allowAsyncCompletion: true,
+  });
+  return (rep: number) => lifted(rep);
+}
+
+/**
+ * Run a host-initiated drop of a guest (or host-implemented) resource rep —
+ * the observable remainder of `canon_resource_drop` for an owning handle when
+ * the holder is the host (`caller = None`, `Store.invoke`).
+ *
+ * A failure that arrives asynchronously has no frame to propagate into, so it
+ * is parked on the store's host-failure channel (first failure wins), where
+ * the next driven call surfaces it. The completion promise is deliberately
+ * NOT registered in `store.pendingHostCalls`: that registration was #160's
+ * lie — it claims *external* work for a promise whose settlement may need
+ * this very scheduler. The dtor's genuine external dependencies (its host
+ * imports) register themselves when they park. Poisoning on a trap now
+ * happens inside the lift harness (`poison()` in `createLiftedFunction`).
+ */
+export function hostDtorCall(rt: ResourceTypeInfo, rep: number): void {
+  const impl = rt.impl;
+  // An imported (host-implemented) resource has `impl === null` by
+  // construction (executor `bindImportedResources`): there is no component
+  // instance to gate entry into, so the dtor is called directly, as before.
+  if (impl === null) {
+    rt.dtor?.(rep);
+    return;
+  }
+  if (rt.dtorHost === null) {
+    // The executor pre-wires `dtorHost` for every defined resource; this is
+    // the direct-construction path (embedder test doubles, and any token that
+    // reached the host without going through the `resource` initializer).
+    rt.dtorHost = createDtorEntry({
+      dtor: rt.dtor,
+      instance: impl as unknown as ComponentInstanceState,
+    });
+  }
+  const out = rt.dtorHost(rep);
+  if (isPromiseLike(out)) {
+    const store = (impl as unknown as { store?: Store }).store;
+    Promise.resolve(out as Promise<unknown>).catch((e: unknown) => {
+      if (store !== undefined && store.hostFailure === undefined) {
+        store.hostFailure = e;
+      }
+    });
   }
 }
 

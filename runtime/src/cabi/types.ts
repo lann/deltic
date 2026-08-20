@@ -55,13 +55,20 @@ export interface InstanceLike {
  * definitions.py `ResourceType`: identity + implementing instance + optional
  * destructor. Compared by object identity everywhere.
  *
- * `dtorHost` is the JS-initiated-drop variant of `dtor` (#85): in jspi mode
- * the executor wires it as the `promising`-wrapped raw export (docs §7 —
- * a host-initiated drop may legally reach a `Suspending` import, so it needs
- * a suspension-legal entry), and `callDtorGated(allowAsync=true)` prefers it.
- * Guest-initiated drops always use `dtor` directly: they must complete
- * synchronously (reference lifts the dtor with `async_ = False`), and a
- * promising wrapper would turn every such call into a thenable.
+ * `dtorHost` is the **host-initiated**-drop entry (#85, reshaped by #160):
+ * the dtor built as a fully LIFTED sync function — definitions.py
+ * `canon_resource_drop` (line 2319) `inst.store.lift(dtor, ft, opts,
+ * rt.impl)` — so the destructor's activation gets a real Task/Thread, the
+ * reentrance bracket is released at its first park, and its suspension
+ * points are resumable by the scheduler. It is wired by exec/executor.ts
+ * (jspi-`promising` entry only when the dtor is suspension-capable, docs §7)
+ * and called through `hostDtorCall` (exec/boundary.ts), which also fills it
+ * in lazily for tokens built directly. It returns `undefined` or a Promise,
+ * so it is NOT callable from inside a guest activation.
+ *
+ * Guest-initiated drops (`callDtorGated`) always use `dtor` directly: they
+ * must complete synchronously (reference lifts the dtor with
+ * `async_ = False`), and any thenable there is a trap.
  */
 export class ResourceTypeInfo {
   constructor(
