@@ -5,8 +5,9 @@
 // embedder conventions (contracts/embedder-api.md).
 
 import type { WirePlan } from "../../../src/plan/mod.ts";
-import { bind, verify, WORLD_DIGEST } from "../generated/hello.ts";
+import { bind, instantiate, verify, WORLD_DIGEST } from "../generated/hello.ts";
 import type { HelloExports } from "../generated/hello.ts";
+import type { InstantiateSource } from "../../../src/embedder/mod.ts";
 import type { EmbedderInstance } from "../../../src/embedder/mod.ts";
 import type { Equal, Expect } from "./type_assert.ts";
 
@@ -27,4 +28,14 @@ export async function useHello(instance: EmbedderInstance, plan: WirePlan) {
   const exports = bind(instance);
   const greeting: string = await exports.greet("component model");
   return { greeting, digest: WORLD_DIGEST };
+}
+
+// The verified default path (issue #184): the generated `instantiate`
+// runs the world-digest handshake against WORLD_DIGEST before any guest
+// code runs, throwing `WorldDigestMismatchError` on skew — the manual
+// verify+bind pair above is the advanced/pre-verified route.
+export async function useHelloVerified(source: InstantiateSource) {
+  const { exports, handle } = await instantiate(source);
+  const greeting: string = await exports.greet("component model");
+  return { greeting, handle };
 }

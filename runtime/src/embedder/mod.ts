@@ -65,6 +65,7 @@ export {
   type UntranslatedArtifacts,
   instantiate,
   instantiateEmbedder,
+  resolveArtifacts,
 } from "./instantiate.ts";
 
 export { type FuncSummary, type ImportLeaf, type PlanLike, requiredImports } from "./imports.ts";
