@@ -21,3 +21,8 @@ bench/boundary/node_modules/
 bench/boundary/guest/target/
 # @polyengine/translator packaged asset (copied by `just shim`)
 translator/translator_shim.wasm
+
+# The npm distribution (tools/npm-build/build.ts): built artifacts and the
+# translator's staged source tree, both reproducible from a checkout.
+/npm/
+translator/.npm-stage/

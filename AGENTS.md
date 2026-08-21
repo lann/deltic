@@ -130,6 +130,16 @@ Standing rules:
   `@polyengine/protocol`
   versions independently; bumping its manifest publishes it for real on
   the next green run.
+- Two registries, one version. JSR is published inline by release.yml; npm
+  is published by npm-publish.yml, triggered by the GitHub release, from
+  packages built by `tools/npm-build/build.ts` (dnt). The npm side reads
+  name/version/exports out of the same `deno.json` manifests, so adding an
+  entry point or bumping a version needs no second edit — but `just
+  test-npm` is the gate that proves it, and the property it exists to pin
+  is that cross-package imports stay npm **dependencies** rather than
+  inlined source (duplicate copies are the A9 failure mode). npm auth is
+  OIDC trusted publishing keyed on the `npm-publish.yml` filename; there
+  is no npm token in the repository or its secrets.
 - Consumer checkouts (the polymorph family, under `~/p/polymorph/`) are
   **strictly read-only**: verify `git status` in any consumer tree you ran
   commands near, before and after. Build artifacts go to `/tmp` or a

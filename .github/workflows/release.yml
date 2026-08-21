@@ -157,7 +157,8 @@ jobs:
             if [ "$RELEASE" = "true" ]; then
               echo "Release \`${VERSION}\` at ${GITHUB_SHA}."
               echo
-              echo "Published to JSR as \`@polyengine/{runtime,translator,wasi,ct-runner}@${VERSION}\`."
+              echo "Published to JSR as \`@polyengine/{runtime,translator,wasi,ct-runner}@${VERSION}\`,"
+              echo "and to npm under the same names (npm-publish.yml, triggered by this release)."
               echo "Still 0.x/unstable, but caret-honest: releases within a minor line stay"
               echo "compatible; breaking changes bump the minor. See README.md §Consuming."
             else
@@ -165,7 +166,8 @@ jobs:
               echo
               echo "The same commit is published to JSR as an unstable prerelease"
               echo "of \`@polyengine/{runtime,translator,wasi,ct-runner}\` (\`${VERSION}\`,"
-              echo "exact-pin-only); see README.md for usage."
+              echo "exact-pin-only), and to npm under the \`pre\` dist-tag; see README.md"
+              echo "for usage."
             fi
             echo
             echo "Artifacts: the prebuilt translator shim wasm (size-tuned — the"

@@ -168,7 +168,16 @@ class DirCache implements ArtifactCache {
 }
 
 /** A filesystem-backed `ArtifactCache` rooted at `path` (created on first
- * `put` if missing). Deno only. */
+ * `put` if missing). Deno only: every method calls `Deno.*` directly. On other
+ * platforms use `webCache()` (./web.ts), or supply your own `ArtifactCache` —
+ * the interface is three methods (./core.ts). */
 export function dirCache(path: string): ArtifactCache {
+  if (typeof Deno === "undefined") {
+    throw new Error(
+      "dirCache() is the Deno filesystem backend and this is not Deno — " +
+        "use webCache() (Cache API), or implement ArtifactCache over your " +
+        "platform's storage (see @polyengine/runtime/cache core.ts)",
+    );
+  }
   return new DirCache(path);
 }

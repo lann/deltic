@@ -47,9 +47,18 @@ async function load(): Promise<Translator> {
     if (typeof Deno !== "undefined") {
       // String-literal dynamic import: statically analyzable, so the wasm
       // rides the module graph permission-free; still lazy, and non-Deno
-      // platforms never evaluate the Deno-only module (see its header).
-      const { ns } = await import("./shim_asset_deno.ts");
-      return Translator.fromExports(ns);
+      // platforms never evaluate it (see its header).
+      //
+      // Falls THROUGH rather than failing when the module is absent: the npm
+      // distribution omits it (Node cannot parse a static wasm ES-module
+      // import), and Deno reports `process.versions.node`, so a Deno consumer
+      // of the npm package lands on the Node arm below and works.
+      try {
+        const { ns } = await import("./shim_asset_deno.ts");
+        return Translator.fromExports(ns);
+      } catch {
+        // no packaged Deno asset module — try the platform-neutral arms
+      }
     }
     const proc = (globalThis as { process?: { versions?: { node?: string } } })
       .process;

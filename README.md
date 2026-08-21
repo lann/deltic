@@ -89,6 +89,26 @@ import { instantiate } from "jsr:@polyengine/runtime@^0.1.0/embedder";
 import { defaultTranslator } from "jsr:@polyengine/translator@^0.1.0";
 ```
 
+The same five packages ship to **npm** under the same names, built from the
+same sources at the same version by the same release:
+
+```sh
+npm install @polyengine/runtime @polyengine/translator
+```
+
+```js
+import { instantiate } from "@polyengine/runtime/embedder";
+import { defaultTranslator } from "@polyengine/translator";
+```
+
+The npm distribution is ESM-only (Node >= 22.14) and carries `.d.ts`; entry
+points match the JSR subpaths one for one, so the import specifier is the only
+line that differs between registries. Two things are JSR-only, both by
+necessity rather than policy: `dirCache()` (the `Deno.*` filesystem cache
+backend — use `webCache()` or your own `ArtifactCache`), and the translator's
+permission-free Deno wasm-module load, which the npm build replaces with a
+`node:fs` read of the same packaged asset.
+
 `@polyengine/{runtime,translator,wasi,ct-runner}` release in lockstep — one
 version, cut from one green commit, matching the `vX.Y.Z`
 [GitHub release](https://github.com/polymorph-components/polyengine/releases) that carries the
@@ -107,6 +127,11 @@ Between releases, every green `main` commit still publishes
 corresponding `pre-<shorthash>` GitHub release, so a version names an
 exact commit. Hash versions are not ordered, and semver ranges never
 resolve to prereleases: **pin prereleases exactly and bump deliberately**.
+The same prereleases go to npm under the `pre` dist-tag, leaving `latest`
+to track cut releases. (One wrinkle, self-correcting: npm pins `latest` to
+a package's first-ever publish whatever `--tag` says, so until the first
+release is cut `latest` names the bootstrap prerelease. Pin explicitly
+until then.)
 
 Deno's [minimum-dependency-age](https://docs.deno.com/runtime/packages/supply_chain/#minimum-dependency-age)
 gate (24 h by default) applies to releases and prereleases alike, so a
