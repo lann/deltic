@@ -11,7 +11,7 @@ import { caught, guest, haveFixture, instantiateFixture } from "./support.ts";
 import { InvalidHandleError } from "../../src/embedder/mod.ts";
 
 const ready = await haveFixture(guest("resources"));
-const IFACE = "deltic:resources/counters";
+const IFACE = "polyengine:resources/counters";
 
 // deno-lint-ignore no-explicit-any
 async function counters(): Promise<any> {

@@ -3,7 +3,7 @@
 //
 // End-to-end park semantics stay pinned where the wasm lives
 // (runtime/tests/embedder/suspending_imports_test.ts, which imports through
-// the unchanged `@deltic/runtime/embedder` re-export). What is pinned HERE is
+// the unchanged `@polyengine/runtime/embedder` re-export). What is pinned HERE is
 // the vocabulary half A9 owns: the mark is a process-global brand, so it is
 // readable by any copy and hand-rollable, and the decorator's loud refusals
 // survived the move.
@@ -25,13 +25,13 @@ Deno.test("A9: the mark is the process-global brand, not a module-local symbol",
   const fn = suspending(() => 1);
   assertEquals(
     (fn as unknown as Record<symbol, unknown>)[
-      Symbol.for("deltic.suspending/1")
+      Symbol.for("polyengine.suspending/1")
     ],
     true,
   );
   // Hand-rolled: a zero-import host module can declare suspendability with
   // nothing but the registry symbol (brands are markers, not gatekeepers).
-  const hand = Object.defineProperty(() => 1, Symbol.for("deltic.suspending/1"), {
+  const hand = Object.defineProperty(() => 1, Symbol.for("polyengine.suspending/1"), {
     value: true,
   });
   assert(isSuspending(hand));
@@ -40,7 +40,7 @@ Deno.test("A9: the mark is the process-global brand, not a module-local symbol",
 Deno.test("A9: the mark is non-enumerable (invisible to imports-record walks)", () => {
   const fn = suspending(() => 1);
   assertEquals(Object.getOwnPropertySymbols(fn).length, 1);
-  assertEquals(Object.propertyIsEnumerable.call(fn, Symbol.for("deltic.suspending/1")), false);
+  assertEquals(Object.propertyIsEnumerable.call(fn, Symbol.for("polyengine.suspending/1")), false);
   // Re-marking is a no-op, not a TypeError on a non-configurable property.
   suspending(fn);
   assert(isSuspending(fn));

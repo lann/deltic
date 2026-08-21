@@ -570,7 +570,7 @@ fn verdict_phase_validation() {
 fn verdict_phase_unsupported() {
     // Re-exporting an *imported* module (`Export::ModuleImport`) is the
     // remaining unsupported module-export shape; exporting an own embedded
-    // module translates since plan v4 (plan-format.md v4, deltic#13).
+    // module translates since plan v4 (plan-format.md v4, polyengine#13).
     let bytes = wat::parse_str(
         r#"(component (import "m" (core module $m)) (export "m2" (core module $m)))"#,
     )

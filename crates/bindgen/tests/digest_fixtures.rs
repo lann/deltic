@@ -58,11 +58,11 @@ fn resources_digest_resolves_own_borrow_by_qualified_name() {
     let d = compute(&resolve, world).unwrap();
     assert_eq!(
         d.digest,
-        "sha256:c2444a79c689cb3d11a78206e1dfa9df58d06723535738941a65c3aaa67c994d"
+        "sha256:d72d1754bca4332fb3a5e21526872d28c0914f54253979e3bc8ab8e1e083b4d4"
     );
     assert!(
         d.canonical_json.contains(
-            "\"resource\":\"deltic:resources/counters/counter\""
+            "\"resource\":\"polyengine:resources/counters/counter\""
         ),
         "own/borrow must reference the resource by qualified name, not table index: {}",
         d.canonical_json

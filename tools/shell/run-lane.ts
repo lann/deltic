@@ -4,7 +4,7 @@
 // entry.js`, bundled by `tools/shell/bundle.ts`), CWD'd to the repo root so
 // the entry's disk reads (`harness/generated/**`, the shim, the probe
 // modules) resolve without any argv/config plumbing. Parses the entry's
-// `@deltic:`-prefixed protocol lines from stdout and classifies with the
+// `@polyengine:`-prefixed protocol lines from stdout and classifies with the
 // SAME `harness/src/xfail.ts` + `Summary` + per-lane-overlay machinery the
 // browser lanes use (`tools/browser/classify.ts` — shared, not forked).
 //
@@ -206,7 +206,7 @@ async function runShell(
   };
 }
 
-const SENTINEL = "@deltic:";
+const SENTINEL = "@polyengine:";
 
 function parseProtocol(stdout: string): { header: Header; files: ShellFile[] } {
   let header: Header = null;

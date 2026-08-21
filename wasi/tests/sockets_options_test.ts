@@ -5,7 +5,7 @@
 // Same conventions as sockets_test.ts: real loopback sockets; every
 // guest-visible failure must be a BRANDED ComponentException.
 
-import { ComponentException } from "@deltic/runtime/embedder";
+import { ComponentException } from "@polyengine/runtime/embedder";
 import {
   type IpAddress,
   type IpSocketAddress,

@@ -1,4 +1,4 @@
-// `@deltic/wasi/filesystem-node` — `wasi:filesystem@0.2` + `@0.3` over the
+// `@polyengine/wasi/filesystem-node` — `wasi:filesystem@0.2` + `@0.3` over the
 // node `node:fs` builtin (via `process.getBuiltinModule`: real Node and
 // Deno's stable node compat alike — the node-builtins-everywhere stance of
 // sockets_platform.ts). It grants HOST FILESYSTEM access, so it never
@@ -596,7 +596,7 @@ export function filesystemNode(options: FilesystemNodeOptions): FilesystemFragme
     throw new TypeError(
       "filesystemNode: no `process.getBuiltinModule` on this host — " +
         "node:fs and node:path are required (real Node, or Deno's stable " +
-        "node compat); browsers want @deltic/wasi/filesystem-web",
+        "node compat); browsers want @polyengine/wasi/filesystem-web",
     );
   }
   const preopens: [NodeHandle, string][] = Object.entries(options.preopens).map(

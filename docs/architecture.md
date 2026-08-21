@@ -1,4 +1,4 @@
-# deltic — architecture and design decisions
+# polyengine — architecture and design decisions
 
 A WebAssembly Component Model host built on the JS `WebAssembly` API, targeting
 JSPI-capable engines. Primary development against Deno; conformance runs
@@ -14,7 +14,7 @@ contracts throughout the repo. Related documents:
 - [`references.md`](references.md) — canonical upstream links
 - [`../contracts/`](../contracts/) — versioned interface contracts
 - [`../AGENTS.md`](../AGENTS.md) — the development protocol
-- open work: the [issue tracker](https://github.com/lann/deltic/issues)
+- open work: the [issue tracker](https://github.com/polymorph-components/polyengine/issues)
 
 ---
 
@@ -66,12 +66,12 @@ contracts throughout the repo. Related documents:
   wasmtime behavior with no corpus backing never supersedes the
   reference. Guard before invoking the exception (the CM-4 lesson,
   adjudicated 2026-08-10 —
-  [deltic#43](https://github.com/lann/deltic/issues/43)): a corpus
+  [polyengine#43](https://github.com/polymorph-components/polyengine/issues/43)): a corpus
   assertion counts as semantic authority only if it is
   **schedule-independent**. `sync-streams.wast:145` turned out to pin a
   scheduler policy, not semantics — two conforming policies over the same
   agreed gate semantics answer it differently — so it is an upstream test
-  defect and no semantics were ever in conflict; deltic satisfies it via
+  defect and no semantics were ever in conflict; polyengine satisfies it via
   a non-normative scheduler policy (hold gate + drain-to-quiescence entry
   decision, PR #45).
 - TypeScript throughout the JS side: the runtime, the harness, and all
@@ -86,17 +86,17 @@ contracts throughout the repo. Related documents:
   outside the core: WASI interface *shapes* are first-class design inputs
   to the embedder conventions ([consumers.md](consumers.md); milestone C1) —
   they are the ecosystem's most important interfaces and the conventions must
-  serve them well — and a WASI provider *package* (`wasi/`, `@deltic/wasi`;
+  serve them well — and a WASI provider *package* (`wasi/`, `@polyengine/wasi`;
   named `wasi-shims` until 2026-08-14, when the contents outgrew "shim" —
   a separate deliverable; consumer-driven scope: p2 cli/io/clocks/random
   baseline + p3 clocks, plus à la carte network fragments the default
-  `wasi()` merge never carries: p3 `wasi:sockets` (`@deltic/wasi/sockets`
+  `wasi()` merge never carries: p3 `wasi:sockets` (`@polyengine/wasi/sockets`
   — UDP adopted from polymorph-iroh's Deno host, TCP client + listener
   (the wosh consumer / the A13 resource-stream accept path); one
   node-builtins backend serving Deno via its stable node compat — no
   `--unstable-net` — and real Node,
-  [#4](https://github.com/lann/deltic/issues/4)) and the fetch-backed
-  `wasi:http@0.3` outbound client (`@deltic/wasi/http`, riding the
+  [#4](https://github.com/polymorph-components/polyengine/issues/4)) and the fetch-backed
+  `wasi:http@0.3` outbound client (`@polyengine/wasi/http`, riding the
   `@0.3` track like the rest of the package; a `version` override keys
   exact ids for guests pinned to pre-consolidation rc snapshots)).
 - **Componentizing JS/TS.** Guests are components built by external toolchains
@@ -126,7 +126,7 @@ the `Suspender` object was removed).
 | Deno ≥ 2.3.2 | on by default | primary dev target |
 | Chrome/Chromium ≥ 137 | on by default | browser lane (exact Deno parity) |
 | Firefox | flag: `javascript.options.wasm_js_promise_integration` | browser lane (pref flipped by the driver) |
-| Safari / WebKit | works unflagged on WPE 26.5 (M3 finding); JSPI + multi-memory both present in Safari Technology Preview as of STP 250 (2026-08-13; multi-memory flip is `317636@main`); stable-Safari status: [#11](https://github.com/lann/deltic/issues/11) | browser lane; pinned build capped by JSC's missing multi-memory — implemented and default-on in WebKit trunk (webkit-2342+ rolls reach 1248/0, effective parity; #11) |
+| Safari / WebKit | works unflagged on WPE 26.5 (M3 finding); JSPI + multi-memory both present in Safari Technology Preview as of STP 250 (2026-08-13; multi-memory flip is `317636@main`); stable-Safari status: [#11](https://github.com/polymorph-components/polyengine/issues/11) | browser lane; pinned build capped by JSC's missing multi-memory — implemented and default-on in WebKit trunk (webkit-2342+ rolls reach 1248/0, effective parity; #11) |
 | Node | on by default ≥ 26 | pinned runtime lane (`node-pinned`, v26.x: exact Deno parity, no flags; required gate). Node 24 LTS deliberately not laned: flag-gated JSPI (`--experimental-wasm-jspi`) whose older V8 13.6 vintage deviates on 2 corpus commands — see `harness/shell/expectations/node-pinned.ts` |
 | Bun | on by default (1.3.x, vendored JSC) | pinned runtime lane (`bun-pinned`, findings-only until a track record): exact Deno parity under `BUN_JSC_useWasmMultiMemory=1` (driver-set; stock bun ships multi-memory off → 174 failures) — see `harness/shell/expectations/bun-pinned.ts` |
 
@@ -150,7 +150,7 @@ Notes:
   information), but no design may assume type reflection exists.
 - CSP: compiling from bytes requires `wasm-unsafe-eval`. The runtime
   requires nothing beyond that — **a design invariant, not a default**
-  (decided 2026-08-10, [#8](https://github.com/lann/deltic/issues/8)): no
+  (decided 2026-08-10, [#8](https://github.com/polymorph-components/polyengine/issues/8)): no
   code path may require full `unsafe-eval`. The specialized-JS executor is
   emission-only (§8) — a deploy-time AOT step or a server-side first-load
   cache import — never runtime `eval`/`new Function`.
@@ -219,7 +219,7 @@ Constraints and mitigations:
   **shim** crate owns the dependency and maps environ's output into our own
   stable plan format. Wasmtime churn is confined to the shim. Pin wasmtime and
   wasm-tools versions; upgrade deliberately (the staged bump is
-  [#1](https://github.com/lann/deltic/issues/1)).
+  [#1](https://github.com/polymorph-components/polyengine/issues/1)).
 - FACT adapters import **host intrinsics** (string transcoders,
   `resource-transfer-own/borrow`, enter/exit bookkeeping, trap). The TS
   runtime implements this contract — specified in
@@ -349,7 +349,7 @@ running real async guests requires the task core, not JSPI.
 
 Determinism: the reference scheduler makes explicitly nondeterministic
 choices (`random.choice` over ready threads). **Decided (M2):** deterministic
-FIFO ready-queue by default; a seeded-shuffle mode (`DELTIC_SCHED_SEED` env
+FIFO ready-queue by default; a seeded-shuffle mode (`POLYENGINE_SCHED_SEED` env
 var) exercises the spec-allowed nondeterminism in tests, verified across
 seeds. Documented at `runtime/src/task/scheduler.ts`. A load-bearing
 architectural rule discovered post-M2: **one driver per store** — concurrent
@@ -364,11 +364,11 @@ driver-idle. The settlement pump is what gives background tasks host-driven
 liveness between export calls (a task parked on a waitable set whose pending
 host call is a clock resumes at settlement time); wasmtime only delivers
 such wakeups while the embedder dwells in `run_concurrent`, but a JS host's
-event loop is always dwelling, so deltic makes it unconditional.
+event loop is always dwelling, so polyengine makes it unconditional.
 
-Named divergence (2026-08-10, [#92](https://github.com/lann/deltic/issues/92)):
+Named divergence (2026-08-10, [#92](https://github.com/polymorph-components/polyengine/issues/92)):
 **the async form of `subtask.cancel` is not atomic under jspi.** The
-reference built-in returns `[BLOCKED]` with no suspension; deltic parks the
+reference built-in returns `[BLOCKED]` with no suspension; polyengine parks the
 caller on a determinacy wait so the BLOCKED/resolved answer matches the
 reference's synchronous-delivery outcomes across the engine's mandatory
 microtask hop (jspi pin (j), pinned by `cancellable.wast`). While parked,
@@ -380,7 +380,7 @@ the site (`runtime/src/intrinsics/async_builtins.ts`, the determinacy park
 in `createSubtaskCancel`); regression pinned across seeds by
 `runtime/tests/cancel_bracket_race_test.ts`.
 
-Named divergence (2026-08-20, [#165](https://github.com/lann/deltic/issues/165),
+Named divergence (2026-08-20, [#165](https://github.com/polymorph-components/polyengine/issues/165),
 adjudicated-accept): **`enter-sync-call` checks the callee's reentrance gate
 but does not take it.** A FACT sync guest→guest call performs the
 reference's `trap_if(not may_enter_from(caller))` and stops — the
@@ -389,13 +389,13 @@ definitions.py:578-585) is deliberately omitted, so *host-mediated* reentry
 into the callee while the call is in flight (host → A.f → C.g → host import
 → host re-enters C.g) is admitted where the pinned reference traps. Pure
 guest→guest cycles remain statically impossible (FACT compile-time traps;
-the instance-import DAG, [#99](https://github.com/lann/deltic/issues/99)/
-[#101](https://github.com/lann/deltic/issues/101)). Accepted on three
+the instance-import DAG, [#99](https://github.com/polymorph-components/polyengine/issues/99)/
+[#101](https://github.com/polymorph-components/polyengine/issues/101)). Accepted on three
 grounds: **wasmtime parity** (`enter_guest_sync_call` performs no reentrance
 check at all, and fused adapters elide it); **architecture** — taking the
 bracket would create a guest→guest lock spanning suspension points,
 reintroducing the await-spanning-lock class that
-[#156](https://github.com/lann/deltic/issues/156)/[#160](https://github.com/lann/deltic/issues/160)
+[#156](https://github.com/polymorph-components/polyengine/issues/156)/[#160](https://github.com/polymorph-components/polyengine/issues/160)
 eliminated; and **upstream trajectory** — CM PR
 [#705](https://github.com/WebAssembly/component-model/pull/705) ("CABI:
 remove the may_enter flag/trap") deletes the trap from the `canon lift`,
@@ -404,9 +404,9 @@ reentrance valid, retaining only run-to-completion serialization of async
 callback turns. This divergence is therefore a trailing indicator of the
 upstream removal and self-resolves when the submodule pin advances past
 #705; the pin-advance migration map is
-[#173](https://github.com/lann/deltic/issues/173). Until that advance the
+[#173](https://github.com/polymorph-components/polyengine/issues/173). Until that advance the
 pinned definitions.py remains the tie-breaker everywhere else — every
-reentrance check deltic does enforce stays in force.
+reentrance check polyengine does enforce stays in force.
 
 ## 7. Canonical ABI decisions
 
@@ -439,7 +439,7 @@ decide deliberately and document here.
 - **Resources.** Host-facing handles are classes with `Symbol.dispose`
   (TS `using`), an explicit `[Symbol.dispose]()`/`drop()`, and a
   `FinalizationRegistry` backstop for leaks. (Backstop-vs-teardown ordering
-  policy: open, [#10](https://github.com/lann/deltic/issues/10).)
+  policy: open, [#10](https://github.com/polymorph-components/polyengine/issues/10).)
 - **Destructors.** Per spec (CanonicalABI.md §`canon resource.drop`): the dtor
   is a core function `[rep] -> []`, invoked as a normal **non-async**
   cross-component call — *"the destructor may not block. However, the
@@ -447,7 +447,7 @@ decide deliberately and document here.
   (`may_enter_from`) with the same-instance exemption, and a trapping dtor
   poisons the **implementing** instance (the reference's `Store.lift` bracket,
   reconstructed at `runtime/src/cabi/handles.ts` `callDtorGated` —
-  implemented at [#85](https://github.com/lann/deltic/issues/85); the
+  implemented at [#85](https://github.com/polymorph-components/polyengine/issues/85); the
   same-instance exemption falls out of `entering_set`, not a special case).
   Host policy:
   - CM-level blocking in a dtor → deterministic trap (falls out of general
@@ -468,7 +468,7 @@ decide deliberately and document here.
     "guest-initiated dtor calls route through generated wasm" is aspiration,
     not description.
   - Host-held own handles carry lend tracking mirroring `num_lends`
-    ([#86](https://github.com/lann/deltic/issues/86)): drop/GC-backstop defer
+    ([#86](https://github.com/polymorph-components/polyengine/issues/86)): drop/GC-backstop defer
     while lent; a backstop dtor trap poisons the implementing instance and
     lands on the host-failure channel (never `catch {}`-swallowed).
   - Upstream spec findings related to drops and backpressure (vestigial
@@ -500,8 +500,8 @@ Requirement: not critical now; must become fast **without rearchitecting**.
     This is what ships today; it has been fast enough for every consumer
     gate so far.
   - v2 (when a gap is measured — gated on
-    [#17](https://github.com/lann/deltic/issues/17), not the calendar;
-    [#8](https://github.com/lann/deltic/issues/8)): a generator from the
+    [#17](https://github.com/polymorph-components/polyengine/issues/17), not the calendar;
+    [#8](https://github.com/polymorph-components/polyengine/issues/8)): a generator from the
     same descriptors to specialized JS **modules** — emission-only, never
     `eval`/`new Function` (§3's CSP invariant). One mechanism, two
     invocation times: a deploy-time AOT step, or — on server hosts
@@ -520,7 +520,7 @@ Requirement: not critical now; must become fast **without rearchitecting**.
   for string-heavy host boundaries. Deploy-time unbundling (real URLs per
   module → engine code-cache hits) is a packaging concern independent of the
   executor choice and moved to the caching track (§10,
-  [#7](https://github.com/lann/deltic/issues/7)).
+  [#7](https://github.com/polymorph-components/polyengine/issues/7)).
 
 ## 9. Bindings generation
 
@@ -581,7 +581,7 @@ Two independent layers; nothing may *depend* on the second.
      zero tricks. Optionally warm via service-worker install-time
      `compileStreaming` of those real URLs.
    - Empirical verification of the code-cache behavior is open:
-     [#7](https://github.com/lann/deltic/issues/7).
+     [#7](https://github.com/polymorph-components/polyengine/issues/7).
 
 Trust boundary (recorded lean, not yet forced by anything): trust locally-run
 translation; never trust artifacts that did not come from the local cache
@@ -599,7 +599,7 @@ There is no single official conformance suite; the corpus is assembled:
 | same repo, `design/mvp/canonical-abi/definitions.py` + `run_tests.py` | executable CABI reference | lift/lower edge-case tests ported to TS unit tests (`runtime/tests/`) |
 | wit-bindgen runtime tests | guest programs exercising bindings | Rust guests, sync and async (wit-bindgen + `wasm-tools component new`), run against our host = the executable wit-bindgen-compat claim (`examples/guests/`) |
 | wasmtime `tests/misc_testsuite/component-model/` | engine-grade wast corpus | supplementary coverage |
-| polymorph conformance matrices (webcrypto/websocket/webrtc/tls, driven by polymorph-test) | per-interface implementation×environment conformance suites over real WIT surfaces | consumer lane ([consumers.md](consumers.md)): `ct-runner` executes them; websocket runs 55/55 today; release-gate wiring is [#6](https://github.com/lann/deltic/issues/6) |
+| polymorph conformance matrices (webcrypto/websocket/webrtc/tls, driven by polymorph-test) | per-interface implementation×environment conformance suites over real WIT surfaces | consumer lane ([consumers.md](consumers.md)): `ct-runner` executes them; websocket runs 55/55 today; release-gate wiring is [#6](https://github.com/polymorph-components/polyengine/issues/6) |
 | experiment-mosh gates + minimized repros (`compose-async-tdz`) | composed 3-component client: mixed sync/async exports, background pumps, resources re-exported across interfaces, componentize-go guest | strongest known real-workload exercisers — this family surfaced ≥5 distinct jco defect classes no WAST corpus expresses (`tools/smoke-c0/`, `exams/`) |
 
 Harness pipeline: an offline Rust step (`crates/testgen`) converts `.wast`
@@ -627,10 +627,10 @@ with a capability-probe preamble that surfaces wasm-proposal landings
 (multi-memory, GC, EH, memory64, …) before the corpus exercises them.
 
 Also planned: differential testing of the interpreter vs emitted
-specialized-JS modules (§8, [#8](https://github.com/lann/deltic/issues/8));
+specialized-JS modules (§8, [#8](https://github.com/polymorph-components/polyengine/issues/8));
 differential fuzzing
 against native wasmtime with `wasm-smith`-generated components
-([#9](https://github.com/lann/deltic/issues/9)).
+([#9](https://github.com/polymorph-components/polyengine/issues/9)).
 
 Epistemic note: because our frontend *is* wasmtime's, wasmtime-derived tests
 partly test wasmtime against itself — weight the official suite and
@@ -643,16 +643,16 @@ are kept as gates.
 
 | Risk | Severity | Mitigation |
 |---|---|---|
-| wasmtime internal API churn (`wasmtime-environ` is internal/unstable) | medium, recurring | shim isolation + version pinning; upgrades are deliberate events ([#1](https://github.com/lann/deltic/issues/1)) |
+| wasmtime internal API churn (`wasmtime-environ` is internal/unstable) | medium, recurring | shim isolation + version pinning; upgrades are deliberate events ([#1](https://github.com/polymorph-components/polyengine/issues/1)) |
 | JSPI phase-4 drift | medium | small trampoline surface, centralized; track proposal |
-| Safari: stable-channel JSPI status unverified | accepted | floor is explicit; JSPI unflagged on WPE 26.5, and STP 250 carries JSPI + multi-memory — stable channel is the remaining gap ([#11](https://github.com/lann/deltic/issues/11)); callback-ABI consumers don't need it |
-| JSC/SpiderMonkey engine gaps | medium | Deno-first dev; file upstream. M3 evidence: SpiderMonkey JSPI clean over the full corpus (pref-flipped); **JSC's real gap was missing multi-memory** (capped the WebKit lane — the CABI routinely needs >1 memory per module), not JSPI. Resolved in WebKit trunk: default-on from the webkit-2342 playwright roll, lane at effective parity there ([#11](https://github.com/lann/deltic/issues/11)) |
+| Safari: stable-channel JSPI status unverified | accepted | floor is explicit; JSPI unflagged on WPE 26.5, and STP 250 carries JSPI + multi-memory — stable channel is the remaining gap ([#11](https://github.com/polymorph-components/polyengine/issues/11)); callback-ABI consumers don't need it |
+| JSC/SpiderMonkey engine gaps | medium | Deno-first dev; file upstream. M3 evidence: SpiderMonkey JSPI clean over the full corpus (pref-flipped); **JSC's real gap was missing multi-memory** (capped the WebKit lane — the CABI routinely needs >1 memory per module), not JSPI. Resolved in WebKit trunk: default-on from the webkit-2342 playwright roll, lane at effective parity there ([#11](https://github.com/polymorph-components/polyengine/issues/11)) |
 | Testing wasmtime-with-wasmtime blind spots | medium | official suite + definitions.py ports as independent checks; consumer suites as real-workload gates |
-| Testing-toolchain format skew: testgen assembles with `wast` 255 while the shim validates with wasmparser 0.252 (wasmtime-47 pin) — the 0.253–0.255 window re-arited 🧵 thread opcodes (byte-level desync) | low, bounded | known 5-entry xfail set; exits on the wasmtime bump ([#1](https://github.com/lann/deltic/issues/1)); testgen cannot downgrade (suite text syntax needs `wast` ≥255) |
-| CSP variance in embedders | low | baseline needs only `wasm-unsafe-eval` — an invariant, no path may require full `unsafe-eval` (§3); specialized JS is emission-only, deploy-time or server-side cache import ([#8](https://github.com/lann/deltic/issues/8)) |
-| Consumer coupling churn: 7+ downstream repos tracking pre-1.0 plan/contract formats | medium | caret-honest registry releases since 0.1.0 ([#16](https://github.com/lann/deltic/issues/16), 2026-08-16): still 0.x/unstable, compatible within a minor line, breaking changes bump the minor — consumers couple by caret; `pre-<shorthash>` prerelease artifacts (exact pins) and git refs track `main` between releases; strict formatVersion equality already fails loud; consumer matrices as release gate (the wasmtime↔embedder relationship) |
-| Consumer scope creep pulling WASI implementations into the core | medium | the wasi package is a separate deliverable with consumer-driven scope; §2 non-goal stands; the L3 runner belongs in polymorph-test ([#14](https://github.com/lann/deltic/issues/14)) |
-| Host-boundary perf vs jco's generated JS (v1 interpreter) | low-medium | translation throughput measured (multi-MB components in tens of ms); cutover benches tracked with [#8](https://github.com/lann/deltic/issues/8); iroh's polling-workaround removal dominates first-consumer numbers regardless |
+| Testing-toolchain format skew: testgen assembles with `wast` 255 while the shim validates with wasmparser 0.252 (wasmtime-47 pin) — the 0.253–0.255 window re-arited 🧵 thread opcodes (byte-level desync) | low, bounded | known 5-entry xfail set; exits on the wasmtime bump ([#1](https://github.com/polymorph-components/polyengine/issues/1)); testgen cannot downgrade (suite text syntax needs `wast` ≥255) |
+| CSP variance in embedders | low | baseline needs only `wasm-unsafe-eval` — an invariant, no path may require full `unsafe-eval` (§3); specialized JS is emission-only, deploy-time or server-side cache import ([#8](https://github.com/polymorph-components/polyengine/issues/8)) |
+| Consumer coupling churn: 7+ downstream repos tracking pre-1.0 plan/contract formats | medium | caret-honest registry releases since 0.1.0 ([#16](https://github.com/polymorph-components/polyengine/issues/16), 2026-08-16): still 0.x/unstable, compatible within a minor line, breaking changes bump the minor — consumers couple by caret; `pre-<shorthash>` prerelease artifacts (exact pins) and git refs track `main` between releases; strict formatVersion equality already fails loud; consumer matrices as release gate (the wasmtime↔embedder relationship) |
+| Consumer scope creep pulling WASI implementations into the core | medium | the wasi package is a separate deliverable with consumer-driven scope; §2 non-goal stands; the L3 runner belongs in polymorph-test ([#14](https://github.com/polymorph-components/polyengine/issues/14)) |
+| Host-boundary perf vs jco's generated JS (v1 interpreter) | low-medium | translation throughput measured (multi-MB components in tens of ms); cutover benches tracked with [#8](https://github.com/polymorph-components/polyengine/issues/8); iroh's polling-workaround removal dominates first-consumer numbers regardless |
 
 [WebAssembly/component-model]: https://github.com/WebAssembly/component-model
 [CanonicalABI.md]: https://github.com/WebAssembly/component-model/blob/main/design/mvp/CanonicalABI.md

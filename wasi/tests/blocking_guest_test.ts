@@ -10,8 +10,8 @@
 // refused cleanly at the park site (NeedsJspi), never livelocked.
 
 import { assertEq, assertTrue } from "./asserts.ts";
-import { Translator } from "@deltic/runtime/shim";
-import { instantiate } from "@deltic/runtime/embedder";
+import { Translator } from "@polyengine/runtime/shim";
+import { instantiate } from "@polyengine/runtime/embedder";
 import { wasi } from "../src/mod.ts";
 
 const SHIM_WASM = new URL(

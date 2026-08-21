@@ -3,14 +3,14 @@
 Single source for issues/PRs to file against the **polymorph consumer
 repositories** (docs/consumers.md) — and the upstream toolchains their
 components are built with — discovered while running their artifacts under
-deltic. Mirrors the conventions of
+polyengine. Mirrors the conventions of
 `upstream-component-model-repo-findings.md`: entries carry status
 (`DRAFT` → `FILED #n` → `RESOLVED`), evidence, and proposed fixes. All
 filing is the operator's (foreign repos).
 
 ---
 
-## IROH-1 — endpoint holds a `RefCell` borrow across a post-resolution `block_on` (RESOLVED-BY-HOST via deltic#43; see Disposition)
+## IROH-1 — endpoint holds a `RefCell` borrow across a post-resolution `block_on` (RESOLVED-BY-HOST via polyengine#43; see Disposition)
 
 **Repo:** polymorph-iroh. **Where:** `endpoint/src/endpoint_impl.rs:13`
 (claim: "the `RefCell` borrows never cross an await") vs the actual path:
@@ -29,23 +29,23 @@ sharpened semantics below. Every other endpoint task parks in `wait_until`
 (`endpoint_impl.rs:939`) whose first act is `shared.borrow_mut()` →
 `RefCell already borrowed` → `unreachable` trap.
 
-**Evidence:** found by `exams/iroh-endpoint/` (deltic C3 exam).
+**Evidence:** found by `exams/iroh-endpoint/` (polyengine C3 exam).
 Instrumenting the host's `SigningKey.sign` shows the trap always lands
 inside the TLS CertificateVerify signature window; relay-auth signs
 (at bind, no poller parked yet) never trip it. Measured under
-deltic: ~90% of runs with `accept` parked across the
+polyengine: ~90% of runs with `accept` parked across the
 handshake. The 5 ms bounded-polling cadence (their jco workaround)
 re-arms `wait_until` on the same timescale as the signing window, making
 the collision near-certain on any host that interleaves there.
 
 **The precise semantics (corrected 2026-08-10; see
 `upstream-component-model-repo-findings.md` CM-4 and
-[deltic#43](https://github.com/lann/deltic/issues/43); exam kit archived
+[polyengine#43](https://github.com/polymorph-components/polyengine/issues/43); exam kit archived
 at `4f3351f:exams/wasmtime-exclusivity/`):** the
-collision window was **deltic-specific**, not spec-pinned.
+collision window was **polyengine-specific**, not spec-pinned.
 
 - *Before* `task.return`, a callback task's instance-entry gate holds
-  across mid-frame blocks on every implementation surveyed (deltic,
+  across mid-frame blocks on every implementation surveyed (polyengine,
   wasmtime, and `definitions.py` alike) — borrows held across a
   pre-resolution `block_on` are safe.
 - *After* `task.return`: **wasmtime keeps holding the gate** for the rest
@@ -54,7 +54,7 @@ collision window was **deltic-specific**, not spec-pinned.
   the same way (`GuestCall::is_ready`, concurrent.rs:765). Under wasmtime
   the poller *cannot* be resumed inside the pump's parked signing window
   — the collision is **unreachable by semantics**, not by timing.
-  `definitions.py` agrees on the gate lifetime. **deltic was the
+  `definitions.py` agrees on the gate lifetime. **polyengine was the
   outlier** until #43 landed: its since-removed release-at-resolution
   rule (the 2026-08-09 CM-4 working assumption) admitted same-instance
   tasks during the post-resolution parked span — that admitted window is
@@ -64,7 +64,7 @@ collision window was **deltic-specific**, not spec-pinned.
   deferred-entry scheduler policy).
 
 The endpoint's pump does its `block_on(sign)` **after** `bind` resolved,
-inside the window deltic's since-removed rule admitted, with the
+inside the window polyengine's since-removed rule admitted, with the
 `RefCell` borrow live.
 
 **Why the wasmtime leg is green — a semantics guarantee, not timing
@@ -74,12 +74,12 @@ corrected model predicts the opposite — under wasmtime the poller's
 timer event sits gated in `pending` until the pump's invocation exits,
 at any signing latency. (Falsifiable both ways: add ~1 ms to the
 wasmtime host's `sign`; the corrected model says it stays green.) Under
-pre-#43 deltic the same window was open by our own rule, and the 5 ms
+pre-#43 polyengine the same window was open by our own rule, and the 5 ms
 poll cadence landed in it ~90% of the time with a `crypto.subtle` signer.
 
-**Disposition (2026-08-10, updated after deltic#43 landed):** deltic now
+**Disposition (2026-08-10, updated after polyengine#43 landed):** polyengine now
 implements wasmtime's hold + deferred-entry model
-([deltic#43](https://github.com/lann/deltic/issues/43)) — the admitted
+([polyengine#43](https://github.com/polymorph-components/polyengine/issues/43)) — the admitted
 window this trap lived in **no longer exists on any surveyed host**, by
 semantics (pinned by `runtime/tests/entry_deferral_test.ts`). Empirical:
 `just iroh-exam` scenarios 1/2/4/5 pass post-#43, including the
@@ -120,7 +120,7 @@ resource class goes under its defining interface; `use`rs may re-export.
 calling `name()` per entry until the match (js/viewer/harness.mjs:181-189).
 For an n-case suite that is Σi ≈ n²/2 `name()` round-trips per run —
 ~182M for polymorph-webcrypto's 19k-case shared suite — and every
-`name()` is a host-boundary crossing on any runner. deltic's ct-runner
+`name()` is a host-boundary crossing on any runner. polyengine's ct-runner
 mirrored the scan verbatim and now fronts it with a same-index-first
 fast path (census index as a hint, full scan as the fallback, drift
 semantics unchanged — `ct-runner/src/run-suite.ts` `findByName`); the
@@ -133,15 +133,18 @@ operator's call.
 
 **Repo:** polymorph-iroh. **Where:**
 `experiments/iroh-relay-ws/host/sockets.ts` (main, post their #40/#41 —
-the deltic-leg rewrite): its `Pollable`, `poll` and `monotonic-clock`
+the polyengine-leg rewrite): its `Pollable`, `poll` and `monotonic-clock`
 sections (~200 lines) re-implement the tier-(c) parking that
-[deltic#71](https://github.com/lann/deltic/pull/71) shipped in
-`@deltic/wasi-shims` itself — written before the kernel existed, against
+[polyengine#71](https://github.com/polymorph-components/polyengine/pull/71) shipped in
+the engine's own WASI package (`@deltic/wasi-shims` when #71 landed; the
+package is `@polyengine/wasi` today — this project renamed from deltic to
+polyengine, and iroh still pins the `@deltic` line) — written before the
+kernel existed, against
 the same jco-shim ancestor, so the designs converged.
 
 **Why deleting wins (beyond dedup):** their `block()`/`poll()` are
 `async` functions — EVERY call returns a Promise, so every call suspends
-and pays the engine's continuation hop (deltic jspi pin (j)) even when
+and pays the engine's continuation hop (polyengine jspi pin (j)) even when
 the pollable is already ready; the kernel's implementations take sync
 fast paths. Their duck-typed `PollableLike` seam (foreign pollables
 without `waitPromise`) exists only because two `Pollable` classes
@@ -150,14 +153,14 @@ coexist; the kernel's publicly-constructible
 sockets provider mints kernel pollables and the whole foreign-pollable
 distinction disappears.
 
-**Proposed fix:** on the next deltic pin bump (past #71), drop the
+**Proposed fix:** on their next engine pin bump (past #71), drop the
 `wasi:io/poll@0.2` and `wasi:clocks/monotonic-clock@0.2` entries from
 `syntheticNetImports()` (wasiShims() now provides parking versions) and
 replace the local `Pollable` with the kernel's. Their sockets surface is
 unaffected (it constructs pollables; the constructor shape is
 identical). Filing upstream is the operator's call.
 
-**Related:** [deltic#74](https://github.com/lann/deltic/issues/74)
+**Related:** [polyengine#74](https://github.com/polymorph-components/polyengine/issues/74)
 tracks adopting their sockets surface + routing hooks into wasi-shims,
 sequenced after this convergence so they swap once.
 
@@ -169,7 +172,7 @@ sequenced after this convergence so they swap once.
 operator). **Where:** the generated `cabi_realloc` / Go runtime allocation
 path.
 
-**Evidence:** [deltic#145](https://github.com/lann/deltic/issues/145) —
+**Evidence:** [polyengine#145](https://github.com/polymorph-components/polyengine/issues/145) —
 consistently captured across ~10 reproductions against two
 separately-composed wosh builds (downstream report:
 [wosh#71](https://github.com/lann/wosh/pull/71)):
@@ -196,7 +199,7 @@ load-bearing — it is what licenses compiling realloc calls as plain
 synchronous calls instead of the specced fresh-thread semantics. Net
 constraint: **`cabi_realloc` must not (transitively) call imports.** A
 Go runtime that reserves the right to read the clock in any allocation
-violates it on every conforming host: deltic instance-poisons
+violates it on every conforming host: polyengine instance-poisons
 (verified), wasmtime store-poisons (presumed from shared semantics;
 unverified on wasmtime's host-lowering path — its native gates simply
 never generated the same allocation pressure).
@@ -205,13 +208,13 @@ never generated the same allocation pressure).
 `cabi_realloc` unable to trigger GC pacing — a pre-reserved arena sized
 per copy, a GC hold across the realloc frame, or a runtime knob
 deferring pacing clock reads while inside the CABI entry. Any of these
-also removes the load-dependent flakiness (deltic#145: the trap needs an
+also removes the load-dependent flakiness (polyengine#145: the trap needs an
 allocation to cross a GC threshold *inside* the window, so it only shows
 under flood).
 
-**Related:** deltic#145 (asks 1–3; ask 1 — refusals naming the poison
+**Related:** polyengine#145 (asks 1–3; ask 1 — refusals naming the poison
 cause — implemented host-side),
-[deltic#147](https://github.com/lann/deltic/issues/147) (deltic's own
+[polyengine#147](https://github.com/polymorph-components/polyengine/issues/147) (polyengine's own
 host-entry lowering runs realloc outside the window — the lenient gap
 that made #145 reproduce only under composition). Filing upstream is the
 operator's call.

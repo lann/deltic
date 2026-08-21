@@ -2,7 +2,7 @@
 //
 // Bundler: `deno bundle --platform browser` (Deno 2.9.5 ships it as an
 // experimental esbuild-backed bundler; it resolves the workspace's
-// `@deltic/*` bare specifiers natively, so no alias plumbing is
+// `@polyengine/*` bare specifiers natively, so no alias plumbing is
 // needed). The runtime is platform-neutral by contract (docs/architecture.md §4.3) — a
 // `node:` specifier appearing in the bundle graph means a regression; the
 // M3A-1 episode (scheduler ambient on `node:async_hooks`, fixed by explicit

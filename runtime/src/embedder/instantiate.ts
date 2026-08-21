@@ -26,7 +26,7 @@ import {
 import { camelCase, parseLeafName, pascalCase } from "./casing.ts";
 import { isSuspending, suspending } from "../jspi/suspending.ts";
 import { Translator } from "../shim/mod.ts";
-import { copyCensus, isTrap, isComponentException } from "@deltic/protocol";
+import { copyCensus, isTrap, isComponentException } from "@polyengine/protocol";
 import { NameCollisionError, ComponentException } from "./errors.ts";
 import { type ImportLeaf, requiredImports } from "./imports.ts";
 import { hostDtorCall } from "../exec/boundary.ts";
@@ -216,7 +216,7 @@ export const instantiateEmbedder = instantiate;
  * generated code may depend on it.
  */
 export const INTERNAL_HOST_REGISTRIES = Symbol(
-  "deltic.embedder.hostRegistries",
+  "polyengine.embedder.hostRegistries",
 );
 
 class Facade {
@@ -783,7 +783,7 @@ class Facade {
           `\`throw new ComponentException(payload)\`.` +
           (census === ""
             ? ""
-            : ` (${census} — an error carrying no deltic brand in a ` +
+            : ` (${census} — an error carrying no polyengine brand in a ` +
               `multi-copy graph usually means a pre-A9 runtime copy threw ` +
               `it, issue #83.)`),
       );

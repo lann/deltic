@@ -103,7 +103,7 @@ fn cabi_unsupported_phase_is_distinct() {
 }
 
 /// A component exporting one of its own embedded core modules translates
-/// (plan-format.md v4 amendment 2, deltic#13) and the plan carries the
+/// (plan-format.md v4 amendment 2, polyengine#13) and the plan carries the
 /// `module`-kind export pointing into the static module space.
 #[test]
 fn cabi_module_export_translates() {

@@ -17,8 +17,8 @@
 // Skip-if-absent on the shim + fixture corpus, like the other gates.
 
 import { assertEq, assertTrue } from "./asserts.ts";
-import { Translator } from "@deltic/runtime/shim";
-import { instantiate } from "@deltic/runtime/embedder";
+import { Translator } from "@polyengine/runtime/shim";
+import { instantiate } from "@polyengine/runtime/embedder";
 import { wasi } from "../src/mod.ts";
 import { sockets } from "../src/sockets.ts";
 

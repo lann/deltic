@@ -1,4 +1,4 @@
-package deltic:stream-pass;
+package polyengine:stream-pass;
 
 /// Pass-through probes for a stream traversing host -> guest -> host with the
 /// guest never reading it (issue #54's investigation companion): the readable

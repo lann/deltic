@@ -10,7 +10,7 @@
   },
   "jsc": {
     "rev": "318852@main",
-    "url": "https://github.com/lann/deltic/releases/download/shell-pins/jsc-built-products-x86_64-318852.zip",
+    "url": "https://github.com/polymorph-components/polyengine/releases/download/shell-pins/jsc-built-products-x86_64-318852.zip",
     "sha256": "cab182120ca7efb4c238538f73eb0d457c44b0c581709b8e9d67cc4816646470",
     "arch": "x86_64-only"
   },

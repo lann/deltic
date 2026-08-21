@@ -1,5 +1,5 @@
-// `@deltic/protocol` — the embedder contract's VOCABULARY, dependency-free
-// (contracts/embedder-api.md §"Module identity and @deltic/protocol",
+// `@polyengine/protocol` — the embedder contract's VOCABULARY, dependency-free
+// (contracts/embedder-api.md §"Module identity and @polyengine/protocol",
 // amendment A9; issue #83).
 //
 // What lives here: the process-global brand symbols, the canonical error
@@ -11,7 +11,7 @@
 // (docs/consumers.md "The application owns the import map"), and with
 // hand-rolled brands even that import is optional.
 //
-// `@deltic/runtime/embedder` re-exports all of it unchanged.
+// `@polyengine/runtime/embedder` re-exports all of it unchanged.
 
 export {
   defineBrand,

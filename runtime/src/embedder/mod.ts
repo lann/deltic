@@ -7,12 +7,12 @@
 // types that cast this facade; no generated code participates.
 
 // Copy registration (contracts/embedder-api.md §"Module identity and
-// @deltic/protocol", amendment A9; issue #83). Runs at module evaluation, so
+// @polyengine/protocol", amendment A9; issue #83). Runs at module evaluation, so
 // merely importing the embedder surface puts this copy on the census — which
 // is what makes every cross-copy diagnostic below able to name both sides.
 // Multiple copies are DIAGNOSED, NEVER REFUSED: two isolated bundles on one
 // page that exchange no values are legal.
-import { PROTOCOL_GENERATION, registerRuntimeCopy } from "@deltic/protocol";
+import { PROTOCOL_GENERATION, registerRuntimeCopy } from "@polyengine/protocol";
 import { COPY_URL, RUNTIME_VERSION } from "./copy.ts";
 
 registerRuntimeCopy({
@@ -54,7 +54,7 @@ export {
   SUSPENDING,
   TRAP,
   COMPONENT_EXCEPTION,
-} from "@deltic/protocol";
+} from "@polyengine/protocol";
 
 export {
   artifactsFromEnvelope,

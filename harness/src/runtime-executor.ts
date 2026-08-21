@@ -13,15 +13,15 @@
 // understood but the capability plainly doesn't exist yet — precise for
 // Track A hand-off.
 
-import { loadPlan, PlanError } from "@deltic/runtime/plan";
-import type { LoadedPlan } from "@deltic/runtime/plan";
-import type { WireExport } from "@deltic/runtime/plan";
-import { Translator } from "@deltic/runtime/shim";
+import { loadPlan, PlanError } from "@polyengine/runtime/plan";
+import type { LoadedPlan } from "@polyengine/runtime/plan";
+import type { WireExport } from "@polyengine/runtime/plan";
+import { Translator } from "@polyengine/runtime/shim";
 import {
   type ComponentHandle,
   instantiateComponent,
-} from "@deltic/runtime/exec";
-import { AssertionError, NotImplemented, Trap } from "@deltic/runtime/cabi";
+} from "@polyengine/runtime/exec";
+import { AssertionError, NotImplemented, Trap } from "@polyengine/runtime/cabi";
 import {
   type Artifact,
   CoreOnlyExecutor,

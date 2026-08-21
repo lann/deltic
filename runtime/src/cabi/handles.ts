@@ -258,7 +258,7 @@ export function callDtorGated(
   // reference's `caller = None` (Store.invoke).
   const callerInst = asGate(caller) === null ? null : caller;
 
-  // A poisoned target's refusal names the original trap (deltic#145).
+  // A poisoned target's refusal names the original trap (polyengine#145).
   if (!impl.mayEnterFrom(callerInst)) {
     trap(withPoisonCause(impl, "cannot enter component instance"));
   }

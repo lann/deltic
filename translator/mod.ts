@@ -1,18 +1,18 @@
-// @deltic/translator — the packaged translator wasm plus its per-platform
+// @polyengine/translator — the packaged translator wasm plus its per-platform
 // loader (issue #16 delivery design note, item 3).
 //
 // Why a separate package: the translator is a versioned peer of the
 // runtime (plan-format coupling), so it ships inside the same release —
 // but embedders that translate at BUILD time (tools/translate,
 // embedder-api A4) deploy no translator at all, and keeping the ~1.85 MB
-// asset out of @deltic/runtime keeps their production graphs clean.
+// asset out of @polyengine/runtime keeps their production graphs clean.
 //
 // The asset (`translator_shim.wasm`, sibling to this module) is copied
 // from the cargo build by `just shim` and is gitignored — run `just shim`
 // once in a fresh checkout. Publish tooling will pin the exact asset (and
 // its digest) into the released package when #16's packaging lands.
 
-import { Translator } from "@deltic/runtime/shim";
+import { Translator } from "@polyengine/runtime/shim";
 
 let singleton: Promise<Translator> | undefined;
 
@@ -66,7 +66,7 @@ async function load(): Promise<Translator> {
     // The overwhelmingly likely in-repo cause is the missing gitignored
     // asset; say so instead of leaking a bare module-resolution error.
     throw new Error(
-      `@deltic/translator: could not load ${url}: ${e}\n` +
+      `@polyengine/translator: could not load ${url}: ${e}\n` +
         `(in a repo checkout, run \`just shim\` to build and place the asset)`,
       { cause: e },
     );

@@ -1,4 +1,4 @@
-// #18 — polymorph-tls: smoke the jco-leg surface under deltic.
+// #18 — polymorph-tls: smoke the jco-leg surface under polyengine.
 //
 //   deno run --allow-read --allow-hrtime run.ts            # translate-only
 //   deno run --allow-read run.ts --exec                    # + execute suites
@@ -66,12 +66,12 @@ const TRANSLATE_TARGETS: Array<[string, string]> = [
  * per-target inapplicable cases into `not-applicable` rows. Any future
  * xfail must name its class + issue. */
 const EXEC_TARGETS: Array<[string, string, string[], Record<string, string>]> = [
-  ["deltic-delegated", `${CONF}/suite-delegated.wasm`, [], {}],
-  ["deltic-delegated-webcrypto", `${CONF}/suite-delegated-webcrypto.wasm`, [], {}],
+  ["polyengine-delegated", `${CONF}/suite-delegated.wasm`, [], {}],
+  ["polyengine-delegated-webcrypto", `${CONF}/suite-delegated-webcrypto.wasm`, [], {}],
   // Plain composition: no signer is wired, so the signer-gated case
   // schedules out; `delegated/decline` (!delegated-signer) APPLIES here and
   // passes (it asserts exactly the no-signer refusal).
-  ["deltic-plain", `${CONF}/suite-plain.wasm`, ["delegated-signer"], {}],
+  ["polyengine-plain", `${CONF}/suite-plain.wasm`, ["delegated-signer"], {}],
 ];
 
 const CASE_TIMEOUT_MS = 60_000; // run-node.mjs's per-case wall bound.
@@ -147,7 +147,7 @@ async function execPhase(only?: string): Promise<number> {
         `    ${counts.passed} passed | ${counts.failed} failed | ` +
           `${counts.skipped} skipped | ${counts.na} n/a (${counts.total} total)`,
       );
-      // deltic-plain: delegated-* failures are the KNOWN tag-gating delta
+      // polyengine-plain: delegated-* failures are the KNOWN tag-gating delta
       // (header comment); anything else counts.
       const failed = lines.map((l) => JSON.parse(l)).filter((o) =>
         o.case !== undefined && o.status === "fail"

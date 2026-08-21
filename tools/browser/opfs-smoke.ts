@@ -1,5 +1,5 @@
 // ============================================================================
-// OPFS smoke driver: @deltic/wasi/filesystem-web against the REAL Origin
+// OPFS smoke driver: @polyengine/wasi/filesystem-web against the REAL Origin
 // Private File System, in a real browser.
 //
 //   deno run -A tools/browser/opfs-smoke.ts chromium [--headed] [--keep-open]

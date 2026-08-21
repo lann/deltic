@@ -1,4 +1,4 @@
-package deltic:future-user;
+package polyengine:future-user;
 
 /// Exercises both future directions: awaiting a host-provided (imported)
 /// future value, and producing/resolving an exported one.

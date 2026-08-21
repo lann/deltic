@@ -21,8 +21,8 @@ import {
   instantiate,
   suspending,
   ComponentException,
-} from "@deltic/runtime/embedder";
-import { defaultTranslator } from "@deltic/translator";
+} from "@polyengine/runtime/embedder";
+import { defaultTranslator } from "@polyengine/translator";
 
 // Tiny self-checks so the example fails loudly if the API drifts.
 // (`undefined` is meaningful in the conventions — the outermost-option
@@ -81,7 +81,7 @@ const imports = {
   // Interface imports are keyed by their verbatim WIT id; members are
   // camelCase. World-level bare imports (none here) would sit at the top
   // level of this record.
-  "deltic:kitchen-sink/notify": {
+  "polyengine:kitchen-sink/notify": {
     // §2a — plain sync import. The enum parameter arrives as a string.
     log: (lvl: string, msg: string) => {
       logs.push(`${lvl}: ${msg}`);
@@ -124,7 +124,7 @@ const componentBytes = await Deno.readFile(
 );
 
 // `{ componentBytes, translator }` translates internally (A3);
-// `defaultTranslator()` is @deltic/translator's packaged, per-realm-cached
+// `defaultTranslator()` is @polyengine/translator's packaged, per-realm-cached
 // loader (on Deno: a native wasm-module import — no permissions). Apps
 // that know their components at build time can skip the translator
 // entirely: see tools/translate (embedder-api A4).
@@ -135,7 +135,7 @@ const componentBytes = await Deno.readFile(
 const component = await instantiate({ componentBytes, translator }, imports);
 
 // Interface exports are keyed like interface imports: verbatim WIT id.
-const api = component.exports["deltic:kitchen-sink/api"];
+const api = component.exports["polyengine:kitchen-sink/api"];
 
 // --- §4: plainly-shaped values ----------------------------------------------
 

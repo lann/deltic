@@ -3,7 +3,7 @@
 // identically to a bytes-built Translator.
 
 import { defaultTranslator } from "../mod.ts";
-import { Translator } from "@deltic/runtime/shim";
+import { Translator } from "@polyengine/runtime/shim";
 
 function assertEq(got: unknown, want: unknown, what: string) {
   if (got !== want) throw new Error(`${what}: expected ${want}, got ${got}`);

@@ -1,9 +1,9 @@
 // INTERNAL shared vocabulary of the `wasi:sockets` tracks
 // (sockets_03.ts, sockets_02.ts) — not a package export; the public home
-// of these names is `@deltic/wasi/sockets`. Address codec, wasmtime-parity
+// of these names is `@polyengine/wasi/sockets`. Address codec, wasmtime-parity
 // validation, platform error mapping, and the WIT-facing type shapes.
 
-import { ComponentException, Stream } from "@deltic/runtime/embedder";
+import { ComponentException, Stream } from "@polyengine/runtime/embedder";
 import type { NetAddr } from "./sockets_platform.ts";
 
 export type { NetAddr };

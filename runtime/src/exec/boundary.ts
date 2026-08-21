@@ -386,11 +386,11 @@ function isPromiseLike(v: unknown): v is PromiseLike<unknown> {
 // first *lit* suspension site, so the `SuspensionPoint` <-> `Store.tick` <->
 // `driveAsync` handshake had never executed before it; a pure-microtask stall
 // there is invisible from the outside (no trap, no rejection -- just an await
-// nothing settles). Off unless DELTIC_DRIVE_TRACE is set, and the getter is read
+// nothing settles). Off unless POLYENGINE_DRIVE_TRACE is set, and the getter is read
 // once at module load so normal runs pay a boolean test.
 const DRIVE_TRACE = (() => {
   try {
-    return Deno.env.get("DELTIC_DRIVE_TRACE") === "1";
+    return Deno.env.get("POLYENGINE_DRIVE_TRACE") === "1";
   } catch {
     return false;
   }
@@ -1153,7 +1153,7 @@ function takeHostFailure(store: Store): unknown {
  * silently deadlocking.
  */
 export const CONSTRUCTOR_SYNC_ENTRY: unique symbol = Symbol(
-  "deltic.constructorSyncEntry",
+  "polyengine.constructorSyncEntry",
 );
 
 export function createLiftedFunction(input: {
@@ -1254,7 +1254,7 @@ export function createLiftedFunction(input: {
     // Reference `Store.lift` (line 578): the host is the caller, so the
     // entering set is the callee's `self_and_ancestors()`.
     // On refusal, distinguish the corpse from the crowd: a poisoned
-    // instance's refusal names the original trap (deltic#145 ask 1).
+    // instance's refusal names the original trap (polyengine#145 ask 1).
     if (!inst.mayEnterFrom(null)) {
       trap(withPoisonCause(
         inst,

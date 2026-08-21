@@ -20,7 +20,7 @@
 //   * `net.connect` exposes `localAddress`/`localPort`, so
 //     connect-from-bound works — the native `Deno.connect` never could.
 //   * The engines where node builtins do not exist and JSPI is absent
-//     (JSC, and Bun atop it) cannot run deltic guests anyway: JSC lacks
+//     (JSC, and Bun atop it) cannot run polyengine guests anyway: JSC lacks
 //     multi-memory. Browsers have no sockets of any flavor.
 //
 // Costs, measured and accepted:

@@ -458,7 +458,7 @@ Deno.test({
   ignore: !ready,
   fn: async () => {
     // Known plan gaps, kept explicit so a regression elsewhere is visible.
-    // Empty since plan v4 (core-module exports, deltic#13); binary.json:1421
+    // Empty since plan v4 (core-module exports, polyengine#13); binary.json:1421
     // was the last entry.
     const knownUnsupported = new Set<string>([]);
     const bad: string[] = [];
@@ -501,7 +501,7 @@ Deno.test({
 });
 
 // test/binary/binary.wast:1421 — a component exporting one of its own
-// embedded core modules (plan-format.md v4 amendment 2, deltic#13). The
+// embedded core modules (plan-format.md v4 amendment 2, polyengine#13). The
 // export surfaces as the already-compiled `WebAssembly.Module`, and it is
 // the *embedded* module: instantiating it works and its export list matches
 // the wast source (an empty module).

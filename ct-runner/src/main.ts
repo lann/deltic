@@ -12,15 +12,15 @@
 // the imports record directly, or a factory (sync or async) producing one.
 // Never test-context — the runner supplies that itself.
 //
-// `--translator` (or DELTIC_TRANSLATOR in the environment) names the
+// `--translator` (or POLYENGINE_TRANSLATOR in the environment) names the
 // translator-shim wasm explicitly — required when this CLI runs outside a
-// deltic checkout (e.g. imported by URL at a release tag, with the wasm
-// taken from that release's `deltic-translator-shim.wasm` asset; see
+// polyengine checkout (e.g. imported by URL at a release tag, with the wasm
+// taken from that release's `polyengine-translator-shim.wasm` asset; see
 // docs/consumers.md and issue #16's interim release scheme). Inside a
 // checkout it defaults to the local release build under `target/`.
 
 import { Translator } from "../../runtime/src/shim/mod.ts";
-import type { ComponentArtifacts } from "@deltic/runtime/embedder";
+import type { ComponentArtifacts } from "@polyengine/runtime/embedder";
 import { MissingImportsError, runSuite } from "./mod.ts";
 
 const REPO_ROOT = new URL("../../", import.meta.url);
@@ -56,7 +56,7 @@ function parseArgs(argv: string[]): Cli {
   let out: string | undefined;
   let translator: string | undefined;
   let importsModule: string | undefined;
-  let target = "deltic/host";
+  let target = "polyengine/host";
   let suiteName: string | undefined;
   let only: string | undefined;
   let missing: string[] | undefined;
@@ -135,13 +135,13 @@ async function loadImportsModule(path: string): Promise<Record<string, unknown>>
 }
 
 /** Resolve the translator-shim wasm: explicit `--translator`, then
- * `DELTIC_TRANSLATOR`, then the checkout-local release build. The explicit
- * paths exist for consumers running this CLI outside a deltic checkout
+ * `POLYENGINE_TRANSLATOR`, then the checkout-local release build. The explicit
+ * paths exist for consumers running this CLI outside a polyengine checkout
  * (URL-imported at a release tag): `import.meta.url` is then remote, so the
  * repo-relative default cannot work — they point at the release's
- * `deltic-translator-shim.wasm` asset instead. */
+ * `polyengine-translator-shim.wasm` asset instead. */
 async function loadTranslator(explicit?: string): Promise<Translator> {
-  const fromEnv = Deno.env.get("DELTIC_TRANSLATOR");
+  const fromEnv = Deno.env.get("POLYENGINE_TRANSLATOR");
   const path = explicit ?? (fromEnv !== undefined && fromEnv !== "" ? fromEnv : undefined);
   if (path !== undefined) {
     let bytes: Uint8Array;
@@ -150,7 +150,7 @@ async function loadTranslator(explicit?: string): Promise<Translator> {
     } catch (e) {
       console.error(
         `error: cannot read translator wasm at ${path}` +
-          ` (${explicit !== undefined ? "--translator" : "DELTIC_TRANSLATOR"}): ${e}`,
+          ` (${explicit !== undefined ? "--translator" : "POLYENGINE_TRANSLATOR"}): ${e}`,
       );
       Deno.exit(1);
     }
@@ -159,9 +159,9 @@ async function loadTranslator(explicit?: string): Promise<Translator> {
 
   if (REPO_ROOT.protocol !== "file:") {
     console.error(
-      "error: running outside a deltic checkout — pass --translator " +
-        "<translator_shim.wasm> (or set DELTIC_TRANSLATOR); the wasm ships as " +
-        "a release asset (deltic-translator-shim.wasm).",
+      "error: running outside a polyengine checkout — pass --translator " +
+        "<translator_shim.wasm> (or set POLYENGINE_TRANSLATOR); the wasm ships as " +
+        "a release asset (polyengine-translator-shim.wasm).",
     );
     Deno.exit(1);
   }

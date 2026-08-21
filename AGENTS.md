@@ -1,4 +1,4 @@
-# deltic — development protocol
+# polyengine — development protocol
 
 Instructions for agents (and context for humans) working in this repo. The
 repo was built by a multi-agent workflow and its discipline is part of the
@@ -42,7 +42,7 @@ just test-bundle          # embedder-bundle release asset
 just publish-check        # deno publish --dry-run: the JSR publish checks, no upload
 just examples test-translate  # embedder examples; build-time translation CLI
 just conformance          # official CM suite, Deno lane
-just sched-seeds          # seeded-shuffle reruns: DELTIC_SCHED_SEED=1, =4242 (FIFO when unset)
+just sched-seeds          # seeded-shuffle reruns: POLYENGINE_SCHED_SEED=1, =4242 (FIFO when unset)
 just shells               # pinned engine/runtime lanes: sm + node everywhere, jsc on x64, bun findings-only
 just browsers             # chromium + firefox lanes (`just browsers-install` once)
 just smoke-tls            # polymorph-tls suite (issue #18)
@@ -117,7 +117,7 @@ Standing rules:
   job is deliberately NOT a required PR check (it runs post-merge only,
   gating the prerelease) — do not add it to the protection contexts or
   PRs will never merge.
-- Versioning (README §Consuming): `@deltic/{runtime,translator,wasi,
+- Versioning (README §Consuming): `@polyengine/{runtime,translator,wasi,
   ct-runner}` version in **lockstep**, and the manifests always carry the
   NEXT release. Still 0.x/unstable but caret-honest: a PR that breaks the
   published surface bumps the lockstep minor in the same PR; compatible
@@ -127,7 +127,7 @@ Standing rules:
   immediately by a manifest-bump PR to the next patch — the four manifests
   plus runtime's A9 copy-identity constant `RUNTIME_VERSION`
   (runtime/src/embedder/copy.ts; `just test-runtime` pins the sync).
-  `@deltic/protocol`
+  `@polyengine/protocol`
   versions independently; bumping its manifest publishes it for real on
   the next green run.
 - Consumer checkouts (the polymorph family, under `~/p/polymorph/`) are

@@ -2,18 +2,18 @@
 // call: give `instantiate` the component bytes and the translator, get
 // typed-shaped exports back.
 //
-// The translator comes from @deltic/translator — on Deno it arrives via a
+// The translator comes from @polyengine/translator — on Deno it arrives via a
 // native wasm-module import (permission-free); the only permission this
 // script needs is reading the component it runs:
 //
 //   deno run --allow-read=build host.ts
 //
-// Inside this repository `@deltic/runtime` and `@deltic/translator`
+// Inside this repository `@polyengine/runtime` and `@polyengine/translator`
 // resolve through the Deno workspace; a published consumer uses the same
-// specifiers via JSR/npm (deltic#16 tracks packaging).
+// specifiers via JSR/npm (polyengine#16 tracks packaging).
 
-import { instantiate } from "@deltic/runtime/embedder";
-import { defaultTranslator } from "@deltic/translator";
+import { instantiate } from "@polyengine/runtime/embedder";
+import { defaultTranslator } from "@polyengine/translator";
 
 const translator = await defaultTranslator();
 const componentBytes = await Deno.readFile(

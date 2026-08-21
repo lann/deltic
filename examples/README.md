@@ -2,7 +2,7 @@
 
 Two things live here, for two audiences:
 
-## Embedder examples (start here if you're using deltic)
+## Embedder examples (start here if you're using polyengine)
 
 Complete, self-contained, self-checking WIT + Rust-guest + TS-host pairs.
 Each directory can be copied out of the repo and built as-is; each `run.sh`

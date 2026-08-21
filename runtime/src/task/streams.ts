@@ -44,7 +44,7 @@
 // memory that can be *partially* consumed, which is what makes partial copies
 // expressible.
 
-import { defineBrand, ERROR_CONTEXT } from "@deltic/protocol";
+import { defineBrand, ERROR_CONTEXT } from "@polyengine/protocol";
 import { assert_, Trap, trapIf } from "../cabi/trap.ts";
 import { LiftLowerContext } from "../cabi/context.ts";
 import { loadListFromValidRange } from "../cabi/load.ts";

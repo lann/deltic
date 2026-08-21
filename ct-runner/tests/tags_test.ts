@@ -151,7 +151,7 @@ Deno.test({
     const bytes = withTags((await readArtifact(TEST_SUITE_WASM))!, RECORDS);
     const lines: string[] = [];
     const counts = await runSuite(artifactsOfBytes(bytes), {
-      target: "deltic/test",
+      target: "polyengine/test",
       suiteName: "test-suite",
       missing: ["hw"],
       emit: (l) => lines.push(l),
@@ -184,7 +184,7 @@ Deno.test({
     const bytes = withTags((await readArtifact(TEST_SUITE_WASM))!, RECORDS);
     const lines: string[] = [];
     const counts = await runSuite(artifactsOfBytes(bytes), {
-      target: "deltic/test",
+      target: "polyengine/test",
       suiteName: "test-suite",
       // no `missing`: the !hw decline case does not apply on a
       // fully-featured target (tags.rs polarity).
@@ -207,7 +207,7 @@ Deno.test({
     let threw = "";
     try {
       await runSuite(artifactsOfBytes(bytes), {
-        target: "deltic/test",
+        target: "polyengine/test",
         suiteName: "test-suite",
         emit: () => {},
       });
@@ -227,7 +227,7 @@ Deno.test({
     let threw = "";
     try {
       await runSuite(artifactsOfBytes(bytes), {
-        target: "deltic/test",
+        target: "polyengine/test",
         suiteName: "test-suite",
         missing: ["hw"],
         emit: () => {},

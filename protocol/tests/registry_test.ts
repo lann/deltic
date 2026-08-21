@@ -1,5 +1,5 @@
 // The copy registry (contracts/embedder-api.md §"Module identity and
-// @deltic/protocol", amendment A9; issue #83).
+// @polyengine/protocol", amendment A9; issue #83).
 //
 // The registry's job is diagnosis, never refusal. These tests use fake
 // entries: the real registrant is runtime/src/embedder/mod.ts, and the
@@ -43,7 +43,7 @@ Deno.test("A9: registration is visible through the global slot", () => {
   ]);
   assertEquals(
     copyCensus(),
-    "2 deltic copies loaded: file:///a/mod.ts, file:///b/mod.ts",
+    "2 polyengine copies loaded: file:///a/mod.ts, file:///b/mod.ts",
   );
   reset();
 });

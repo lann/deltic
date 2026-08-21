@@ -271,13 +271,13 @@ Additions/corrections from the M0 integration, normative as of v0.1:
    reuses resource-table instance mapping, which fails loudly (never
    silently mis-routes) but is structurally the wrong index space. A v3
    should add `errorContextTables` and the `TypeTupleIndex` mapping
-   together. **[v3 correction, deltic#89: the "fails loudly" claim was
+   together. **[v3 correction, polyengine#89: the "fails loudly" claim was
    false — the resource-table accessor succeeds whenever a concrete
    resource table exists at the colliding index, and a composed component
    with an ErrorContext at the colliding slot mis-routes silently. Both
    gaps closed in v3 below.]**
 
-## v3 amendments (2026-08-10, deltic#89 / #99 / #101)
+## v3 amendments (2026-08-10, polyengine#89 / #99 / #101)
 
 1. **`formatVersion` is now `3`** (strict equality both sides, same-commit
    bump rule as v1/v2).
@@ -296,7 +296,7 @@ Additions/corrections from the M0 integration, normative as of v0.1:
    the trampoline decl gains `"resultType": <type index> | null` (null
    accepted on the wire; the current producer always emits a tuple — a
    no-result task carries the empty tuple). **Field-shape note (implementation
-   reality, deltic#89):** the v2 decl's `results` field already held the
+   reality, polyengine#89):** the v2 decl's `results` field already held the
    *interned* index, which made it useless as the FACT lookup key; at v3
    `results` carries the **raw** wasmtime `TypeTupleIndex` (the key
    `prepare-call` passes at runtime) and `resultType` the interned
@@ -311,11 +311,11 @@ Additions/corrections from the M0 integration, normative as of v0.1:
    re-justified at the site (intrinsics/fact_calls.ts / async_builtins.ts
    CONTRACT notes).
 4. **v1 amendment 4 (instance-tree gap) closed runtime-side — no wire
-   form** (deltic#101 adjudication). The reference's reachable
+   form** (polyengine#101 adjudication). The reference's reachable
    `entering_set` checks collapse under two facts: a host entry's entering
    set always includes the top-level root, and guest-to-guest pairs never
    consult intermediate ancestors reachably (FACT statically traps
-   same/ancestor pairs; sibling cycles are DAG-unreachable, deltic#99). A
+   same/ancestor pairs; sibling cycles are DAG-unreachable, polyengine#99). A
    **synthetic per-component-instantiation root** participating in
    `mayEnterFrom`/`enterFrom`/`leaveTo` as every instance's shared parent
    is therefore observably equivalent to the full chain, and matches
@@ -323,7 +323,7 @@ Additions/corrections from the M0 integration, normative as of v0.1:
    construction. Reopens only if a future upstream shape makes nesting
    depth observable.
 
-## v4 amendments (2026-08-17, deltic#13)
+## v4 amendments (2026-08-17, polyengine#13)
 
 1. **`formatVersion` is now `4`** (strict equality both sides, same-commit
    bump rule as v1/v2/v3).

@@ -18,7 +18,7 @@ import * as fs from "node:fs";
 // `new Uint8Array(buf)` TypedArray-copy constructor yields a fresh
 // zero-offset ArrayBuffer. (Bun's readFileSync also returns a Buffer; the
 // copy is correct there too.)
-globalThis.__delticHostRead = (path) => new Uint8Array(fs.readFileSync(path));
+globalThis.__polyengineHostRead = (path) => new Uint8Array(fs.readFileSync(path));
 
 // Neither runtime has the shells' global print(); a stdout line via
 // console.log is all entry.ts's emit() needs.

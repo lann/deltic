@@ -1,4 +1,4 @@
-// deltic#145 ask 1: entry refusals on a poisoned instance name the original
+// polyengine#145 ask 1: entry refusals on a poisoned instance name the original
 // trap. The scheduler records the FIRST poisoning cause per instance
 // (follow-on failures against a corpse are noise); `withPoisonCause` appends
 // it to entry-refusal messages, and a non-poisoned (transient-reentrance)

@@ -134,7 +134,7 @@ extension must land with fixtures.
    vs the options' `coreType` asserted at instantiate across the whole
    fixture corpus with zero mismatches. No change.
 
-## v0.2 amendments (2026-08-10 adversarial review, deltic#98)
+## v0.2 amendments (2026-08-10 adversarial review, polyengine#98)
 
 Documentation corrections only — no wire or behavior change:
 
@@ -142,6 +142,6 @@ Documentation corrections only — no wire or behavior change:
    above): the interpreter has always wrapped bigint lanes mod 2⁶⁴ per
    definitions.py `lower_flat`; the table asserted a check that never
    existed. Host-side range *asserts* (host-precondition errors, not traps)
-   exist only on the scalar `storeInt` path as of deltic#96.
+   exist only on the scalar `storeInt` path as of polyengine#96.
 2. **`map` open item closed as stale** (struck through above): emitted by the
    shim, consumed by the loader, exercised by the values suite.

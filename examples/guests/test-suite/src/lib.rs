@@ -1,5 +1,5 @@
 //! `test-suite` guest: an L1 suite component per the vendored
-//! `polymorph:test@0.1.0` contract (wit/tests.wit), used as deltic's
+//! `polymorph:test@0.1.0` contract (wit/tests.wit), used as polyengine's
 //! ct-runner fixture (TRACK C2-D).
 //!
 //! Six deterministic cases exercising the contract surface:

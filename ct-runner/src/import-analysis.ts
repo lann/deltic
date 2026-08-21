@@ -10,8 +10,8 @@ import {
   NameCollisionError,
   type PlanLike,
   requiredImports,
-} from "@deltic/runtime/embedder";
-import { ImportResolver } from "@deltic/runtime/embedder";
+} from "@polyengine/runtime/embedder";
+import { ImportResolver } from "@polyengine/runtime/embedder";
 import { TEST_CONTEXT_INTERFACE } from "./context.ts";
 
 /** One or more of the suite's import leaves cannot be resolved (yet). */

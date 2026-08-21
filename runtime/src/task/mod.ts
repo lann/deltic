@@ -9,7 +9,7 @@
 //
 //   1. threads are generators, not OS threads (./scheduler.ts header), and
 //   2. the shared-everything-threads built-ins (`thread.suspend-then-resume`
-//      and friends, 🧵) are absent rather than approximated — https://github.com/lann/deltic/issues/12
+//      and friends, 🧵) are absent rather than approximated — https://github.com/polymorph-components/polyengine/issues/12
 //      defers that feature with memory64.
 
 import { Table } from "../cabi/handles.ts";
@@ -79,7 +79,7 @@ export class ComponentInstanceState implements ComponentInstanceLike {
    * The plan still gives us a flat instance space, but the tree is no longer
    * needed: every instance of one instantiation gets the same **synthetic
    * root** as its parent (contracts/plan-format.md v3 amendment 4 /
-   * deltic#101). See `enteringSet` for why that is observably equivalent to
+   * polyengine#101). See `enteringSet` for why that is observably equivalent to
    * the real chain. The root itself has no parent.
    */
   parent: ComponentInstanceState | null;
@@ -129,7 +129,7 @@ export class ComponentInstanceState implements ComponentInstanceLike {
    * `leave_to`, so the root — which is in every host entry's entering set —
    * stays `may_enter == False` forever and NO instance of the component can
    * be entered again. wasmtime is the same by other means (it poisons the
-   * store). deltic deliberately supports post-trap re-entry of instances the
+   * store). polyengine deliberately supports post-trap re-entry of instances the
    * trap did not touch (exec/boundary.ts `poison`: "sibling instances stay
    * usable, which is why the lock is released per-instance rather than by
    * poisoning a whole store the way wasmtime does"), and the synthetic root
@@ -168,7 +168,7 @@ export class ComponentInstanceState implements ComponentInstanceLike {
    * definitions.py `ComponentInstance.entering_set` (line 230):
    * `self_and_ancestors() - caller.self_and_ancestors()`.
    *
-   * CONTRACT (contracts/plan-format.md v3 amendment 4, deltic#101): the plan
+   * CONTRACT (contracts/plan-format.md v3 amendment 4, polyengine#101): the plan
    * still carries no wire form for the component-instance tree, and it no
    * longer needs one. Every instance's parent is the synthetic
    * per-instantiation root, so:
@@ -184,7 +184,7 @@ export class ComponentInstanceState implements ComponentInstanceLike {
    *     be the only difference from the real chain, and they are never
    *     reachably consulted: FACT compiles same-instance and ancestor calls
    *     to unconditional compile-time traps, and sibling cycles are
-   *     unreachable because instance imports form a DAG (deltic#99
+   *     unreachable because instance imports form a DAG (polyengine#99
    *     adjudication).
    *
    * So the synthetic root is observably equivalent to the full chain, and it

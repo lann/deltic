@@ -3,7 +3,7 @@
 // class directly (`URLSearchParams`, `TextDecoder`), no wrapper. This is the
 // ergonomic idea from the upstream web-embedding draft
 // (WebAssembly/component-model#686), claimed here in test form against
-// deltic's EXISTING host-resource semantics.
+// polyengine's EXISTING host-resource semantics.
 //
 // Governing docs (contracts/embedder-api.md):
 //   - §"Value mapping (normative)": the option rule — outermost `none` is

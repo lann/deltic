@@ -1,4 +1,4 @@
-package deltic:context-user;
+package polyengine:context-user;
 
 /// Exercises context-local storage (canonical `context.get`/`context.set`
 /// slot 0, docs/architecture.md §5/§6) across interleaved, concurrently-suspended task

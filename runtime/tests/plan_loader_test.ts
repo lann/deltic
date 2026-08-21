@@ -535,7 +535,7 @@ Deno.test("loader: malformed import entry is a typed PlanError", () => {
   );
 });
 
-// The tampered-cache scenario from deltic#187: a valid-looking plan with a
+// The tampered-cache scenario from polyengine#187: a valid-looking plan with a
 // negative embedded-module offset (as a corrupted-on-disk cache entry might
 // carry) must be refused at `loadPlan`, never allowed through to slice the
 // wrong component bytes.

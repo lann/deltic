@@ -446,7 +446,7 @@ class Executor {
     }
     const compiled = Promise.all(this.wire.modules.map((m, i) => {
       if (m.kind === "embedded") {
-        // Defense-in-depth (deltic#187): the loader now refuses
+        // Defense-in-depth (polyengine#187): the loader now refuses
         // negative/non-integer `offset`/`len` at load time (loader.ts
         // `validateModule`), but a negative offset silently slices the
         // *wrong* bytes from the tail of `componentBytes`
@@ -1141,7 +1141,7 @@ class Executor {
         // plan v3: the error-context tables' own index space
         // (`TypeComponentLocalErrorContextTableIndex`). Loud on absence — the
         // predecessor of this accessor borrowed the *resource*-table mapping
-        // and could answer with a different instance's table (deltic#89).
+        // and could answer with a different instance's table (polyengine#89).
         const instance = this.loaded.errorContextTableInstances[i];
         if (instance === undefined) {
           throw new PlanError(

@@ -71,7 +71,7 @@ Deno.test("generated instantiate: also accepts an untranslated source", async ()
     componentBytes: helloWasm,
     translator,
   });
-  assertEq(await instance.exports.greet("deltic"), "Hello, deltic!");
+  assertEq(await instance.exports.greet("polyengine"), "Hello, polyengine!");
 });
 
 Deno.test("generated instantiate: skew fails fast before any guest code runs", async () => {

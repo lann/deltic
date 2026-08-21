@@ -87,7 +87,7 @@ Deno.test({
 
     const lines: string[] = [];
     const counts = await mod.runSuite({ plan, componentBytes, adapters }, {
-      target: "deltic/bundle",
+      target: "polyengine/bundle",
       suiteName: "test-suite",
       missing: ["hw"],
       emit: (l: string) => lines.push(l),

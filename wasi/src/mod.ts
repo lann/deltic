@@ -1,12 +1,12 @@
-// `@deltic/wasi` — the WASI providers for deltic hosts, and the
+// `@polyengine/wasi` — the WASI providers for polyengine hosts, and the
 // executable check that the embedder conventions
-// (`@deltic/runtime/embedder`) serve WASI (contracts/embedder-api.md C2
+// (`@polyengine/runtime/embedder`) serve WASI (contracts/embedder-api.md C2
 // checklist item 7; docs/architecture.md §2 keeps implementations out of
 // the RUNTIME — this package is where they live). Scope: p2
 // baseline + p3 clocks + à la carte sockets on BOTH tracks (the
 // poll-shaped `@0.2` surface std::net links, and `@0.3` UDP + TCP
 // client/listener; one node-builtins backend serving Deno and Node;
-// `@deltic/wasi/sockets`, issue #4, server-JS hosts only). Sockets is
+// `@polyengine/wasi/sockets`, issue #4, server-JS hosts only). Sockets is
 // deliberately not merged here: this root module stays host-agnostic
 // web-platform code, and `wasi()` merges only AMBIENT, side-effect-
 // benign capabilities (time, entropy, stdio capture, an empty
@@ -23,7 +23,7 @@
 //
 // 1. Batteries: `instantiate(a, { ...wasi() })`.
 // 2. À la carte fragments: every IMPL is its own subpath export
-//    (`@deltic/wasi/{cli,cli-stdio,clocks,filesystem,filesystem-node,`
+//    (`@polyengine/wasi/{cli,cli-stdio,clocks,filesystem,filesystem-node,`
 //    `filesystem-web,http,io,random,sockets}`) and
 //    a plain `{ imports }` record — hand-merge exactly the set you mean:
 //    `{ ...io().imports, ...clocks().imports }`. Fragment dependencies:

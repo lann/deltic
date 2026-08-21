@@ -1,4 +1,4 @@
-package deltic:kitchen-sink;
+package polyengine:kitchen-sink;
 
 /// Shared shapes, chosen to cover the value translations whose JS spelling
 /// is not obvious (contracts/embedder-api.md §"Value shapes"):

@@ -1,4 +1,4 @@
-# deltic — references
+# polyengine — references
 
 Canonical links contributors (human or agent) are likely to need. Versioned
 links are pinned to the versions this repo pins; re-pin them together with

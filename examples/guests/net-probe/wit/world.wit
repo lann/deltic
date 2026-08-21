@@ -1,4 +1,4 @@
-package deltic:net-probe;
+package polyengine:net-probe;
 
 /// The wasi:sockets@0.2 integration probe. Like fs-probe, the
 /// interesting imports are NOT declared here: building for wasm32-wasip2

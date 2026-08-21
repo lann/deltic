@@ -305,7 +305,7 @@ const TRAP_MESSAGE_EQUIVALENTS: Array<[expectedPrefix: string, actualSubstrings:
   // a webkit-2342 (multi-memory-enabled) lane run, where this command is the
   // one wording residual the row above does not reach (its prefix is the
   // long form). Without this row the WebKit overlay cannot collapse to
-  // empty at the playwright pin bump (deltic#11).
+  // empty at the playwright pin bump (polyengine#11).
   [
     "unreachable",
     ["Unreachable code should not be executed"],

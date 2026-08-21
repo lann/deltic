@@ -20,12 +20,12 @@ examination", renumbered from a colliding second "A5"); amendment A7
 (2026-08-11) makes component faults loud on host stream/future
 operations (`PeerTrappedError`, never a hang or a fake end-of-stream)
 and limits host ends to one in-flight operation per direction; amendment
-A8 (2026-08-10, deltic#90/#97) makes `Future.drop()` before writing an
+A8 (2026-08-10, polyengine#90/#97) makes `Future.drop()` before writing an
 **abandonment** (total, never-throwing; a guest reader observes a trap at
 its rendezvous, never DROPPED) and documents host `cancelRead` as
 indistinguishable from end-of-stream by design; amendment A9 (2026-08-11)
 makes every cross-boundary brand a process-global registry symbol carried
-by the new dependency-free `@deltic/protocol` package — class identity is
+by the new dependency-free `@polyengine/protocol` package — class identity is
 not part of the embedder API — and adds loud multi-copy diagnostics
 (issue #83); amendment A10 (2026-08-11) renames `WitError` to
 `ComponentException` (`isWitError` → `isComponentException`) and the
@@ -37,11 +37,13 @@ exception naming) while it is still cheap — semantics unchanged
 untouched**: the brand key stays `deltic.witError/1` (an opaque constant,
 CEWD-style, so pre-A10 copies and hand-rolled brands keep interoperating)
 and plan-format op discriminants (a different contract) keep `tag`;
-and plan-format op discriminants (a different contract) keep `tag`;
 A10 release note (2026-08-12): the rename changes `@deltic/protocol`'s
 export surface, so the JSR package moves to **0.2.0** — immutable `0.1.0`
 keeps the pre-A10 names for pre-A10 runtime prereleases (`^0.1.0` never
 resolves across), and post-A10 workspace publishes depend on `^0.2.0`;
+**A10's brand-key freeze and its `@deltic/protocol` version reasoning are
+both historical as of A18, which renames the project, the scope and the
+keys together**;
 amendment A11 (2026-08-12) makes between-calls guest liveness normative:
 host-import settlements are serviced by a settlement pump while no export
 call is in flight, so background tasks parked on host-call wakeups (clocks,
@@ -72,15 +74,19 @@ through a `Stream`/`Future` handle already passed to a guest is refused
 loudly (`TypeError`) instead of operating a phantom duplicate of an end
 the guest now owns; `StreamWriter` operations after the pass stay legal
 (the host retains the writable end) — see §"Streams and futures";
-amendment A16 (2026-08-21, deltic#182) settles the semantics of handle
+amendment A16 (2026-08-21, polyengine#182) settles the semantics of handle
 disposal on a future whose host end has not materialized:
 `Future.cancel()`, like `drop()`, is a total fire-and-forget handle
 operation and never surfaces the producing call's failure — see §"Streams and futures"; amendment A17 (2026-08-21,
-deltic#184) scopes the world-digest handshake to the GENERATED typed
+polyengine#184) scopes the world-digest handshake to the GENERATED typed
 entry point (bindgen emits an `instantiate` wrapper that verifies before
 instantiating) — the runtime's untyped `instantiate` has no world to
 check against and does not verify — see §"Module wiring and
-instantiation".**
+instantiation"; amendment A18 (2026-08-21) renames the project from
+`deltic` to `polyengine` and, with it, every brand key in the registry
+(`deltic.witError/1` → `polyengine.witError/1` and siblings) — a hard
+break with no compatibility spelling, superseding A10's freeze; the brand
+GENERATION stays `1` — see §"Module identity and @polyengine/protocol".**
 This document supersedes `descriptor-ir.md`'s interim
 "host value mapping" table as the destination for host-facing value shapes.
 The runtime's *raw* boundary (`instance.exports`, `HostImports`) keeps the
@@ -308,9 +314,9 @@ class PeerTrappedError extends Error {  // A7: a stream/future op whose peer ins
 - **Recognition is by brand, not class** (amendment A9): every class above
   carries a process-global brand symbol, and the runtime's checks read the
   brand. Same-copy `instanceof` still works and stays the documented
-  spelling in single-copy graphs; `@deltic/protocol` exports predicates
+  spelling in single-copy graphs; `@polyengine/protocol` exports predicates
   (`isComponentException`, `isTrap`, `isPeerTrappedError`, …) as the
-  multi-copy-robust form. See §"Module identity and @deltic/protocol".
+  multi-copy-robust form. See §"Module identity and @polyengine/protocol".
 
 ## Functions and async
 
@@ -325,7 +331,7 @@ class PeerTrappedError extends Error {  // A7: a stream/future op whose peer ins
   import is typed to return `T` synchronously. Returning a Promise from a
   sync-typed import parks the calling **wasm frame** and is a *declared*
   capability (amendment A1): wrap the function in `suspending()` (defined
-  in `@deltic/protocol` since A9; re-exported unchanged from the embedder
+  in `@polyengine/protocol` since A9; re-exported unchanged from the embedder
   surface). The marker
   - is per-declaration — only marked imports are handed to wasm as
     `WebAssembly.Suspending`, so unmarked imports keep the plain calling
@@ -370,7 +376,7 @@ class PeerTrappedError extends Error {  // A7: a stream/future op whose peer ins
   a fetch) resumes at settlement time, not at the embedder's next call.
   This is the JS-host analogue of dwelling in wasmtime's `run_concurrent`,
   and what makes guest-encapsulated keep-alive tickers (componentize-go's
-  goroutine bridge over `wasi:clocks.wait-for`) self-driving under deltic.
+  goroutine bridge over `wasi:clocks.wait-for`) self-driving under polyengine.
   Two prior bounds are unchanged: an operation waiting on the *embedder's*
   half of a host stream/future still hangs until the embedder acts (never
   a trap — see Streams and futures), and a settlement-time failure
@@ -421,7 +427,7 @@ A host-implemented resource does not need a hand-written class: when a WIT
 resource's shape matches a native platform class, pass the class itself —
 the pattern the draft web embedding builds its import story on
 (WebAssembly/component-model PR #686 "interface object" imports; tracked
-in deltic#115), available here today because the pieces already line up:
+in polyengine#115), available here today because the pieces already line up:
 method dispatch is a per-call `self[camelCase(member)]` lookup, WIT
 constructor args flow to `new Class(...)`, and the value conventions are
 the natural JS shapes (`Uint8Array` IS a `BufferSource`; a record is a
@@ -495,7 +501,7 @@ class DroppedError extends Error { … }    // awaiting a dropped future rejects
   `Future<T>`. Awaiting a future whose write end dropped without a value
   rejects with `DroppedError` (discriminated — R-fix review note 4).
 - **Handle disposal is total and silent** (amendment A16, 2026-08-21,
-  deltic#182). `drop()` and `cancel()` on a `Future<T>` are plain handle
+  polyengine#182). `drop()` and `cancel()` on a `Future<T>` are plain handle
   operations: they never throw, never return a promise, and never surface
   a failure of the call that produces the future's host end. A future
   obtained from an export call is DEFERRED — its host end materializes
@@ -650,7 +656,7 @@ class DroppedError extends Error { … }    // awaiting a dropped future rejects
   second operation could "rendezvous" against the first one's parked
   buffer and report data as taken by a peer that never existed.
 - **Dropping an unwritten future is abandonment, not DROPPED** (amendment
-  A8, deltic#90). The CABI forbids a writable future end from dropping
+  A8, polyengine#90). The CABI forbids a writable future end from dropping
   before delivering its value (definitions.py:1183-1184) — a guest doing
   so traps. The host-side spelling: `Future.drop()`/`[Symbol.dispose]` on
   a **lowered**, never-written future never throws and is idempotent; the
@@ -663,7 +669,7 @@ class DroppedError extends Error { … }    // awaiting a dropped future rejects
   their A7-era reporting: the in-flight call fails site-named via the
   host-failure channel.
 - **`cancelRead` is indistinguishable from end-of-stream — by design**
-  (amendment A8, deltic#97). A host-side `Stream.cancelRead()` settles the
+  (amendment A8, polyengine#97). A host-side `Stream.cancelRead()` settles the
   in-flight `read` with an empty chunk, which `readable()`/the async
   iterator present as clean EOS. The canceller is the same code observing
   the end, so no discriminated signal is warranted; pinned by test. (A
@@ -725,7 +731,7 @@ const instance = await instantiate(artifacts, {
   `plan.imports` proved the right authority; blessing it removes every
   future embedder's hand-rolled equivalent).
 
-## Module identity and @deltic/protocol (amendment A9)
+## Module identity and @polyengine/protocol (amendment A9)
 
 Consumer evidence (issue #83; wosh finding 26): in a source-distributed,
 registry-less ecosystem nothing guarantees one copy of the runtime per
@@ -735,15 +741,15 @@ check then fails *latently* (first error path, or a silently-pumped
 stream), never at instantiation. A9 removes class identity from the
 contract entirely.
 
-**The protocol package.** `@deltic/protocol` is a dependency-free
+**The protocol package.** `@polyengine/protocol` is a dependency-free
 workspace package carrying the embedder contract's *vocabulary*: the
 brand symbols, the canonical error classes (`ComponentException`, `Trap`,
 `DroppedError`, `PeerTrappedError`, `InvalidHandleError`,
 `StreamProducerError`), `suspending()`/`isSuspending`, the recognition
 predicates, the copy registry, and `PROTOCOL_GENERATION`.
-`@deltic/runtime/embedder` re-exports all of it unchanged — existing
+`@polyengine/runtime/embedder` re-exports all of it unchanged — existing
 embedder code keeps working with no import changes. Host-module packages
-SHOULD import `@deltic/protocol` at most (never runtime values); with
+SHOULD import `@polyengine/protocol` at most (never runtime values); with
 hand-rolled brands (below) even that import is optional. Copies of the
 protocol package are harmless by construction — identity never rests on
 the package, only on the registry symbols.
@@ -756,26 +762,54 @@ equivalent of a semver major:
 
 | brand key | carried by | marks |
 |---|---|---|
-| `deltic.witError/1` | `ComponentException.prototype` | err-result values (key keeps the pre-A10 name: opaque wire constant, CEWD-style — renaming it would break pre-A10 copies and hand-rolled brands) |
-| `deltic.trap/1` | `Trap.prototype` | component-fatal errors |
-| `deltic.dropped/1` | `DroppedError.prototype` | dropped-future rejections |
-| `deltic.peerTrapped/1` | `PeerTrappedError.prototype` | peer-fault rejections (A7) |
-| `deltic.invalidHandle/1` | `InvalidHandleError.prototype` | resource-wrapper misuse |
-| `deltic.streamProducer/1` | `StreamProducerError.prototype` | producer-side failures |
-| `deltic.suspending/1` | the marked function / class prototype (A1/A2) | suspendable sync imports |
-| `deltic.stream/1` | `Stream.prototype` | embedder stream handles |
-| `deltic.future/1` | `Future.prototype` | embedder future handles |
-| `deltic.errorContext/1` | `ErrorContext.prototype` | lifted error-contexts |
-| `deltic.resourceState/1` | guest-resource wrappers (key for internal state; the state shape stays runtime-internal) | resource wrappers |
-| `deltic.pollable/1` | `Pollable.prototype` (the wasi package) | pollables |
-| `deltic.wasiExit/1` | `ExitError.prototype` (the wasi package) | wasi exit unwinds |
-| `deltic.runtimeCopies/1` | `globalThis` | the copy registry |
+| `polyengine.witError/1` | `ComponentException.prototype` | err-result values |
+| `polyengine.trap/1` | `Trap.prototype` | component-fatal errors |
+| `polyengine.dropped/1` | `DroppedError.prototype` | dropped-future rejections |
+| `polyengine.peerTrapped/1` | `PeerTrappedError.prototype` | peer-fault rejections (A7) |
+| `polyengine.invalidHandle/1` | `InvalidHandleError.prototype` | resource-wrapper misuse |
+| `polyengine.streamProducer/1` | `StreamProducerError.prototype` | producer-side failures |
+| `polyengine.suspending/1` | the marked function / class prototype (A1/A2) | suspendable sync imports |
+| `polyengine.stream/1` | `Stream.prototype` | embedder stream handles |
+| `polyengine.future/1` | `Future.prototype` | embedder future handles |
+| `polyengine.errorContext/1` | `ErrorContext.prototype` | lifted error-contexts |
+| `polyengine.resourceState/1` | guest-resource wrappers (key for internal state; the state shape stays runtime-internal) | resource wrappers |
+| `polyengine.pollable/1` | `Pollable.prototype` (the wasi package) | pollables |
+| `polyengine.wasiExit/1` | `ExitError.prototype` (the wasi package) | wasi exit unwinds |
+| `polyengine.runtimeCopies/1` | `globalThis` | the copy registry |
+
+**The A18 key rename (2026-08-21).** These keys read `deltic.*/1` through
+0.2.1, when the project was named deltic. A10 froze that spelling on the
+argument that a brand key is an opaque constant whose text carries no
+meaning, so renaming it would buy nothing and break pre-A10 copies and
+hand-rolled brands. A18 renames them anyway, as part of moving the project
+to `polymorph-components/polyengine` and the `@polyengine` scope: a
+vocabulary whose every key names a project that no longer exists is a
+standing tax on everyone who reads or hand-rolls one, and the consumer
+family is small, known, and migrating in one step per repo.
+
+The generation suffix **stays `1`**. It denotes the shape of the branded
+vocabulary, which A18 does not touch — only the spelling of the keys
+changed, and a spelling change already produces a completely disjoint
+symbol set. Bumping to `/2` would carry no additional information: there is
+no key under which an old copy and a new copy could meet and disagree.
+
+The consequence is worth stating plainly, because it is quiet. A module
+graph containing both a `@deltic/*@0.2.x` copy and a `@polyengine/*` copy
+has two disjoint brand namespaces, so each copy's values are simply
+unrecognized by the other: a cross-copy `ComponentException` is not
+recognized as one, a `suspending()` mark does not read as suspending, and
+the copy census (which is itself keyed by `…runtimeCopies/1`) sees only its
+own namespace's copies and reports nothing unusual. There is no diagnostic
+for this state and none is planned — the supported answer is that a graph
+resolves exactly one engine, which is the same invariant A9 already asks
+consumers to gate on (docs/consumers.md). Migrate an engine dependency in
+one step; never partially.
 
 **Brands are contract markers, not a security boundary.** A hand-rolled
 object carrying the right brand is a legal value: an Error with
-`[Symbol.for("deltic.witError/1")]: true` and a `payload` property IS a
+`[Symbol.for("polyengine.witError/1")]: true` and a `payload` property IS a
 ComponentException to every copy; a function with
-`[Symbol.for("deltic.suspending/1")]: true` IS suspending-marked. This is
+`[Symbol.for("polyengine.suspending/1")]: true` IS suspending-marked. This is
 what makes zero-import host modules possible. The canonical classes are
 conveniences, not gatekeepers.
 
@@ -791,7 +825,7 @@ distinguishes cross-copy from cross-store).
 
 **The copy registry.** Each embedder module instance appends
 `{ url, runtimeVersion, protocolGeneration }` (its `import.meta.url`) to
-the array at `globalThis[Symbol.for("deltic.runtimeCopies/1")]` when it
+the array at `globalThis[Symbol.for("polyengine.runtimeCopies/1")]` when it
 is evaluated. Multiple copies are **diagnosed, never refused** — two
 isolated bundles on one page that exchange no values are legal. The
 registry feeds the diagnostics: cross-copy errors name both URLs, and the
@@ -803,7 +837,7 @@ the trap message says so instead of leaving a latent puzzle.
 **Resolution discipline stays necessary** for efficiency (N copies still
 cost N compiles and N bundle payloads) and for graphs containing pre-A9
 copies: import maps are an application concern; host-module packages must
-not carry `@deltic/*` mappings in any config consumers resolve through
+not carry `@polyengine/*` mappings in any config consumers resolve through
 (docs/consumers.md records the convention).
 
 ## Bindgen obligations (summary of what the above requires)

@@ -6,7 +6,7 @@
 //   component.wasm            (unchanged)
 //   component.plan.json       (this tool's output: the translation envelope
 //                              — plan + FACT adapter modules, base64)
-//   your host code + @deltic/runtime
+//   your host code + @polyengine/runtime
 //
 // and the host reconstitutes artifacts with `artifactsFromEnvelope` (see
 // README.md). The envelope embeds the component's sha-256; `instantiate`
@@ -18,9 +18,9 @@
 //
 // Defaults: -o <component>.plan.json next to the input; --shim resolves to
 // the repo's built translator (consumers of the published package will get
-// a default translator from @deltic/translator once #16 packaging lands).
+// a default translator from @polyengine/translator once #16 packaging lands).
 
-import { Translator } from "@deltic/runtime/shim";
+import { Translator } from "@polyengine/runtime/shim";
 
 function usage(): never {
   console.error(
@@ -59,7 +59,7 @@ const envelope = translator.translateRaw(componentBytes);
 const ms = (performance.now() - t0).toFixed(1);
 
 // Fail here, not at deploy time, if the translator rejected the component.
-const { loadEnvelope } = await import("@deltic/runtime/plan");
+const { loadEnvelope } = await import("@polyengine/runtime/plan");
 const { wire, adapters } = loadEnvelope(envelope);
 
 await Deno.writeTextFile(output, envelope);

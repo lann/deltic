@@ -1,23 +1,23 @@
 # bench/boundary — the host-boundary microbench
 
 Calls-per-second across the host import boundary, per ABI shape — the
-instrument behind [#17](https://github.com/lann/deltic/issues/17)'s
-jco-vs-deltic baseline, [#54](https://github.com/lann/deltic/issues/54)'s
-lift-throughput finding, and [#8](https://github.com/lann/deltic/issues/8)'s
+instrument behind [#17](https://github.com/polymorph-components/polyengine/issues/17)'s
+jco-vs-polyengine baseline, [#54](https://github.com/polymorph-components/polyengine/issues/54)'s
+lift-throughput finding, and [#8](https://github.com/polymorph-components/polyengine/issues/8)'s
 cost ledger. The design goal is attribution, not realism: the guest is a
 tight loop over echo-shaped imports whose host bodies are trivial, so
 what the clock sees is lift/lower + dispatch + (for async shapes) the
 suspension machinery — and both stacks run on **the same engine** (plain
-`node` runs the deltic callback ABI with no flag; the jco lane and
-deltic's jspi mode share `--experimental-wasm-jspi`), so V8/GC/JIT
+`node` runs the polyengine callback ABI with no flag; the jco lane and
+polyengine's jspi mode share `--experimental-wasm-jspi`), so V8/GC/JIT
 variables cancel.
 
 ```sh
-just bench-boundary            # deltic lanes: node callback+jspi, deno
+just bench-boundary            # polyengine lanes: node callback+jspi, deno
 just bench-boundary with-jco   # + the incumbent jco lane (npm ci + transpile on first use)
 ```
 
-The deltic lanes measure the CURRENT TREE: the recipe builds the local
+The polyengine lanes measure the CURRENT TREE: the recipe builds the local
 embedder bundle (`tools/release-bundle/build.ts`) and the local
 translator shim. Numbers are box-relative — compare lanes within one
 run, or the same lane across commits on one box, never absolute values
@@ -38,7 +38,7 @@ promise — the wakeup-shaped path a real receive takes). Payload sizes 0
 export calls after a warmup call; each export call runs `iters`
 boundary crossings.
 
-## Stream shapes ([#68](https://github.com/lann/deltic/issues/68))
+## Stream shapes ([#68](https://github.com/polymorph-components/polyengine/issues/68))
 
 | export | what it measures |
 | --- | --- |
@@ -55,13 +55,13 @@ same convention as the calls-per-second table. Chunk sizes 1200 B,
 16 KiB, 256 KiB; the chunk COUNT per size is chosen (`sweep.mjs`,
 `STREAM_CONFIGS`) so one timed run lands in the tens-of-ms range —
 smaller chunks need more of them to reach a measurable duration, larger
-chunks need fewer. **deltic drivers only**: jco's p3 stream support is
+chunks need fewer. **polyengine drivers only**: jco's p3 stream support is
 not under test here, so the jco lane is skipped for these rows.
 
 ## Baseline (2026-08-11, linux-arm64 dev box, Node 24.18 / Deno 2.9.5, guest wit-bindgen 0.60; post-#63/#67 bulk list copies)
 
 ```
-shape     mode       size    deltic-node-callback      deltic-node-jspi  deltic-deno-callback         jco-node-jspi
+shape     mode       size    polyengine-node-callback      polyengine-node-jspi  polyengine-deno-callback         jco-node-jspi
 send      immediate  0                  932,496/s             780,785/s             912,448/s                 544/s
 send      immediate  1200               554,477/s             508,132/s             715,925/s                 421/s
 send      microtask  0                  407,627/s             119,069/s             328,809/s                 343/s
@@ -76,7 +76,7 @@ send-sync microtask  0                1,653,656/s             788,044/s         
 send-sync microtask  1200               761,535/s             615,453/s             997,213/s             313,497/s
 
 stream lanes (bytes/s; jco lane skipped — see above):
-shape         size        deltic-node-callback      deltic-node-jspi  deltic-deno-callback
+shape         size        polyengine-node-callback      polyengine-node-jspi  polyengine-deno-callback
 stream-sink   1200                    437 MB/s              277 MB/s            417.8 MB/s
 stream-sink   16384               3,421.8 MB/s          2,487.2 MB/s          3,604.7 MB/s
 stream-sink   262144              7,538.4 MB/s          6,936.1 MB/s          4,711.9 MB/s
@@ -104,7 +104,7 @@ Two methodology footnotes for the stream rows:
 
 What the baseline says:
 
-- **Async import round-trips**: deltic's callback ABI sustains 0.3–1.1 M
+- **Async import round-trips**: polyengine's callback ABI sustains 0.3–1.1 M
   crossings/s; jco's async path costs ~3 ms per call flat
   (timer-quantized — its sync path is healthy at ~300 k/s, so the cost
   is the async task loop, the same machinery behind lann/jco#11 and

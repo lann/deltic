@@ -2,7 +2,7 @@
 // (current or future) Component Model runtime.
 //
 // ============================ PROVISIONAL ============================
-// This interface is a sketch of what the deltic runtime must
+// This interface is a sketch of what the polyengine runtime must
 // eventually implement. It exists so the runner can be written today and so
 // the runtime work has a concrete target. Expect it to grow (async task
 // options, deterministic scheduler knobs, resource-table introspection) and
@@ -134,7 +134,7 @@ export interface CommandExecutor {
  * Note V8 cannot validate component binaries at all — a component's version/
  * layer preamble (`0d 00 01 00`) is a CompileError for the core API, so
  * `WebAssembly.validate` returns false for VALID components too. That layer
- * is exactly what deltic will implement; until then no component
+ * is exactly what polyengine will implement; until then no component
  * verdict can come from the JS API.
  */
 export class CoreOnlyExecutor implements CommandExecutor {

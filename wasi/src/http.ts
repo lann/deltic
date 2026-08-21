@@ -1,5 +1,5 @@
 // `wasi:http@0.3` — the OUTBOUND half (`types` + `client`), served over
-// `fetch`. À la carte (`@deltic/wasi/http`): fetch is universal across
+// `fetch`. À la carte (`@polyengine/wasi/http`): fetch is universal across
 // the JS runtimes, but this fragment grants NETWORK EGRESS, and the
 // default `wasi()` merge carries only ambient, side-effect-benign
 // capabilities (mod.ts "COMPOSITION") — portability is not the
@@ -65,7 +65,7 @@
 // Fetch failures are TypeErrors with prose; a small sniff table maps the
 // recognizable ones and everything else is `internal-error(message)`.
 
-import { ComponentException, Stream } from "@deltic/runtime/embedder";
+import { ComponentException, Stream } from "@polyengine/runtime/embedder";
 
 /** The compatibility track the fragment registers on by default. */
 export const HTTP_TRACK = "0.3";

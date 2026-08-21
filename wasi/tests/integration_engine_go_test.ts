@@ -16,8 +16,8 @@
 // Skip-if-absent: the artifact is a real polymorph build product.
 
 import { assertEq, assertTrue } from "./asserts.ts";
-import { Translator } from "@deltic/runtime/shim";
-import { instantiate } from "@deltic/runtime/embedder";
+import { Translator } from "@polyengine/runtime/shim";
+import { instantiate } from "@polyengine/runtime/embedder";
 import { wasi } from "../src/mod.ts";
 
 const ARTIFACT = "/home/lmartin/p/polymorph/experiment-mosh/engine-go/main.wasm";

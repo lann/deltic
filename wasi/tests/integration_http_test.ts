@@ -12,8 +12,8 @@
 // Skip-if-absent on the shim + fixture corpus, like the sockets gate.
 
 import { assertEq, assertTrue } from "./asserts.ts";
-import { Translator } from "@deltic/runtime/shim";
-import { instantiate } from "@deltic/runtime/embedder";
+import { Translator } from "@polyengine/runtime/shim";
+import { instantiate } from "@polyengine/runtime/embedder";
 import { http } from "../src/http.ts";
 
 const FIXTURE = new URL(

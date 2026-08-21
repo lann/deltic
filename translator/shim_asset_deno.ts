@@ -1,4 +1,4 @@
-// The Deno arm of @deltic/translator, reached from mod.ts via a
+// The Deno arm of @polyengine/translator, reached from mod.ts via a
 // STRING-LITERAL dynamic import: the literal specifier puts this module —
 // and the wasm it statically imports — into the statically-analyzable
 // module graph, so no read permission is needed (unlike a computed

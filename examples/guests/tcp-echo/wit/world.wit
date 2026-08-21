@@ -1,4 +1,4 @@
-package deltic:tcp-echo;
+package polyengine:tcp-echo;
 
 /// End-to-end loopback exerciser for the REAL `wasi:sockets@0.3.0` TCP
 /// surface (wit/deps vendored verbatim from upstream — the same revision

@@ -46,8 +46,8 @@
 // suspendability), which is what lets the duck-typed async streams park
 // through the resource types registered here.
 
-import { defineBrand, POLLABLE } from "@deltic/protocol";
-import { suspending, ComponentException } from "@deltic/runtime/embedder";
+import { defineBrand, POLLABLE } from "@polyengine/protocol";
+import { suspending, ComponentException } from "@polyengine/runtime/embedder";
 
 /** The engine setTimeout ceiling: delays above 2^31-1 ms are clamped to
  * ~0 (node/Deno warn and fire at 1 ms). `Pollable.timer` sleeps in
@@ -160,7 +160,7 @@ export class Pollable {
 }
 
 // A9 brand (contracts/embedder-api.md §"Module identity"): pollables cross
-// into host provider code, which may resolve a different @deltic copy. The
+// into host provider code, which may resolve a different @polyengine copy. The
 // brand makes them recognizable there; same-copy `instanceof` is unchanged
 // and stays the documented spelling (issue #83). `poll()` itself needs no
 // predicate: it consumes pollables structurally (`ready`/`waitPromise`), so a

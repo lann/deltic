@@ -44,7 +44,7 @@ impl bindings::Guest for Component {
 
     // Stream-shaped lanes (issue #68): drain / pump / pass-through, no
     // host import involved — the host drives the stream endpoint
-    // directly (see driver-deltic.mjs).
+    // directly (see driver-polyengine.mjs).
 
     async fn stream_sink(s: StreamReader<u8>) -> u64 {
         s.collect().await.len() as u64

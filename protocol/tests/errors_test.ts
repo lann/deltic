@@ -40,19 +40,19 @@ Deno.test("A9: the brands do not cross-talk", () => {
 
 Deno.test("A9: a hand-rolled brand IS the value (zero-import host module)", () => {
   // Precisely the shape contracts/embedder-api.md blesses: "an Error with
-  // [Symbol.for('deltic.witError/1')]: true and a payload property IS a
+  // [Symbol.for('polyengine.witError/1')]: true and a payload property IS a
   // ComponentException to every copy".
   const e = Object.assign(new Error("boom"), {
-    [Symbol.for("deltic.witError/1")]: true,
+    [Symbol.for("polyengine.witError/1")]: true,
     payload: { kind: "denied" },
   });
   assert(isComponentException(e));
   assertEquals(e.payload, { kind: "denied" });
 
   // Not even an Error: brands are markers, not a class hierarchy.
-  assert(isTrap({ [Symbol.for("deltic.trap/1")]: true }));
+  assert(isTrap({ [Symbol.for("polyengine.trap/1")]: true }));
   assert(isStreamProducerError(
-    { [Symbol.for("deltic.streamProducer/1")]: true },
+    { [Symbol.for("polyengine.streamProducer/1")]: true },
   ));
 });
 
@@ -65,10 +65,10 @@ Deno.test("A9: unbranded look-alikes are refused", () => {
   assertFalse(isComponentException({ payload: 1 }));
   assertFalse(isComponentException(null));
   assertFalse(isComponentException(undefined));
-  assertFalse(isComponentException("deltic.witError/1"));
+  assertFalse(isComponentException("polyengine.witError/1"));
   assertFalse(isComponentException(42));
   // Present but not exactly `true`: refused (no truthiness coercion).
-  assertFalse(isComponentException({ [Symbol.for("deltic.witError/1")]: 1 }));
+  assertFalse(isComponentException({ [Symbol.for("polyengine.witError/1")]: 1 }));
 });
 
 Deno.test("A9: predicates are NOT instanceof — a foreign prototype passes", () => {
@@ -83,7 +83,7 @@ Deno.test("A9: predicates are NOT instanceof — a foreign prototype passes", ()
   }
   Object.defineProperty(
     ForeignComponentException.prototype,
-    Symbol.for("deltic.witError/1"),
+    Symbol.for("polyengine.witError/1"),
     { value: true },
   );
   const e = new ForeignComponentException({ kind: "x" });

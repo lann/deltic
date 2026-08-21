@@ -1,4 +1,4 @@
-package deltic:yield-only;
+package polyengine:yield-only;
 
 /// Pure callback-ABI exerciser: an export that suspends N times via the
 /// canonical `yield` builtin (wit_bindgen's `yield_async`) then returns.
