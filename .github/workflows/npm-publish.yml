@@ -1,16 +1,21 @@
 name: Publish to npm
 
 # The npm half of the release scheme. JSR is published inline by release.yml;
-# npm is published HERE, from its own workflow, triggered by the GitHub release
-# that release.yml creates (both modes — prereleases and cut releases).
+# npm is published HERE, for the release that release.yml has just created.
+#
+# How this is reached: release.yml DISPATCHES it explicitly (its last step).
+# The `release: published` trigger below is a backstop for a release created by
+# hand — it cannot serve the automated path, because GitHub does not start
+# workflow runs from events raised with GITHUB_TOKEN, and `workflow_dispatch`
+# is the documented exception to that rule.
 #
 # Why not a step inside release.yml, next to the JSR publish: npm's trusted
 # publishing (OIDC) validates the CALLING workflow's filename, and release.yml
 # is reached two different ways — `workflow_call` from ci.yml on every green
 # main (the automatic prerelease path) and `workflow_dispatch` directly (a cut
 # release). npm allows exactly ONE trusted publisher per package, so an inline
-# step could only ever authorize one of those two paths. Keying on the release
-# event gives npm a single, stable entry point to trust: this file.
+# step could only ever authorize one of those two paths. A dispatched run of
+# this file is its own entry point, so npm always sees the same workflow_ref.
 #
 # Consequences of that choice, both fine: npm lands just after the GitHub
 # release rather than just before it, and a failed npm publish can be re-run on
