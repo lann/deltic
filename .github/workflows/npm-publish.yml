@@ -1,0 +1,135 @@
+name: Publish to npm
+
+# The npm half of the release scheme. JSR is published inline by release.yml;
+# npm is published HERE, from its own workflow, triggered by the GitHub release
+# that release.yml creates (both modes — prereleases and cut releases).
+#
+# Why not a step inside release.yml, next to the JSR publish: npm's trusted
+# publishing (OIDC) validates the CALLING workflow's filename, and release.yml
+# is reached two different ways — `workflow_call` from ci.yml on every green
+# main (the automatic prerelease path) and `workflow_dispatch` directly (a cut
+# release). npm allows exactly ONE trusted publisher per package, so an inline
+# step could only ever authorize one of those two paths. Keying on the release
+# event gives npm a single, stable entry point to trust: this file.
+#
+# Consequences of that choice, both fine: npm lands just after the GitHub
+# release rather than just before it, and a failed npm publish can be re-run on
+# its own without re-running the release.
+#
+# Trusted publisher configuration (one-time, per package, on npmjs.com →
+# Settings → Trusted Publisher): organization `polymorph-components`,
+# repository `polyengine`, workflow filename `npm-publish.yml`, no environment.
+# There is no npm token anywhere in this repository, by design.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The release tag to publish to npm (e.g. v0.1.0 or pre-abc1234).
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write # npm trusted publishing (OIDC)
+
+jobs:
+  npm:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: resolve the release tag
+        id: rel
+        run: |
+          TAG="${{ inputs.tag || github.event.release.tag_name }}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.rel.outputs.tag }}
+          submodules: true
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: "2.9.5"
+      - uses: actions/setup-node@v4
+        with:
+          # Trusted publishing needs npm >= 11.5.1, which Node 24 ships.
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+          package-manager-cache: false
+
+      - name: compute the version
+        id: ver
+        # Mirrors release.yml's scheme exactly, derived from the tag so the two
+        # cannot drift: a cut release tags `v<version>`; a prerelease tags
+        # `pre-<shorthash>` and takes <next> from the committed manifest, which
+        # release.yml stamps only in its own working tree.
+        run: |
+          TAG='${{ steps.rel.outputs.tag }}'
+          case "$TAG" in
+            v*)
+              VERSION="${TAG#v}"
+              DIST_TAG=latest
+              ;;
+            pre-*)
+              VERSION="$(jq -r '.version' runtime/deno.json)-pre.g${TAG#pre-}"
+              # Never move `latest` to a prerelease: these are exact-pin-only
+              # (README §Consuming) and semver ranges must not resolve to them.
+              # Note the one case this cannot control: npm points `latest` at a
+              # package's FIRST published version regardless of --tag, and
+              # refuses to remove the tag (403). The bootstrap publish that
+              # created these packages was a prerelease, so `latest` names it
+              # until the first cut release overwrites it below.
+              DIST_TAG=pre
+              ;;
+            *)
+              echo "tag '$TAG' is neither v<version> nor pre-<shorthash>" >&2
+              exit 1
+              ;;
+          esac
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "dist_tag=$DIST_TAG" >> "$GITHUB_OUTPUT"
+          echo "publishing $VERSION under dist-tag $DIST_TAG"
+
+      - name: fetch the released translator shim
+        # @polyengine/translator carries the wasm as a packaged asset. Taking
+        # it from the release rather than rebuilding it makes the npm package
+        # ship the byte-identical artifact the release advertises, and skips a
+        # Rust toolchain entirely.
+        run: |
+          gh release download '${{ steps.rel.outputs.tag }}' \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern polyengine-translator-shim.wasm \
+            --output translator/translator_shim.wasm
+          sha256sum translator/translator_shim.wasm
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: build the npm packages
+        # The build script directly, not `just npm-build`: that recipe depends
+        # on `shim`, which would rebuild from source the asset just downloaded.
+        run: deno run -A tools/npm-build/build.ts --version '${{ steps.ver.outputs.version }}'
+
+      - name: publish
+        # Dependency order, and already-published versions are skipped rather
+        # than failed — same convergence property as the JSR step, so a re-run
+        # after a partial failure completes the set instead of stranding it.
+        # Provenance attestations are generated automatically for trusted
+        # publishing from a public repository; no --provenance flag needed.
+        run: |
+          set -euo pipefail
+          for p in protocol runtime translator wasi ct-runner; do
+            name="@polyengine/$p"
+            if npm view "$name@$VERSION" version >/dev/null 2>&1; then
+              echo "$name@$VERSION already published — skipping"
+              continue
+            fi
+            echo "publishing $name@$VERSION (dist-tag $DIST_TAG)"
+            npm publish --tag "$DIST_TAG" --workspaces=false ./npm/"$p"
+          done
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          DIST_TAG: ${{ steps.ver.outputs.dist_tag }}

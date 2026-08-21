@@ -16,7 +16,7 @@ ci: (gha::core) (gha::browser)
 # Includes the consumer smokes CI cannot run (they need the polymorph
 # checkouts; docs/consumers.md).
 # The full pre-commit pass (AGENTS.md "Gates"): everything.
-gates: build test-rust test-protocol test-runtime test-wasi test-sockets-node test-ct-runner test-bundle publish-check examples test-translate conformance sched-seeds shells browsers smoke-tls smoke-c0
+gates: build test-rust test-protocol test-runtime test-wasi test-sockets-node test-ct-runner test-bundle publish-check test-npm examples test-translate conformance sched-seeds shells browsers smoke-tls smoke-c0
 
 # Fast sanity: builds + native tests + type-checks, no suites.
 check: build test-rust
@@ -121,6 +121,23 @@ test-bundle: shim
 # JSR publish verification, no upload (`deno publish --dry-run`).
 publish-check: shim
     deno publish --dry-run --allow-dirty
+
+# The npm distribution of the five JSR packages (tools/npm-build/build.ts).
+# Needs the shim: @polyengine/translator carries translator_shim.wasm as a
+# packaged asset on the npm side too. Output is gitignored.
+npm-build: shim
+    deno run -A tools/npm-build/build.ts
+
+# The npm distribution's gate: pack the built packages, install them as a
+# consumer would, then run the pipeline for real (translate + instantiate a
+# guest) and type-check the SHIPPED .d.ts from outside. Catches what
+# `publish-check` cannot — npm `exports` subpaths, dependency edges, tarball
+# file lists — and above all pins the single-copy property: cross-package
+# imports must be npm dependencies, never inlined source (embedder-api A9).
+# Runs under the PINNED Node (tools/shell/pins.json), like test-sockets-node.
+test-npm: npm-build fixtures
+    deno run -A tools/shell/fetch.ts node-pinned
+    .shell-cache/node-pinned/bin/node tools/npm-build/smoke.mjs
 
 # The harness task chains corpus generation and the shim check itself.
 # The official CM conformance suite, Deno lane.
