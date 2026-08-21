@@ -118,6 +118,8 @@ export function artifactsFromEnvelope(
  * world-digest handshake (contracts/digest.md) must complete before any
  * guest code runs: generated `instantiate` wrappers call this, verify the
  * plan, and only then delegate to `instantiate` below.
+ * @internal — bindgen-generated code only — the digest handshake needs the
+ * plan before instantiating (amendment A17).
  */
 export async function resolveArtifacts(
   src: InstantiateSource,
@@ -206,7 +208,11 @@ export async function instantiate(
   return instance;
 }
 
-/** Alias matching the C2 dispatch's spelling. */
+/**
+ * Alias matching the C2 dispatch's spelling.
+ * @internal — alias kept for bindgen-generated code only; hosts call
+ * `instantiate`.
+ */
 export const instantiateEmbedder = instantiate;
 
 /**

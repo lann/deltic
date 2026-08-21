@@ -169,6 +169,12 @@ export interface Opened<H> {
   type: DescriptorType;
 }
 
+/**
+ * @internal — used only in the (unexported) `FsBackend` seam interface;
+ * re-exported from `filesystem_node.ts`/`filesystem_web.ts` but never part
+ * of `FilesystemFragment`'s public shape (`{ imports: Record<string,
+ * unknown> }`), so no importer outside wasi/src references it.
+ */
 export type MaybeAsync<T> = T | Promise<T>;
 
 /**

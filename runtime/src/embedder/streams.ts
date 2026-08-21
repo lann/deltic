@@ -40,7 +40,10 @@ import { DroppedError, PeerTrappedError } from "./errors.ts";
 /** `Chunk<u8>` is a `Uint8Array`; every other element type chunks as `T[]`. */
 export type Chunk<T> = T extends number ? Uint8Array | T[] : T[];
 
-/** Per-element adaptation, supplied by the value adapter. */
+/**
+ * Per-element adaptation, supplied by the value adapter.
+ * @internal — supplied by the value adapter, never by a host.
+ */
 export interface ElemCodec<T> {
   readonly element: ValType | null;
   /** internal component value -> conventions value */

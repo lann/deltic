@@ -37,6 +37,8 @@ import {
 /**
  * The parts of adaptation that need instance state: resources (identity
  * mapping, ownership) and the borrow scope of the call in flight.
+ * @internal — value-adapter wiring, supplied by the runtime's instance
+ * state.
  */
 export interface ValueBridge {
   /** A guest handed the host an `own<R>`; the host now owns it. */
@@ -65,6 +67,9 @@ export interface ValueBridge {
  * Wrappers materialized for `borrow<R>` arguments of one call. The contract:
  * "instance valid **only during the call** (retention throws)", so the scope
  * invalidates them when the call returns.
+ *
+ * @internal — the runtime materializes and invalidates these per call; a
+ * host never constructs or names one.
  */
 export class BorrowScope {
   readonly #invalidate: (() => void)[] = [];
@@ -118,6 +123,7 @@ export function checkNoCollisions(
   checkedLabels.add(key);
 }
 
+/** @internal — value-adapter wiring. */
 export interface AdapterOptions {
   bridge: ValueBridge;
   /** Names the site in error messages (`import 'wasi:x/y'.f`, param 2). */
@@ -136,6 +142,8 @@ export interface AdapterOptions {
  * option** boxes as `{ kind: "some", value } | { kind: "none" }`. Only option maps
  * to `undefined`, so this is the only ambiguity, and the flag is set only when
  * descending through an option's payload — every other constructor resets it.
+ * @internal — value-adapter internals; the facade adapts values at the
+ * boundary.
  */
 export function toHost(
   v: ComponentValue,
@@ -277,6 +285,10 @@ function single(
 // conventions -> internal
 // ---------------------------------------------------------------------------
 
+/**
+ * @internal — value-adapter internals; the facade adapts values at the
+ * boundary.
+ */
 export function fromHost(
   v: unknown,
   t: ValType,

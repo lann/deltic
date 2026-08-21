@@ -71,7 +71,10 @@ export interface TranslatorLike {
  * unwritable (issue #196): the eviction attempt that a layout mismatch
  * triggers is swallowed internally by the backend, so a read-only
  * pre-warmed cache from an older layout degrades to "always miss, always
- * re-translate" rather than throwing. */
+ * re-translate" rather than throwing.
+ *
+ * @internal — on-disk/on-Cache-API schema version, owned by the bundled
+ * cache backends. */
 export const CACHE_LAYOUT_VERSION = 1;
 
 /** The three-part identity a translation is content-addressed by. */
@@ -106,7 +109,10 @@ export interface ArtifactCache {
   evict(key: CacheKey): Promise<void>;
 }
 
-/** On-disk / on-Cache-API metadata envelope stored alongside the plan. */
+/**
+ * On-disk / on-Cache-API metadata envelope stored alongside the plan.
+ * @internal — the cache backends' own stored metadata envelope.
+ */
 export interface CacheMeta {
   layoutVersion: number;
   componentSha256: string;

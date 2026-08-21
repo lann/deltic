@@ -189,6 +189,10 @@ export {
   SocketIoError,
 } from "./internal/sockets_02.ts";
 
+/**
+ * @internal — test-only export; wasi/tests/sockets_test.ts pins the
+ * literal track key. The public entry point is `sockets()`.
+ */
 export const SOCKETS_TYPES_INTERFACE = "wasi:sockets/types@0.3";
 
 /** What `sockets()` returns: the imports fragment plus the fragment's classes. */

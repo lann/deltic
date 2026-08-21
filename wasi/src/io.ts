@@ -54,7 +54,12 @@ import { suspending, ComponentException } from "@polyengine/runtime/embedder";
  * chunks of at most this and re-checks the clock at each chunk end. */
 const TIMER_CHUNK_MAX_MS = 2 ** 31 - 1;
 
-/** A p2 `stream-error` value (variant): `closed` or `last-operation-failed`. */
+/**
+ * A p2 `stream-error` value (variant): `closed` or `last-operation-failed`.
+ *
+ * @internal — only used as `closedError()`'s local payload type; not part
+ * of any exported class's public signature (`IoError` never surfaces it).
+ */
 export type StreamErrorValue =
   | { kind: "closed" }
   | { kind: "last-operation-failed"; value: IoError };
@@ -335,7 +340,10 @@ export class OutputStream {
 
 /** Default high-water mark for the async-backed streams below: how many
  * buffered bytes pause a `FedInputStream`'s feed, and the byte budget a
- * `SinkOutputStream`'s `check-write` reports. */
+ * `SinkOutputStream`'s `check-write` reports.
+ *
+ * @internal — a tuning constant for this module's stream implementations;
+ * not part of any consumer-facing option surface. */
 export const STREAM_HIGH_WATER = 65536;
 
 /** An async byte sink; the returned promise settling = the chunk drained. */
@@ -350,6 +358,11 @@ export type ByteSink = (chunk: Uint8Array) => void | Promise<void>;
  * registered `InputStream`, the marks relay from that prototype), and
  * EOF-with-drained-buffer is the `closed` stream-error. The feed pauses
  * past the high-water mark (no unbounded buffering).
+ *
+ * @internal — an implementation detail wired internally by `cli_stdio.ts`,
+ * `filesystem_node.ts`/`filesystem_web.ts`, and the sockets fragments; never
+ * surfaced as a public field/return type (`CliStdio.imports` and
+ * `FilesystemFragment.imports` are opaque `Record<string, unknown>`).
  */
 export class FedInputStream {
   #buffer: Uint8Array[] = [];
@@ -476,6 +489,10 @@ export class FedInputStream {
  * drained everything (A14/A2 mark relay), `subscribe` wakes when budget
  * frees. A sink failure surfaces as the `last-operation-failed`
  * stream-error carrying an `IoError`.
+ *
+ * @internal — an implementation detail wired internally by `cli_stdio.ts`,
+ * `filesystem_node.ts`/`filesystem_web.ts`, and the sockets fragments; never
+ * surfaced as a public field/return type.
  */
 export class SinkOutputStream {
   #sink: ByteSink;

@@ -21,10 +21,21 @@
 //   - Drift policy: harness.mjs `runCases` — an enumerated case that no
 //     record covers throws (the run is unsound, not failing).
 
-/** The custom-section name (component-test-core `name::TAGS_SECTION`). */
+/**
+ * The custom-section name (component-test-core `name::TAGS_SECTION`).
+ *
+ * @internal — test-only export; wired automatically by `runSuite()`'s tag
+ * scheduling, the public entry point.
+ */
 export const TAGS_SECTION = "component-test:tags@0.1";
 
-/** Parsed static inventory: exact case records + generated-row prefixes. */
+/**
+ * Parsed static inventory: exact case records + generated-row prefixes.
+ *
+ * @internal — an internal shape passed between this module's own
+ * functions and `run-suite.ts`; not part of `runSuite()`'s public
+ * options/return shape.
+ */
 export interface TagsInventory {
   exact: Map<string, string[]>;
   prefixes: Array<{ prefix: string; tags: string[] }>;
@@ -57,6 +68,10 @@ function lebU32(bytes: Uint8Array, pos: number): [number, number] {
  * core modules (section id 1) and nested components (section id 4), which
  * both embed complete wasm binaries. Returns null when no section exists
  * anywhere (a suite not built with their SDK).
+ *
+ * @internal — used only by `loadTagsInventory()` and this package's own
+ * tests; the public entry point is `runSuite()`, which schedules tag
+ * gating automatically.
  */
 export function collectTagsSections(bytes: Uint8Array): Uint8Array | null {
   if (!hasWasmMagic(bytes)) throw new Error("tags scan: not a wasm binary");
@@ -111,6 +126,9 @@ export function collectTagsSections(bytes: Uint8Array): Uint8Array | null {
  * record per line, `name tag...`, blank lines skipped, duplicate names and
  * empty tags rejected. Grammar validation beyond that (WIT-label checks)
  * is the producer's job — their SDK validates at macro-expansion time.
+ *
+ * @internal — used only by `loadTagsInventory()` and this package's own
+ * tests; the public entry point is `runSuite()`.
  */
 export function parseTagsRecords(bytes: Uint8Array): TagsInventory {
   const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
@@ -140,14 +158,22 @@ export function parseTagsRecords(bytes: Uint8Array): TagsInventory {
   return inv;
 }
 
-/** Convenience: scan + parse; null when the suite carries no inventory. */
+/**
+ * Convenience: scan + parse; null when the suite carries no inventory.
+ *
+ * @internal — used only by `run-suite.ts`'s automatic tag scheduling and
+ * this package's own tests; the public entry point is `runSuite()`.
+ */
 export function loadTagsInventory(bytes: Uint8Array): TagsInventory | null {
   const sections = collectTagsSections(bytes);
   return sections === null ? null : parseTagsRecords(sections);
 }
 
 /** The tags covering `name`: exact record, else a generated-row prefix
- * record (leaves live below `prefix/`), else undefined (inventory drift). */
+ * record (leaves live below `prefix/`), else undefined (inventory drift).
+ *
+ * @internal — used only by `run-suite.ts`'s per-case scheduling and this
+ * package's own tests; the public entry point is `runSuite()`. */
 export function tagsOf(inv: TagsInventory, name: string): string[] | undefined {
   const exact = inv.exact.get(name);
   if (exact !== undefined) return exact;
@@ -157,7 +183,10 @@ export function tagsOf(inv: TagsInventory, name: string): string[] | undefined {
   return undefined;
 }
 
-/** harness.mjs `applies()`: `!f` needs f missing; `f` needs f present. */
+/** harness.mjs `applies()`: `!f` needs f missing; `f` needs f present.
+ *
+ * @internal — used only by `run-suite.ts`'s scheduling and this package's
+ * own tests; the public entry point is `runSuite()`. */
 export function applies(tags: string[], missing: string[]): boolean {
   return tags.every((t) =>
     t.startsWith("!") ? missing.includes(t.slice(1)) : !missing.includes(t)
@@ -165,7 +194,10 @@ export function applies(tags: string[], missing: string[]): boolean {
 }
 
 /** The N/A row's `detail`: the first unsatisfied mark (harness.mjs's
- * `excluding`), empty string if somehow none (mirrors `excluding ?? ""`). */
+ * `excluding`), empty string if somehow none (mirrors `excluding ?? ""`).
+ *
+ * @internal — used only by `run-suite.ts`'s scheduling and this package's
+ * own tests; the public entry point is `runSuite()`. */
 export function firstExcluding(tags: string[], missing: string[]): string {
   return tags.find((t) =>
     t.startsWith("!") ? !missing.includes(t.slice(1)) : missing.includes(t)

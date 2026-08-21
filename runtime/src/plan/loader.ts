@@ -25,7 +25,10 @@ import type {
   WireValType,
 } from "./format.ts";
 
-/** Fault in the plan document itself (version/shape/reference errors). */
+/**
+ * Fault in the plan document itself (version/shape/reference errors).
+ * @internal
+ */
 export class PlanError extends Error {
   constructor(message: string) {
     super(message);
@@ -41,6 +44,7 @@ export class PlanError extends Error {
  * component* and is the only failure that satisfies `assert_invalid` /
  * `assert_malformed`. `PlanError` and the other phases are failures of our
  * own pipeline and must never be scored as conformance passes.
+ * @internal
  */
 export class TranslateError extends Error {
   readonly phase: WireErrorDetail["phase"];
@@ -78,14 +82,19 @@ export class TranslateError extends Error {
  * producer and consumer bumped in the same commit), so v0 plans are refused
  * rather than best-effort accepted — a stale cached artifact must be a loud
  * failure, not a subtly different execution.
+ * @internal
  */
 export const SUPPORTED_FORMAT_VERSION = 4;
 
-/** A types-table entry after conversion. */
+/**
+ * A types-table entry after conversion.
+ * @internal
+ */
 export type LoadedType =
   | { kind: "func"; funcType: FuncType; paramNames: string[] }
   | { kind: "value"; type: ValType };
 
+/** @internal */
 export interface LoadedPlan {
   wire: WirePlan;
   /** Converted types table, index-aligned with `wire.types`. */
@@ -128,6 +137,7 @@ export interface LoadedPlan {
 /**
  * Validate a plan document and convert its type tables. Fails fast on
  * formatVersion mismatch per contracts/plan-format.md "Executor obligations".
+ * @internal
  */
 export function loadPlan(wire: WirePlan): LoadedPlan {
   if (wire.formatVersion !== SUPPORTED_FORMAT_VERSION) {
@@ -291,6 +301,7 @@ export function loadPlan(wire: WirePlan): LoadedPlan {
  * field of a `resource` initializer). Mirrors wasmtime
  * `Component::resource_index` (wasmtime-environ 47.0.3
  * `component/info.rs:222`).
+ * @internal
  */
 export function resourceIndexOfDefined(
   plan: LoadedPlan,
@@ -304,6 +315,7 @@ export function resourceIndexOfDefined(
  * bytes. The plan is validated (formatVersion, type tables) but returned in
  * wire form: the executor re-runs `loadPlan` per instantiation so resource
  * identity tokens are fresh per component instance.
+ * @internal
  */
 export function loadEnvelope(json: string): {
   wire: WirePlan;
@@ -744,6 +756,7 @@ function loadTypeDecl(
   };
 }
 
+/** @internal */
 export function loadValType(
   t: WireValType,
   resourceTokens: ResourceTypeInfo[],
