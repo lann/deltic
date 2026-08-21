@@ -38,11 +38,17 @@ const shimWasm = await readIfPresent(SHIM_WASM);
 const ready = componentBytes !== null && shimWasm !== null;
 
 // deno-lint-ignore no-explicit-any
-async function instantiateFixture(calls?: string[]): Promise<any> {
+async function instantiateFixture(
+  calls?: string[],
+  httpOptions?: Parameters<typeof http>[0],
+): Promise<any> {
   const translator = await Translator.create(shimWasm!);
   const { plan, adapters } = translator.translate(componentBytes!);
   return await instantiate({ plan, componentBytes: componentBytes!, adapters }, {
-    ...http(calls === undefined ? {} : { onCall: (c) => calls.push(c) }).imports,
+    ...http({
+      ...(httpOptions ?? {}),
+      ...(calls === undefined ? {} : { onCall: (c) => calls.push(c) }),
+    }).imports,
   });
 }
 
@@ -125,6 +131,37 @@ Deno.test({
     assertTrue(
       String((threw as { payload?: unknown })?.payload ?? threw).includes("ConnectionRefused"),
       `the error names the refusal, got: ${(threw as { payload?: unknown })?.payload}`,
+    );
+  },
+});
+
+Deno.test({
+  name: "integration: allowRequest: false denies the guest's request before it reaches fetch",
+  ignore: !ready,
+  async fn() {
+    // No server needed: denial happens before dispatch. A live server
+    // would make a false negative ("passed only because nothing was
+    // listening") impossible to rule out here, so this deliberately
+    // points at a port nothing is bound to and still expects denial
+    // (never a connection-refused) to prove the check runs first.
+    const c = await instantiateFixture(undefined, { allowRequest: false });
+    let threw: unknown;
+    try {
+      await c.exports.get("127.0.0.1:1", "/");
+    } catch (e) {
+      threw = e;
+    }
+    assertTrue(threw !== undefined, "the guest observed the error");
+    // The guest formats the WIT error-code enum with Rust's `{:?}` — the
+    // exact spelling is generated from the WIT case name
+    // (HTTP-request-denied), not asserted verbatim here to avoid coupling
+    // to wit-bindgen's naming convention; the important property is that
+    // it is NOT the refused/timeout family a live-but-closed port would
+    // produce.
+    const msg = String((threw as { payload?: unknown })?.payload ?? threw);
+    assertTrue(
+      !msg.includes("ConnectionRefused") && !msg.includes("Timeout"),
+      `denial should not look like a network-refusal error, got: ${msg}`,
     );
   },
 });

@@ -209,6 +209,34 @@ export interface HttpOptions {
   version?: string;
   /** Observe every entry point the guest reaches (see sockets' onCall). */
   onCall?: (call: string) => void;
+  /**
+   * Name-level egress policy, evaluated in `client.send` after the outgoing
+   * request is assembled (method, headers) but before its body is
+   * collected — so a refused request never drains the guest's body
+   * stream. `true`/default preserves today's behavior exactly (unscoped
+   * egress); `false` denies every request without dispatching `fetch`; a
+   * callback decides per request from the parsed `url`, `method`, and
+   * `headers`.
+   *
+   * This is the name-level half only: it sees the URL a guest asked for,
+   * matching what a `fetch`-based host can express (no resolved address
+   * is ever observed here, unlike a native socket layer). The
+   * address-level half (`socket_addr_check`-shaped, e.g. blocking a
+   * name that resolves to a loopback/link-local address) is issue #200
+   * and is out of scope for this fragment; `sockets()` is unaffected.
+   *
+   * A callback that throws, or whose returned promise rejects, DENIES
+   * (fail closed) — a security predicate must never fail open. Denials
+   * refuse with the WIT `HTTP-request-denied` error-code case
+   * (examples/guests/http-fetch/wit/deps/wasi-http/types.wit); this is
+   * distinct from `destination-IP-prohibited`, which names an address
+   * judgement this fragment cannot make.
+   */
+  allowRequest?: boolean | ((request: {
+    url: URL;
+    method: string;
+    headers: Headers;
+  }) => boolean | Promise<boolean>);
 }
 
 /** What `http()` returns: the imports fragment plus the fragment's classes. */
@@ -310,6 +338,7 @@ export interface ResponseClass {
 export function http(options: HttpOptions = {}): HttpFragment {
   const onCall = options.onCall ?? ((): void => {});
   const v = options.version ?? HTTP_TRACK;
+  const allowRequest = options.allowRequest;
 
   // --- fields -----------------------------------------------------------------
 
@@ -873,6 +902,44 @@ export function http(options: HttpOptions = {}): HttpFragment {
           { kind: "internal-error", value: `header '${name}' refused by the platform` },
           `client.send: ${e}`,
         );
+      }
+    }
+
+    // Name-level egress policy (allowRequest). Only parse `url` when a
+    // policy is actually configured — with no policy or `allowRequest:
+    // true`, this path is byte-for-byte today's behavior (same string
+    // handed to fetch below, `URL.href` never substituted in). Placed
+    // after headers, before collectBody: refusing must not drain the
+    // guest's body stream.
+    if (allowRequest !== undefined && allowRequest !== true) {
+      if (allowRequest === false) {
+        request.settleTransmission({ kind: "err", value: { kind: "HTTP-request-denied" } });
+        throw httpError({ kind: "HTTP-request-denied" }, "client.send: request denied (allowRequest: false)");
+      }
+      let parsed: URL;
+      try {
+        parsed = new URL(url);
+      } catch {
+        // A malformed authority is not a policy decision — the existing
+        // HTTP-request-URI-invalid case at line ~858 covers this.
+        throw httpError({ kind: "HTTP-request-URI-invalid" }, "client.send: url could not be parsed for policy check");
+      }
+      let allowed: boolean;
+      try {
+        allowed = await allowRequest({ url: parsed, method, headers });
+      } catch (e) {
+        // Fail closed: a throwing/rejecting predicate denies. The thrown
+        // message goes into the ComponentException's DETAIL string only,
+        // never the WIT payload.
+        request.settleTransmission({ kind: "err", value: { kind: "HTTP-request-denied" } });
+        throw httpError(
+          { kind: "HTTP-request-denied" },
+          `client.send: allowRequest threw: ${e instanceof Error ? e.message : String(e)}`,
+        );
+      }
+      if (!allowed) {
+        request.settleTransmission({ kind: "err", value: { kind: "HTTP-request-denied" } });
+        throw httpError({ kind: "HTTP-request-denied" }, "client.send: request denied by allowRequest");
       }
     }
 
