@@ -124,6 +124,10 @@ function liftAsyncValue(
     );
   }
   holder.boundStore ??= store;
+  // Host-wrapper re-arm hook (#162, embedder-api amendment A15): the readable
+  // end just left a guest table, so whoever receives it can act on it again.
+  // See `bindOnLower` in exec/host_streams.ts for the retention rule.
+  (end.shared as { onLifted?: ((i: unknown) => void) | null }).onLifted?.(inst);
   return end.shared;
 }
 
