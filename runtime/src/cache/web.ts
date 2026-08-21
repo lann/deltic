@@ -62,18 +62,38 @@ class WebCache implements ArtifactCache {
     return await globalThis.caches.open(this.cacheName);
   }
 
-  async get(key: CacheKey): Promise<CachedArtifacts | null> {
-    const cache = await this.open();
-    const hex = await keyHex(key);
-    const resp = await cache.match(entryUrl(hex));
-    if (resp === undefined) return null;
-
+  /** Internal self-heal eviction (issue #196): the caller is `get`'s own
+   * recovery path for a poisoned/stale entry, not an explicit caller of
+   * `evict()` — so a failure here must not escape and fail what would
+   * otherwise be a clean miss. The public `evict()` below keeps throwing;
+   * only this internal path swallows. */
+  async #tryEvict(key: CacheKey): Promise<void> {
     try {
+      await this.evict(key);
+    } catch {
+      // Swallowed: see docs above.
+    }
+  }
+
+  async get(key: CacheKey): Promise<CachedArtifacts | null> {
+    // `open()` failing (no `globalThis.caches` in this environment) is a
+    // capability/configuration error, not a per-entry I/O failure — it
+    // propagates uncaught (existing behavior, `WebCacheUnavailableError`)
+    // so a caller who tries to use this backend somewhere it can't work
+    // finds out immediately rather than silently always-missing. Once open
+    // succeeds, every failure below (issue #196: poisoned entry, self-heal
+    // eviction, ...) is swallowed to a `null` miss.
+    const cache = await this.open();
+    try {
+      const hex = await keyHex(key);
+      const resp = await cache.match(entryUrl(hex));
+      if (resp === undefined) return null;
+
       const entry = await resp.json() as StoredEntry;
       const { meta, plan, adapters: adaptersB64 } = entry;
 
       if (meta.layoutVersion !== CACHE_LAYOUT_VERSION) {
-        await this.evict(key);
+        await this.#tryEvict(key);
         return null;
       }
       if (
@@ -83,7 +103,7 @@ class WebCache implements ArtifactCache {
           JSON.stringify([...key.features].sort()) ||
         plan.component.sha256 !== key.componentSha256
       ) {
-        await this.evict(key);
+        await this.#tryEvict(key);
         return null;
       }
       loadPlan(plan); // structural validation; throws on a corrupted plan
@@ -94,8 +114,10 @@ class WebCache implements ArtifactCache {
       }
       return { plan, adapters };
     } catch {
-      // Poisoned/corrupted entry: miss + evict, never trust.
-      await this.evict(key);
+      // Poisoned/corrupted entry, or any other I/O failure (issue #196):
+      // miss + best-effort evict, never trust and never throw out of
+      // `get`.
+      await this.#tryEvict(key);
       return null;
     }
   }

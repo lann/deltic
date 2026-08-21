@@ -587,7 +587,17 @@ Trust boundary (recorded lean, not yet forced by anything): trust locally-run
 translation; never trust artifacts that did not come from the local cache
 keyed by component hash. The runtime re-validates plan structure at load
 (strict `formatVersion`, schema checks) but does not re-verify that artifacts
-faithfully derive from the component bytes.
+faithfully derive from the component bytes. Consequence for embedders — write
+access to a cache root is worth about what write access to the component files
+is worth: see [security.md](security.md) "The artifact cache is a trust input",
+which carries the pre-warmed read-only-cache recipe.
+
+No cache failure may fail a translation
+([#196](https://github.com/polymorph-components/polyengine/issues/196)): a
+`get`/`put`/self-heal-eviction failure — an unwritable root included — degrades
+to a fresh translation, reported only through `translateCached`'s opt-in
+`onCacheError`. That is what makes a read-only cache root a usable deployment
+rather than a crash. The public `evict()` still throws for explicit callers.
 
 ## 11. Conformance and testing
 

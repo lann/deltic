@@ -139,6 +139,70 @@ an in-memory tree or an image file. Containment stops being a property
 you check and becomes one that cannot be expressed otherwise. This is
 what the OPFS backend gets for free.
 
+## The artifact cache is a trust input
+
+The artifact cache (`@polyengine/runtime`'s `runtime/src/cache/`, see
+[architecture.md §10](architecture.md)) stores a translated plan and its
+adapter modules so a reload can skip the translator. It is host-side: it
+never passes through the WASI filesystem, and no guest can reach it
+through any interface this package exposes. But it stores its entries in
+the same host namespace a guest's preopens are carved out of, and **a
+cache entry is worth roughly what the component binary is worth.**
+
+The plan drives module slicing, adapter selection, import wiring and
+initializers. What the runtime verifies on a cache hit is real but
+narrower than it looks:
+
+- the stored entry agrees with the requested key, and the plan's recorded
+  component hash matches it;
+- the plan is structurally valid (`loadPlan`);
+- the caller's component bytes hash to `plan.component.sha256`
+  (`verifyComponent`);
+- with generated typed bindings, the world digest matches the one the
+  bindings were built from.
+
+What nothing verifies is that the plan is *the plan the translator would
+have produced for those bytes*. The world digest is computed from the
+plan itself, so it catches skew and coarse substitution, not tampering.
+Write access to the cache root therefore buys about what write access to
+your component files buys.
+
+**Keep the cache root outside every preopen tree.** Not a child, not a
+sibling you also preopen, not a parent. And note that scoped runtime
+permissions cannot enforce this for you: one process needs write access
+to the cache root, so at that layer the cache and a writable preopen are
+indistinguishable. What separates them is the WASI provider's own path
+handling — which the top of this page says is not a boundary. The
+read-only default is what makes the common case safe: a guest that cannot
+write anywhere cannot poison a cache.
+
+**The stronger recipe: a pre-warmed, read-only cache.** Translate at
+build time, ship the cache directory as an artifact, and run with no
+write access to it:
+
+```sh
+# build step (writes the cache)
+deno run --allow-read --allow-write=/srv/cache warm.ts
+
+# production (cannot write the cache at all)
+deno run --allow-read=/srv/app,/srv/cache --allow-write=/srv/state app.ts
+```
+
+Cache hits work normally without write access. A miss, a stale entry
+after a layout-version bump, or an unreadable root degrades to a fresh
+translation rather than an error — no cache failure fails a translation.
+Pass `onCacheError` to `translateCached` if you want the degradation to
+be visible in your logs. This is the only arrangement that keeps a
+compromise of the running process from becoming a persistent one.
+
+**Use `dirCache` on servers, not `webCache`.** Deno's Cache API needs no
+permission flag, so it cannot be scoped or denied, and — absent
+`--location` — it stores in a user-global bucket shared by every Deno
+program that user runs, any of which can overwrite entries under the same
+cache name. It also does not exist on Node or Bun. `webCache` is the
+browser backend, where it is the only option, there is no permission
+model to leverage, and the platform partitions storage by origin.
+
 ## Reporting
 
 Security issues in this project should be reported through the
