@@ -58,16 +58,29 @@ class DirCache implements ArtifactCache {
     return `${this.root}/${await keyHex(key)}`;
   }
 
-  async get(key: CacheKey): Promise<CachedArtifacts | null> {
-    const dir = await this.entryDir(key);
-    if (!(await exists(dir))) return null;
-
+  /** Internal self-heal eviction (issue #196): the caller is `get`'s own
+   * recovery path for a poisoned/stale entry, not an explicit caller of
+   * `evict()` — so a failure here (e.g. an unwritable cache root) must not
+   * escape and fail what would otherwise be a clean miss. The public
+   * `evict()` below keeps throwing; only this internal path swallows. */
+  async #tryEvict(key: CacheKey): Promise<void> {
     try {
+      await this.evict(key);
+    } catch {
+      // Swallowed: see docs above.
+    }
+  }
+
+  async get(key: CacheKey): Promise<CachedArtifacts | null> {
+    try {
+      const dir = await this.entryDir(key);
+      if (!(await exists(dir))) return null;
+
       const metaRaw = await Deno.readTextFile(`${dir}/meta.json`);
       const meta = JSON.parse(metaRaw) as CacheMeta;
 
       if (meta.layoutVersion !== CACHE_LAYOUT_VERSION) {
-        await this.evict(key);
+        await this.#tryEvict(key);
         return null;
       }
       // Integrity: the entry must agree with the *requested* key on every
@@ -79,14 +92,14 @@ class DirCache implements ArtifactCache {
         JSON.stringify([...meta.features].sort()) !==
           JSON.stringify([...key.features].sort())
       ) {
-        await this.evict(key);
+        await this.#tryEvict(key);
         return null;
       }
 
       const planRaw = await Deno.readTextFile(`${dir}/plan.json`);
       const plan = JSON.parse(planRaw) as WirePlan;
       if (plan.component.sha256 !== key.componentSha256) {
-        await this.evict(key);
+        await this.#tryEvict(key);
         return null;
       }
       loadPlan(plan); // structural validation; throws on a corrupted plan
@@ -100,9 +113,12 @@ class DirCache implements ArtifactCache {
 
       return { plan, adapters };
     } catch {
-      // Any parse/read/structural failure = a poisoned entry: miss + evict,
-      // never trust (dispatch requirement).
-      await this.evict(key);
+      // Any parse/read/structural/I-O failure = a poisoned entry (or an
+      // unreadable/unwritable cache root, issue #196): miss + best-effort
+      // evict, never trust and never throw out of `get` (dispatch
+      // requirement). This also covers `exists()`'s rethrow of non-
+      // `NotFound` stat errors (ENOTDIR, EACCES, ...).
+      await this.#tryEvict(key);
       return null;
     }
   }
@@ -113,23 +129,37 @@ class DirCache implements ArtifactCache {
     // leaves a partially-written entry that `get` would (try to) read.
     const tmp = `${dir}.tmp-${crypto.randomUUID()}`;
     await rmIfExists(tmp);
-    await Deno.mkdir(`${tmp}/adapters`, { recursive: true });
+    try {
+      await Deno.mkdir(`${tmp}/adapters`, { recursive: true });
 
-    const meta: CacheMeta = {
-      layoutVersion: CACHE_LAYOUT_VERSION,
-      componentSha256: key.componentSha256,
-      translatorBuildHash: key.translatorBuildHash,
-      features: key.features,
-    };
-    await Deno.writeTextFile(`${tmp}/meta.json`, JSON.stringify(meta));
-    await Deno.writeTextFile(`${tmp}/plan.json`, JSON.stringify(artifacts.plan));
-    for (const [file, bytes] of artifacts.adapters) {
-      const name = safeRelName(file);
-      await Deno.writeFile(`${tmp}/adapters/${name}`, bytes);
+      const meta: CacheMeta = {
+        layoutVersion: CACHE_LAYOUT_VERSION,
+        componentSha256: key.componentSha256,
+        translatorBuildHash: key.translatorBuildHash,
+        features: key.features,
+      };
+      await Deno.writeTextFile(`${tmp}/meta.json`, JSON.stringify(meta));
+      await Deno.writeTextFile(`${tmp}/plan.json`, JSON.stringify(artifacts.plan));
+      for (const [file, bytes] of artifacts.adapters) {
+        const name = safeRelName(file);
+        await Deno.writeFile(`${tmp}/adapters/${name}`, bytes);
+      }
+
+      await rmIfExists(dir);
+      await Deno.rename(tmp, dir);
+    } catch (e) {
+      // A `put` failure is non-fatal at the `translateCached` layer
+      // (issue #196), but repeated failures must not litter the cache
+      // root with orphaned `.tmp-<uuid>` scratch directories. Cleanup
+      // failures here are themselves swallowed — `put` still throws its
+      // original error either way.
+      try {
+        await rmIfExists(tmp);
+      } catch {
+        // Swallowed: best-effort cleanup only.
+      }
+      throw e;
     }
-
-    await rmIfExists(dir);
-    await Deno.rename(tmp, dir);
   }
 
   async evict(key: CacheKey): Promise<void> {

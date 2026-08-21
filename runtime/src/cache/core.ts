@@ -7,6 +7,21 @@
 // (same component, same shim build, same features) can skip the
 // translate-with-the-shim step entirely.
 //
+// CACHE FAILURES ARE NEVER FATAL (issue #196): the cache is a pure
+// optimization layered over `Translator.translateRaw` + `loadEnvelope`, both
+// of which already succeed/fail on their own terms. A `get`/`put`/internal
+// self-heal failure — including a read-only or otherwise unwritable cache
+// root — must never turn into a failed translation; at worst it turns into
+// a fresh (uncached) translation. `translateCached` swallows `get`/`put`
+// failures (surfaced only via the opt-in `onCacheError` callback below);
+// the backends (dir.ts, web.ts) swallow their internal self-heal evictions
+// and turn any `get`-path I/O failure into a `null` (miss) rather than a
+// throw. The one exception, by design, is `TranslateError` from
+// `loadEnvelope`: that is a verdict about the *input component*, not a
+// cache failure, and keeps propagating uncached. The public `evict()` also
+// keeps throwing — an explicit caller asked for that specific effect and
+// deserves to know if it didn't happen.
+//
 // PERSISTED-ARTIFACT-SET DECISION (governing: contracts/plan-format.md
 // "Artifact set" + "No duplicate bytes" — plan-format.md:24-31,63-64):
 // we persist `plan.json` (the wire `WirePlan`) and the FACT adapter modules
@@ -51,7 +66,12 @@ export interface TranslatorLike {
 
 /** Cache layout version. Bumped on any incompatible on-disk/on-Cache-API
  * schema change; an unrecognized version is read back as a miss (never a
- * crash) so stale caches from an older build self-heal by re-translating. */
+ * crash) so stale caches from an older build self-heal by re-translating —
+ * and this self-healing holds even when the cache root itself is
+ * unwritable (issue #196): the eviction attempt that a layout mismatch
+ * triggers is swallowed internally by the backend, so a read-only
+ * pre-warmed cache from an older layout degrades to "always miss, always
+ * re-translate" rather than throwing. */
 export const CACHE_LAYOUT_VERSION = 1;
 
 /** The three-part identity a translation is content-addressed by. */
@@ -146,6 +166,16 @@ export interface TranslateCachedOptions {
    * trusting/storing the result. Throws `Error` on mismatch.
    */
   verifyDeterminism?: boolean;
+  /**
+   * Opt-in diagnostic (issue #196): invoked when a `cache.get`/`cache.put`
+   * failure is swallowed so the degradation is observable without this
+   * library ever writing to the console itself. `op` identifies which
+   * call failed; `err` is the original thrown value, unmodified. Default
+   * is to do nothing. If this callback itself throws, that throw is also
+   * swallowed — a diagnostic hook must never become a new way to fail a
+   * translation.
+   */
+  onCacheError?: (op: "get" | "put", err: unknown) => void;
 }
 
 export interface TranslateCachedResult {
@@ -155,6 +185,19 @@ export interface TranslateCachedResult {
    * translation (`false`). Exposed for tests/observability; not part of the
    * `ArtifactCache` contract itself. */
   fromCache: boolean;
+}
+
+function reportCacheError(
+  opts: TranslateCachedOptions,
+  op: "get" | "put",
+  err: unknown,
+): void {
+  try {
+    opts.onCacheError?.(op, err);
+  } catch {
+    // A diagnostic callback throwing must not fail the translation either
+    // (issue #196): the caller asked for a diagnostic, not a veto.
+  }
 }
 
 /**
@@ -169,7 +212,16 @@ export async function translateCached(
 ): Promise<TranslateCachedResult> {
   const key = await keyFor(translator, componentBytes, opts.features ?? []);
 
-  const hit = await cache.get(key);
+  // A `get` failure (issue #196) reads as a miss: the cache is a pure
+  // optimization, so any way it fails to answer degrades to "translate
+  // fresh" rather than failing the whole translation.
+  let hit: CachedArtifacts | null;
+  try {
+    hit = await cache.get(key);
+  } catch (e) {
+    reportCacheError(opts, "get", e);
+    hit = null;
+  }
   if (hit !== null) {
     return { plan: hit.plan, adapters: hit.adapters, fromCache: true };
   }
@@ -197,6 +249,14 @@ export async function translateCached(
     throw e;
   }
 
-  await cache.put(key, { plan: wire, adapters });
+  // A `put` failure (issue #196) is swallowed: the translation already
+  // succeeded and was already validated above by `loadEnvelope` — failing
+  // to *store* it says nothing about the result. Return the fresh
+  // artifacts anyway.
+  try {
+    await cache.put(key, { plan: wire, adapters });
+  } catch (e) {
+    reportCacheError(opts, "put", e);
+  }
   return { plan: wire, adapters, fromCache: false };
 }
