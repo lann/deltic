@@ -402,3 +402,165 @@ Deno.test("loader: valid plans with well-formed initializers/trampolines/canonic
   });
   loadPlan(wire); // must not throw
 });
+
+// ISSUE #187: `modules[]` / `exports[]` / `imports[]` deep-schema strictness
+// — mirrors the #94(3) discipline above. The negative-offset walk in the
+// issue body is the load-bearing case: an unchecked `offset` slices the
+// wrong component bytes rather than tripping the executor's (upper-bound
+// only) guard.
+
+Deno.test("loader: embedded module with negative offset is a typed PlanError", () => {
+  assertPlanError(
+    () =>
+      loadPlan(minimalPlan({
+        modules: [{ kind: "embedded", offset: -100, len: 92 } as never],
+      })),
+    ".offset must be a non-negative safe integer",
+  );
+});
+
+Deno.test("loader: embedded module with NaN offset is a typed PlanError", () => {
+  assertPlanError(
+    () =>
+      loadPlan(minimalPlan({
+        modules: [{ kind: "embedded", offset: NaN, len: 92 } as never],
+      })),
+    ".offset must be a non-negative safe integer",
+  );
+});
+
+Deno.test("loader: embedded module with non-integer offset is a typed PlanError", () => {
+  assertPlanError(
+    () =>
+      loadPlan(minimalPlan({
+        modules: [{ kind: "embedded", offset: 1.5, len: 92 } as never],
+      })),
+    ".offset must be a non-negative safe integer",
+  );
+});
+
+Deno.test("loader: embedded module missing len is a typed PlanError", () => {
+  assertPlanError(
+    () =>
+      loadPlan(minimalPlan({
+        modules: [{ kind: "embedded", offset: 0 } as never],
+      })),
+    ".len must be a non-negative safe integer",
+  );
+});
+
+Deno.test("loader: adapter module with wrong-typed file is a typed PlanError", () => {
+  assertPlanError(
+    () =>
+      loadPlan(minimalPlan({
+        modules: [
+          { kind: "adapter", file: 42, len: 0, intrinsics: [] } as never,
+        ],
+      })),
+    ".file must be a string",
+  );
+});
+
+Deno.test("loader: unknown module kind is a typed PlanError", () => {
+  assertPlanError(
+    () =>
+      loadPlan(minimalPlan({
+        modules: [{ kind: "not-a-real-kind" } as never],
+      })),
+    "unknown module kind",
+  );
+});
+
+Deno.test("loader: malformed export entry (missing required field per kind) is a typed PlanError", () => {
+  assertPlanError(
+    () =>
+      loadPlan(minimalPlan({
+        exports: [{ kind: "lifted-func", name: "f" } as never],
+      })),
+    ".coreDef must be an object",
+  );
+  assertPlanError(
+    () =>
+      loadPlan(minimalPlan({
+        exports: [{ kind: "module", name: "m" } as never],
+      })),
+    ".module must be a number",
+  );
+  assertPlanError(
+    () =>
+      loadPlan(minimalPlan({
+        exports: [{ kind: "type", name: "t", type: { kind: "resource" } } as never],
+      })),
+    ".resource must be a number",
+  );
+  assertPlanError(
+    () =>
+      loadPlan(minimalPlan({
+        exports: [{ kind: "not-a-real-kind" } as never],
+      })),
+    "unknown export kind",
+  );
+});
+
+Deno.test("loader: malformed nested instance export is a typed PlanError", () => {
+  assertPlanError(
+    () =>
+      loadPlan(minimalPlan({
+        exports: [
+          {
+            kind: "instance",
+            name: "i",
+            exports: [{ kind: "lifted-func", name: "f" } as never],
+          } as never,
+        ],
+      })),
+    ".coreDef must be an object",
+  );
+});
+
+Deno.test("loader: malformed import entry is a typed PlanError", () => {
+  assertPlanError(
+    () =>
+      loadPlan(minimalPlan({
+        imports: [{ name: "x", kind: "func" } as never],
+      })),
+    ".path must be an array",
+  );
+  assertPlanError(
+    () =>
+      loadPlan(minimalPlan({
+        imports: [{ name: "x", path: [], kind: "func", type: "nope" } as never],
+      })),
+    ".type must be a number",
+  );
+});
+
+// The tampered-cache scenario from deltic#187: a valid-looking plan with a
+// negative embedded-module offset (as a corrupted-on-disk cache entry might
+// carry) must be refused at `loadPlan`, never allowed through to slice the
+// wrong component bytes.
+Deno.test("loader: tampered cache scenario — negative modules[0].offset is refused at load", () => {
+  const wire = minimalPlan({
+    modules: [{ kind: "embedded", offset: -100, len: 92 }],
+  });
+  assertPlanError(() => loadPlan(wire), ".offset must be a non-negative safe integer");
+});
+
+Deno.test("loader: well-formed modules/exports/imports load unaffected", () => {
+  const wire = minimalPlan({
+    modules: [
+      { kind: "embedded", offset: 0, len: 4 },
+      { kind: "adapter", file: "adapters/a.wasm", len: 8, intrinsics: [] },
+    ],
+    imports: [{ name: "x", path: ["a", "b"], kind: "func", type: 0 }],
+    exports: [
+      {
+        kind: "instance",
+        name: "i",
+        exports: [{ kind: "module", name: "m", module: 0 }],
+      },
+      { kind: "type", name: "t", type: { kind: "value", type: 0 } },
+    ],
+  });
+  loadPlan(wire); // must not throw
+});

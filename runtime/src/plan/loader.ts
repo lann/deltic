@@ -190,6 +190,15 @@ export function loadPlan(wire: WirePlan): LoadedPlan {
     expect(isRecord(t), where, `must be an object, got ${describeValue(t)}`);
     expectNumber(t as unknown as Record<string, unknown>, "instance", where);
   });
+  // ISSUE #187: `modules[]` / `exports[]` / `imports[]` get the same
+  // deep-schema treatment as initializers/trampolines/canonicalOptions
+  // (#94(3)) — a malformed entry must die here as a typed `PlanError`,
+  // never as a raw TypeError in `Executor.buildExport` or (worse) as a
+  // silent negative-offset slice of the wrong component bytes in
+  // `compileModules` (executor.ts's only guard was an upper-bound check).
+  wire.modules.forEach((m, i) => validateModule(m, `modules[${i}]`));
+  wire.imports.forEach((imp, i) => validateImport(imp, `imports[${i}]`));
+  wire.exports.forEach((exp, i) => validateExport(exp, `exports[${i}]`));
 
   const importedResources = wire.importedResources ?? [];
   for (const [i, ir] of importedResources.entries()) {
@@ -378,6 +387,24 @@ function expectString(o: Record<string, unknown>, field: string, where: string) 
     typeof o[field] === "string",
     where,
     `.${field} must be a string, got ${describeValue(o[field])}`,
+  );
+}
+
+// ISSUE #187: `offset`/`len` reach `Uint8Array.slice` unchecked today; a
+// negative or non-integer value is not merely "wrong type" (expectNumber
+// would pass NaN and negatives through) but silently slices the *wrong*
+// component bytes (`slice(-100, -8)` reads from the tail). Reject anything
+// that is not a non-negative safe integer.
+function expectNonNegativeInt(
+  o: Record<string, unknown>,
+  field: string,
+  where: string,
+) {
+  const v = o[field];
+  expect(
+    typeof v === "number" && Number.isSafeInteger(v) && v >= 0,
+    where,
+    `.${field} must be a non-negative safe integer, got ${describeValue(v)}`,
   );
 }
 
@@ -580,6 +607,115 @@ function validateCanonicalOptions(o: unknown, where: string): void {
   }
 }
 
+// ISSUE #187: `modules[]` — mirrors format.ts's `WireModule` union exactly.
+// `embedded`'s `offset`/`len` are the fields the negative-offset walk in
+// the issue exploits (executor.ts's only guard was `end > length`, which a
+// negative `offset` sails through); `adapter`'s `file`/`len`/`intrinsics`
+// are what `compileModules`/intrinsic wiring dereference unchecked
+// downstream.
+function validateModule(m: unknown, where: string): void {
+  expect(isRecord(m), where, `must be an object, got ${describeValue(m)}`);
+  const mm = m as Record<string, unknown>;
+  expectString(mm, "kind", where);
+  switch (mm.kind) {
+    case "embedded":
+      expectNonNegativeInt(mm, "offset", where);
+      expectNonNegativeInt(mm, "len", where);
+      return;
+    case "adapter":
+      expectString(mm, "file", where);
+      expectNonNegativeInt(mm, "len", where);
+      expectArray(mm, "intrinsics", where);
+      (mm.intrinsics as unknown[]).forEach((entry, i) =>
+        validateIntrinsicEntry(entry, `${where}.intrinsics[${i}]`)
+      );
+      return;
+    default:
+      throw new PlanError(`${where}: unknown module kind ${describeValue(mm.kind)}`);
+  }
+}
+
+function validateIntrinsicEntry(entry: unknown, where: string): void {
+  expect(isRecord(entry), where, `must be an object, got ${describeValue(entry)}`);
+  const e = entry as Record<string, unknown>;
+  expectString(e, "module", where);
+  expectString(e, "name", where);
+  expectString(e, "category", where);
+  expect(isRecord(e.def), where, `.def must be an object`);
+  validateCoreDef(e.def, `${where}.def`);
+}
+
+// ISSUE #187: `imports[]` — mirrors format.ts's `WireImport`. `type` is
+// optional on the wire (present only for imports that carry an interned
+// type-table index), so it is checked only when present.
+function validateImport(imp: unknown, where: string): void {
+  expect(isRecord(imp), where, `must be an object, got ${describeValue(imp)}`);
+  const i = imp as Record<string, unknown>;
+  expectString(i, "name", where);
+  expectArray(i, "path", where);
+  (i.path as unknown[]).forEach((p, idx) => {
+    expect(
+      typeof p === "string",
+      `${where}.path[${idx}]`,
+      `must be a string, got ${describeValue(p)}`,
+    );
+  });
+  expectString(i, "kind", where);
+  if (i.type !== undefined) expectNumber(i, "type", where);
+}
+
+// ISSUE #187: `exports[]` — mirrors format.ts's `WireExport` union,
+// recursing into `instance`'s nested `exports[]` (the "each kind's fields
+// shape-checked … recursive for nested instance export lists" requirement).
+function validateExport(exp: unknown, where: string): void {
+  expect(isRecord(exp), where, `must be an object, got ${describeValue(exp)}`);
+  const e = exp as Record<string, unknown>;
+  expectString(e, "kind", where);
+  switch (e.kind) {
+    case "lifted-func":
+      expectString(e, "name", where);
+      expect(isRecord(e.coreDef), where, `.coreDef must be an object`);
+      validateCoreDef(e.coreDef, `${where}.coreDef`);
+      expectNumber(e, "options", where);
+      expectNumber(e, "type", where);
+      return;
+    case "instance":
+      expectString(e, "name", where);
+      expectArray(e, "exports", where);
+      (e.exports as unknown[]).forEach((nested, i) =>
+        validateExport(nested, `${where}.exports[${i}]`)
+      );
+      return;
+    case "type":
+      expectString(e, "name", where);
+      expect(isRecord(e.type), where, `.type must be an object`);
+      validateTypeExport(e.type, `${where}.type`);
+      return;
+    case "module":
+      // plan-format.md v4 amendment 2: exported embedded core module.
+      expectString(e, "name", where);
+      expectNumber(e, "module", where);
+      return;
+    default:
+      throw new PlanError(`${where}: unknown export kind ${describeValue(e.kind)}`);
+  }
+}
+
+function validateTypeExport(t: unknown, where: string): void {
+  expect(isRecord(t), where, `must be an object, got ${describeValue(t)}`);
+  const tt = t as Record<string, unknown>;
+  expectString(tt, "kind", where);
+  switch (tt.kind) {
+    case "resource":
+      expectNumber(tt, "resource", where);
+      return;
+    case "value":
+      expectNumber(tt, "type", where);
+      return;
+    default:
+      throw new PlanError(`${where}: unknown type-export kind ${describeValue(tt.kind)}`);
+  }
+}
 
 function loadTypeDecl(
   t: WireTypeDecl,
