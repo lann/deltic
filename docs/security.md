@@ -81,6 +81,30 @@ has no lattice to bridge, and the proof obligation becomes a closed
 enumeration — every mutating operation refuses — which is checkable
 against the WIT.
 
+**Outgoing HTTP requests can be scoped by name.** `http()` takes an
+`allowRequest` policy, evaluated on the assembled request before anything
+is dispatched:
+
+```ts
+http({
+  allowRequest: ({ url, method }) =>
+    url.protocol === "https:" && url.hostname.endsWith(".example.com") &&
+    method === "GET",
+})
+```
+
+`true` (the default) is unscoped egress; `false` denies everything while
+leaving the types and resources usable; a callback may be async. A
+callback that throws denies — a predicate that fails must not fail open.
+Refusals reach the guest as the WIT `HTTP-request-denied` error code, and
+a refused request never drains the guest's body stream. Because the
+implementation does not follow redirects, each hop is a fresh request and
+is checked again.
+
+This is a name-level check only, which is the whole of what a
+`fetch`-based host can express. See "What it does not give you" below for
+what that leaves open.
+
 **Capabilities are à la carte.** The `wasi()` batteries merge carries
 only ambient, side-effect-benign capabilities. Everything that grants
 real host authority is a separate, deliberate import: `filesystem-node`,
@@ -88,11 +112,20 @@ real host authority is a separate, deliberate import: `filesystem-node`,
 
 ## What it does not give you
 
-- **No network scoping.** `sockets()` and `http()` grant the host's
-  network reach wholesale. There is no allowlist, no address check, and
-  no TCP/UDP toggle. A guest with `sockets()` can talk to anything this
-  process can reach, including loopback services and cloud instance
-  metadata endpoints.
+- **No network scoping** for `sockets()`, which grants the host's
+  network reach wholesale: no allowlist, no address check, no TCP/UDP
+  toggle. A guest with `sockets()` can talk to anything this process can
+  reach, including loopback services and cloud instance metadata
+  endpoints. Tracked by
+  [#200](https://github.com/polymorph-components/polyengine/issues/200).
+- **No address-level check for `http()` either.** `allowRequest` sees the
+  URL a guest asked for, not the address it resolves to, so it cannot
+  refuse a name that resolves to loopback, a link-local address or a
+  cloud metadata endpoint — and the resolution can change between the
+  check and the connection. Closing that requires resolving and
+  connecting ourselves rather than delegating to `fetch`, which is not
+  possible in a browser at all: name resolution and connection happen
+  inside the network stack, and JS never observes an address.
 - **No stdio scoping.** `cliStdio()` grants the host process's stdin,
   stdout, stderr, environment and arguments.
 - **No protection against a hostile guest reaching outside a preopen**
