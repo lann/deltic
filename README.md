@@ -85,8 +85,8 @@ anything breaking bumps the minor — so caret constraints are the intended
 way to consume:
 
 ```ts
-import { instantiate } from "jsr:@deltic/runtime@^0.2.0/embedder";
-import { defaultTranslator } from "jsr:@deltic/translator@^0.2.0";
+import { instantiate } from "jsr:@deltic/runtime@^0.3.0/embedder";
+import { defaultTranslator } from "jsr:@deltic/translator@^0.3.0";
 ```
 
 `@deltic/{runtime,translator,wasi,ct-runner}` release in lockstep — one

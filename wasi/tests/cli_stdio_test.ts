@@ -15,6 +15,8 @@ import {
   SinkOutputStream,
   STREAM_HIGH_WATER,
 } from "../src/io.ts";
+import type { StreamErrorValue } from "../src/io.ts";
+import { cli } from "../src/cli.ts";
 import { assertEq, assertThrows, assertTrue } from "./asserts.ts";
 
 const text = (s: string): Uint8Array => new TextEncoder().encode(s);
@@ -73,6 +75,24 @@ Deno.test("cli-stdio: the registered io prototypes carry the A14 marks (the rela
   }
   // The buffer-backed bases keep their sync fast path: no Promise returns.
   assertTrue(!(new InputStream(text("x")).blockingRead(8n) instanceof Promise), "base is sync");
+});
+
+// Issue #178: `cli()`'s capture-stdin path (src/cli.ts:150) backs
+// `wasi:cli/stdin@0.2` with the buffer-backed InputStream, not
+// FedInputStream — a guest reading that stdin until closed must see the
+// buffer drain and then `closed`, or it livelocks (the bug this issue
+// tracks). Mirrors the FedInputStream drained-ended-is-closed case above,
+// but against the actual capture-stdin wiring a guest would hit.
+Deno.test("cli-stdio stdin (capture-stdin buffer): guest-visible stream reaches closed after the buffer drains (issue #178 livelock)", () => {
+  const { imports } = cli({ stdinBuffer: text("hi") });
+  const stdinIface = imports["wasi:cli/stdin@0.2"] as {
+    getStdin(): InputStream;
+  };
+  const stdin = stdinIface.getStdin();
+  assertEq(utf8(stdin.read(16n)), "hi", "serves the configured buffer");
+  const e = assertThrows(() => stdin.read(1n));
+  assertTrue(e instanceof ComponentException, "drained capture-stdin buffer is branded closed");
+  assertEq((e as ComponentException<StreamErrorValue>).payload.kind, "closed");
 });
 
 // --- p2 stdin ----------------------------------------------------------------------

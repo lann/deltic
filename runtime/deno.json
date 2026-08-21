@@ -1,6 +1,6 @@
 {
   "name": "@deltic/runtime",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "exports": {
     "./cabi": "./src/cabi/mod.ts",
     "./cache": "./src/cache/mod.ts",
@@ -8,6 +8,7 @@
     "./task": "./src/task/mod.ts",
     "./exec": "./src/exec/mod.ts",
     "./embedder": "./src/embedder/mod.ts",
+    "./digest": "./src/digest/mod.ts",
     "./intrinsics": "./src/intrinsics/mod.ts",
     "./shim": "./src/shim/mod.ts",
     "./jspi": "./src/jspi/mod.ts"

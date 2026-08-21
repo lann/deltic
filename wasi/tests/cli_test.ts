@@ -3,7 +3,9 @@
 // recording").
 
 import { assertEq, assertThrows, assertTrue } from "./asserts.ts";
+import { ComponentException } from "@deltic/runtime/embedder";
 import { cli, ExitError } from "../src/cli.ts";
+import type { StreamErrorValue } from "../src/io.ts";
 
 Deno.test("cli: stdout capture accumulates writes and decodes as text", () => {
   const { imports, captured } = cli();
@@ -76,13 +78,18 @@ Deno.test("cli: get-environment / get-arguments default to empty", () => {
   assertEq(env.initialCwd(), undefined);
 });
 
-Deno.test("cli: stdin is empty by default", () => {
+// Issue #178: the default empty-buffer stdin must report `closed` on the
+// first nonzero-len read, not an empty list forever — otherwise a p2
+// guest's read-until-closed loop livelocks.
+Deno.test("cli: stdin is closed at EOF by default (issue #178 livelock)", () => {
   const { imports } = cli();
   const stdin = imports["wasi:cli/stdin@0.2"] as {
     getStdin(): { read(len: bigint): Uint8Array };
   };
   const s = stdin.getStdin();
-  assertEq(s.read(10n).length, 0);
+  const e = assertThrows(() => s.read(10n));
+  assertTrue(e instanceof ComponentException);
+  assertEq((e as ComponentException<StreamErrorValue>).payload.kind, "closed");
 });
 
 Deno.test("cli: no terminal is ever attached (option collapses to undefined)", () => {

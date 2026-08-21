@@ -3,7 +3,15 @@
 // Regenerate: cargo run -p bindgen -- <wit-path> --world future-user --out <file>
 
 import type { WirePlan } from "../../../src/plan/mod.ts";
-import { verifyWorldDigest, type DigestMismatch } from "../../../src/digest/mod.ts";
+import {
+  verifyWorldDigest,
+  WorldDigestMismatchError,
+  type DigestMismatch,
+} from "../../../src/digest/mod.ts";
+import {
+  instantiateEmbedder,
+  resolveArtifacts,
+} from "../../../src/embedder/mod.ts";
 import type {
   Stream,
   Future,
@@ -13,6 +21,8 @@ import type {
   ComponentException,
   Trap,
   EmbedderInstance,
+  EmbedderOptions,
+  InstantiateSource,
 } from "../../../src/embedder/mod.ts";
 
 // deno-lint-ignore no-unused-vars
@@ -33,13 +43,45 @@ export interface FutureUserExports {
   makeFuture(x: number): Future<number>;
 }
 
+/** An instantiated `future-user` component: the embedder-conventions
+* instance (`{ exports, handle, imports }`) with `exports` typed as
+* `FutureUserExports`. */
+export interface FutureUserInstance extends Omit<EmbedderInstance, "exports"> {
+  exports: FutureUserExports;
+}
+
+/** Instantiate a `future-user` component behind these typed bindings —
+* the default path for typed consumers.
+*
+* Verifies the loaded plan's world digest against `WORLD_DIGEST`
+* BEFORE instantiating (contracts/digest.md; contracts/embedder-api.md
+* §"Module wiring and instantiation"), throwing
+* `WorldDigestMismatchError` with the structural diff on skew — no
+* guest code has run when that throws. Accepts the same sources as
+* the runtime `instantiate` (pre-translated artifacts, an envelope
+* via `artifactsFromEnvelope`, or component bytes plus a translator).
+*
+* Use `bind` instead only when the plan was verified already. */
+export async function instantiate(
+source: InstantiateSource,
+imports: Record<string, unknown> = {},
+opts: EmbedderOptions = {},
+): Promise<FutureUserInstance> {
+  const artifacts = await resolveArtifacts(source);
+  const mismatch = await verify(artifacts.plan);
+  if (mismatch) throw new WorldDigestMismatchError("future-user", mismatch);
+  const instance = await instantiateEmbedder(artifacts, imports, opts);
+  return instance as unknown as FutureUserInstance;
+}
+
 /** Typed cast over an embedder-conventions instance's `exports`
 * (`{ exports, handle, imports }`, keyed per
 * contracts/embedder-api.md §"Module wiring and instantiation") —
-* obtain one via `instantiate` from "../../../src/embedder/mod.ts"
-* (or `instantiateEmbedder` for the lower-level entry point), verify
-* this world's digest against its `.handle`'s plan, then `bind` for
-* the typed facade below. */
+* an UNCHECKED cast: it performs no digest verification. Prefer the
+* `instantiate` above, which runs the world-digest handshake before
+* instantiating; `bind` is for already-verified plans and advanced
+* callers driving `instantiateEmbedder` themselves (verify this
+* world's digest against the plan first — see `verify`). */
 export function bind(instance: EmbedderInstance): FutureUserExports {
   return instance.exports as unknown as FutureUserExports;
 }

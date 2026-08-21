@@ -71,7 +71,16 @@ drop path (including the teardown walks) releases the arm — and reading
 through a `Stream`/`Future` handle already passed to a guest is refused
 loudly (`TypeError`) instead of operating a phantom duplicate of an end
 the guest now owns; `StreamWriter` operations after the pass stay legal
-(the host retains the writable end) — see §"Streams and futures".**
+(the host retains the writable end) — see §"Streams and futures";
+amendment A16 (2026-08-21, deltic#182) settles the semantics of handle
+disposal on a future whose host end has not materialized:
+`Future.cancel()`, like `drop()`, is a total fire-and-forget handle
+operation and never surfaces the producing call's failure — see §"Streams and futures"; amendment A17 (2026-08-21,
+deltic#184) scopes the world-digest handshake to the GENERATED typed
+entry point (bindgen emits an `instantiate` wrapper that verifies before
+instantiating) — the runtime's untyped `instantiate` has no world to
+check against and does not verify — see §"Module wiring and
+instantiation".**
 This document supersedes `descriptor-ir.md`'s interim
 "host value mapping" table as the destination for host-facing value shapes.
 The runtime's *raw* boundary (`instance.exports`, `HostImports`) keeps the
@@ -485,6 +494,19 @@ class DroppedError extends Error { … }    // awaiting a dropped future rejects
 - **Lifted** `stream<T>`/`future<T>` values arrive as `Stream<T>`/
   `Future<T>`. Awaiting a future whose write end dropped without a value
   rejects with `DroppedError` (discriminated — R-fix review note 4).
+- **Handle disposal is total and silent** (amendment A16, 2026-08-21,
+  deltic#182). `drop()` and `cancel()` on a `Future<T>` are plain handle
+  operations: they never throw, never return a promise, and never surface
+  a failure of the call that produces the future's host end. A future
+  obtained from an export call is DEFERRED — its host end materializes
+  when that call completes — so a handle held without awaiting (the
+  blessed spelling above) can outlive a failing producer; disposing such a
+  handle discards the failure rather than raising it out of band. The
+  failure is not lost: it still surfaces to anyone awaiting the future (or
+  reading it), which is the only place the embedder asked for a value.
+  Runtimes must therefore attach rejection handling at the handle itself,
+  so that neither `cancel()`, `drop()`, nor a handle abandoned untouched
+  can raise an unhandled rejection at the process level.
 - **Lowering accepts the natural JS producers**: where the guest expects a
   `stream<T>`, the host may pass a `ReadableStream`, an `AsyncIterable`,
   an array (finite), or a `Stream<T>` handle; for `future<T>`, a
@@ -659,9 +681,21 @@ const instance = await instantiate(artifacts, {
 });
 ```
 
-- Bindgen emits the world's `Imports` type (this record, fully typed) and
-  `Exports` type; `instantiate` verifies the world digest
-  (`contracts/digest.md`) before trusting either.
+- Bindgen emits the world's `Imports` type (this record, fully typed), its
+  `Exports` type, and a typed `instantiate` wrapper that **verifies the
+  world digest** (`contracts/digest.md`) before instantiating anything
+  (amendment A17, 2026-08-21). The obligation lives on the generated
+  wrapper, not on the runtime's untyped `instantiate`: an untyped
+  instantiation names no world, so there is no expected digest to check
+  against. The wrapper resolves artifacts (translating first if given the
+  A3 form — translation parses the component, it never runs guest code),
+  compares the recomputed digest against the embedded `WORLD_DIGEST`, and
+  throws a named, catchable mismatch error carrying the structural
+  divergence; only then does it instantiate. So no guest code runs against
+  bindings that do not match it. The generated `verify(plan)` helper and
+  `WORLD_DIGEST` constant remain exported for embedders driving the
+  untyped path, and `bind()` remains an explicitly UNCHECKED cast for
+  callers that have already verified.
 - **Untranslated artifacts** (A3): `instantiate` also accepts
   `{ componentBytes, translator }` where `translator` is the
   translator-shim wasm bytes or a shared `Translator` instance, and

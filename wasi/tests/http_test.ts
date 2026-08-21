@@ -350,8 +350,26 @@ Deno.test("http fragment: the @0.3 track by default; rc snapshots re-key exactly
   assertEq(JSON.stringify(calls), JSON.stringify(["fields.constructor"]));
 });
 
-Deno.test("fragment: the middleware world's handler import rides the fragment (handle = send)", () => {
+Deno.test("fragment: imports table has no handler key (header recipe: embedder registers `send` under its own handler key)", () => {
+  const { imports } = http();
+  const keys = Object.keys(imports);
+  assertTrue(
+    keys.every((k) => !k.startsWith("wasi:http/handler@")),
+    "no wasi:http/handler@* key present in the fragment's imports table",
+  );
+  assertTrue(
+    keys.some((k) => k.startsWith("wasi:http/types@")) &&
+      keys.some((k) => k.startsWith("wasi:http/client@")),
+    "types + client keys still present",
+  );
+});
+
+Deno.test("fragment: an embedder that means handler-over-fetch registers `send` under its own handler key", () => {
   const { imports, send } = http();
-  const handler = imports["wasi:http/handler@0.3"] as { handle: unknown };
-  assertTrue(handler.handle === send, "handle IS client.send");
+  // CONTRACT: wasi/src/http.ts:16-20 — handler is deliberately not
+  // registered by this fragment; the supported recipe is the embedder
+  // merging `send` into its own handler-keyed provider (issue #179).
+  const embedderMerged = { ...imports, [`wasi:http/handler@0.3`]: { handle: send } };
+  const handler = embedderMerged["wasi:http/handler@0.3"] as { handle: unknown };
+  assertTrue(handler.handle === send, "handle IS client.send when the embedder opts in");
 });

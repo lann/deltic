@@ -33,11 +33,13 @@
 // PATHS. Guest paths are resolved TEXTUALLY: split on "/", drop "." and
 // empty segments, ".." pops (underflow = `not-permitted`), absolute
 // paths and NUL rejected. Backends receive clean, non-escaping segment
-// lists. SECURITY: this confines lookups textually but does NOT chase
-// symlinks per-component (no openat2/RESOLVE_BENEATH analogue in node or
-// OPFS) — a symlink inside a node preopen that points outside it WILL be
-// followed. Do not preopen trees containing adversarial symlinks; OPFS
-// has no symlinks, so the web backend is immune.
+// lists. SECURITY: this layer confines lookups TEXTUALLY only — it does
+// not chase symlinks per-component (no openat2/RESOLVE_BENEATH analogue
+// in node or OPFS). PHYSICAL containment is the backend's job: the node
+// backend realpaths every op against the preopen root before the OS call
+// (filesystem_node.ts header, issue #177), so guest-created and
+// pre-existing escaping symlinks alike are refused with `not-permitted`;
+// OPFS has no symlinks, so the web backend is immune by construction.
 
 import { ComponentException, Stream, suspending } from "@deltic/runtime/embedder";
 import { FedInputStream, IoError, OutputStream, Pollable, SinkOutputStream } from "../io.ts";

@@ -446,6 +446,23 @@ class Executor {
     }
     const compiled = Promise.all(this.wire.modules.map((m, i) => {
       if (m.kind === "embedded") {
+        // Defense-in-depth (deltic#187): the loader now refuses
+        // negative/non-integer `offset`/`len` at load time (loader.ts
+        // `validateModule`), but a negative offset silently slices the
+        // *wrong* bytes from the tail of `componentBytes`
+        // (`Uint8Array.slice` treats negative indices as relative to the
+        // end) rather than tripping the old upper-bound-only check —
+        // belt-and-braces here in case a `LoadedPlan` ever reaches this
+        // path without going through `loadPlan`.
+        if (
+          !Number.isInteger(m.offset) || m.offset < 0 ||
+          !Number.isInteger(m.len) || m.len < 0
+        ) {
+          throw new PlanError(
+            `module ${i}: offset/len must be non-negative integers, got ` +
+              `offset=${m.offset}, len=${m.len}`,
+          );
+        }
         const end = m.offset + m.len;
         if (end > this.componentBytes.length) {
           throw new PlanError(

@@ -63,7 +63,22 @@ pub fn generate(resolve: &Resolve, world: WorldId, expected_digest: &str) -> Res
     )?;
     writeln!(
         src,
-        "import {{ verifyWorldDigest, type DigestMismatch }} from \"../../../src/digest/mod.ts\";"
+        "import {{\n\
+         \x20 verifyWorldDigest,\n\
+         \x20 WorldDigestMismatchError,\n\
+         \x20 type DigestMismatch,\n\
+         }} from \"../../../src/digest/mod.ts\";"
+    )?;
+    // The verified default path (issue #184): the generated `instantiate`
+    // wrapper resolves the plan first (`resolveArtifacts`), runs the
+    // world-digest handshake, and only then delegates to the runtime
+    // facade — so verification completes before any guest code runs.
+    writeln!(
+        src,
+        "import {{\n\
+         \x20 instantiateEmbedder,\n\
+         \x20 resolveArtifacts,\n\
+         }} from \"../../../src/embedder/mod.ts\";"
     )?;
     // Stream<T>/Future<T>/ErrorContext/ComponentException/Trap plus the source-union
     // types used at parameter positions (StreamSource<T>/FutureSource<T>,
@@ -82,6 +97,8 @@ pub fn generate(resolve: &Resolve, world: WorldId, expected_digest: &str) -> Res
          \x20 ComponentException,\n\
          \x20 Trap,\n\
          \x20 EmbedderInstance,\n\
+         \x20 EmbedderOptions,\n\
+         \x20 InstantiateSource,\n\
          }} from \"../../../src/embedder/mod.ts\";\n"
     )?;
     // Silence unused-import checks for worlds that don't happen to
@@ -167,15 +184,70 @@ pub fn generate(resolve: &Resolve, world: WorldId, expected_digest: &str) -> Res
     src.push_str(export_decls.as_str());
     writeln!(src, "}}\n")?;
 
+    // ---- The verified default entry point (issue #184).
+    //
+    // contracts/embedder-api.md §"Module wiring and instantiation" +
+    // contracts/digest.md: the digest is the skew-protection handshake —
+    // bindings embed the expected digest, the runtime recomputes it from
+    // the loaded plan at instantiate time and fails fast with a structural
+    // diff on mismatch. `resolveArtifacts` normalizes either accepted
+    // input form (pre-translated artifacts, or component-plus-translator)
+    // to a plan WITHOUT instantiating, so the check completes before any
+    // guest initializer runs.
+    let has_imports = !import_decls.as_str().is_empty();
+    let imports_param = if has_imports {
+        format!("imports: {world_ident}Imports")
+    } else {
+        "imports: Record<string, unknown> = {}".to_string()
+    };
+    writeln!(
+        src,
+        "/** An instantiated `{world_name}` component: the embedder-conventions\n\
+         * instance (`{{ exports, handle, imports }}`) with `exports` typed as\n\
+         * `{world_ident}Exports`. */\n\
+         export interface {world_ident}Instance extends Omit<EmbedderInstance, \"exports\"> {{\n\
+         \x20 exports: {world_ident}Exports;\n\
+         }}\n",
+        world_name = w.name,
+    )?;
+    writeln!(
+        src,
+        "/** Instantiate a `{world_name}` component behind these typed bindings —\n\
+         * the default path for typed consumers.\n\
+         *\n\
+         * Verifies the loaded plan's world digest against `WORLD_DIGEST`\n\
+         * BEFORE instantiating (contracts/digest.md; contracts/embedder-api.md\n\
+         * §\"Module wiring and instantiation\"), throwing\n\
+         * `WorldDigestMismatchError` with the structural diff on skew — no\n\
+         * guest code has run when that throws. Accepts the same sources as\n\
+         * the runtime `instantiate` (pre-translated artifacts, an envelope\n\
+         * via `artifactsFromEnvelope`, or component bytes plus a translator).\n\
+         *\n\
+         * Use `bind` instead only when the plan was verified already. */\n\
+         export async function instantiate(\n\
+         \x20 source: InstantiateSource,\n\
+         \x20 {imports_param},\n\
+         \x20 opts: EmbedderOptions = {{}},\n\
+         ): Promise<{world_ident}Instance> {{\n\
+         \x20 const artifacts = await resolveArtifacts(source);\n\
+         \x20 const mismatch = await verify(artifacts.plan);\n\
+         \x20 if (mismatch) throw new WorldDigestMismatchError({world_name:?}, mismatch);\n\
+         \x20 const instance = await instantiateEmbedder(artifacts, imports, opts);\n\
+         \x20 return instance as unknown as {world_ident}Instance;\n\
+         }}\n",
+        world_name = w.name,
+    )?;
+
     writeln!(
         src,
         "/** Typed cast over an embedder-conventions instance's `exports`\n\
          * (`{{ exports, handle, imports }}`, keyed per\n\
          * contracts/embedder-api.md §\"Module wiring and instantiation\") —\n\
-         * obtain one via `instantiate` from \"../../../src/embedder/mod.ts\"\n\
-         * (or `instantiateEmbedder` for the lower-level entry point), verify\n\
-         * this world's digest against its `.handle`'s plan, then `bind` for\n\
-         * the typed facade below. */\n\
+         * an UNCHECKED cast: it performs no digest verification. Prefer the\n\
+         * `instantiate` above, which runs the world-digest handshake before\n\
+         * instantiating; `bind` is for already-verified plans and advanced\n\
+         * callers driving `instantiateEmbedder` themselves (verify this\n\
+         * world's digest against the plan first — see `verify`). */\n\
          export function bind(instance: EmbedderInstance): {world_ident}Exports {{\n\
          \x20 return instance.exports as unknown as {world_ident}Exports;\n\
          }}",

@@ -18,6 +18,46 @@ export interface DigestMismatch {
 }
 
 /**
+ * Thrown by generated `instantiate` wrappers when the loaded plan's world
+ * digest does not match the constant bindgen embedded at generation time
+ * (contracts/digest.md: "fails fast with a structural diff on mismatch").
+ * Raised BEFORE the component is instantiated, so no guest code has run
+ * when a caller catches this.
+ *
+ * Named and catchable: `err instanceof WorldDigestMismatchError`, or
+ * `err.name === "WorldDigestMismatchError"` across realms.
+ */
+export class WorldDigestMismatchError extends Error {
+  override readonly name = "WorldDigestMismatchError";
+  /** The world these bindings were generated from. */
+  readonly world: string;
+  /** The full mismatch report (expected/actual digest, first divergence). */
+  readonly mismatch: DigestMismatch;
+
+  constructor(world: string, mismatch: DigestMismatch) {
+    super(
+      `world digest mismatch for \`${world}\`: bindings expect ` +
+        `${mismatch.expected}, loaded plan computes ${mismatch.actual}` +
+        (mismatch.firstDivergence
+          ? ` (first divergence: ${mismatch.firstDivergence})`
+          : "") +
+        " — regenerate the bindings from the component's WIT",
+    );
+    this.world = world;
+    this.mismatch = mismatch;
+  }
+
+  /** Digest the generated bindings were built against. */
+  get expected(): string {
+    return this.mismatch.expected;
+  }
+  /** Digest computed from the plan actually loaded. */
+  get actual(): string {
+    return this.mismatch.actual;
+  }
+}
+
+/**
  * Verify `plan`'s computed world digest against `expectedDigest` (the
  * constant bindgen embedded at generation time). Returns `null` on match,
  * or a `DigestMismatch` report naming the first divergent path on

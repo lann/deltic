@@ -506,15 +506,21 @@ export class Future<T> implements PromiseLike<T> {
     pending: Promise<ComponentValue>,
     codec: ElemCodec<T>,
   ): Future<T> {
-    const f: Future<T> = new Future<T>(
-      null,
-      pending.then((v) => {
-        const h = hostFutureFor<T>(v);
-        (f as unknown as { adopt(h: HostFuture<T>): void }).adopt(h);
-        return h;
-      }),
-      codec,
-    );
+    const hostP = pending.then((v) => {
+      const h = hostFutureFor<T>(v);
+      (f as unknown as { adopt(h: HostFuture<T>): void }).adopt(h);
+      return h;
+    });
+    // Backstop (issue #182): a deferred handle that is never awaited,
+    // dropped, or cancelled still has `#hostP` sitting there uninspected — if
+    // the producing export call rejects, that is an unhandled rejection at
+    // the process level with no handle-level operation to blame. Attach a
+    // no-op rejection handler to a SEPARATE derived promise; `#read()` above
+    // still awaits the original `hostP`, so a real failure still surfaces to
+    // an awaiter (or through `cancel()`/`drop()`'s own swallows) exactly as
+    // before.
+    hostP.catch(() => {});
+    const f: Future<T> = new Future<T>(null, hostP, codec);
     return f;
   }
 
@@ -582,7 +588,10 @@ export class Future<T> implements PromiseLike<T> {
 
   cancel(): void {
     if (this.#host !== null) this.#host.cancel();
-    else void this.#hostP.then((h) => h.cancel());
+    // A deferred future whose host end never materialized has nothing to
+    // cancel; swallow that rejection rather than let `cancel()` produce an
+    // unhandled one (issue #182 — mirrors `drop()` below).
+    else void this.#hostP.then((h) => h.cancel(), () => {});
   }
 
   /**

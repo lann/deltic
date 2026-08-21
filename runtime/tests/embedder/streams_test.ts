@@ -343,3 +343,69 @@ Deno.test({
     await new Promise((r) => setTimeout(r, 10));
   },
 });
+
+// Issue #182: `Future.deferred` derives `#hostP` from the promise that
+// produces the underlying host end (the export call). If that promise
+// rejects, `cancel()` — and simply never touching the handle at all — must
+// not raise a process-level unhandled rejection; `drop()` already guards
+// this (streams.ts:585), `cancel()` did not. These exercise `Future.deferred`
+// directly, with no wasm guest involved, since the hazard is entirely at the
+// handle layer.
+
+/** A minimal `ElemCodec<number>`; these tests never reach `toHost`/`fromHost`. */
+const dummyCodec = {
+  element: null,
+  toHost: (v: unknown) => v as number,
+  fromHost: (v: number) => v as unknown,
+  where: "test future",
+};
+
+Deno.test({
+  name:
+    "futures (#182): cancel() on a deferred future whose producing call rejected does not raise an unhandled rejection",
+  ignore: false,
+  fn: async () => {
+    const pending = Promise.reject(new Error("producer call exploded"));
+    // deno-lint-ignore no-explicit-any
+    const f = Future.deferred(pending, dummyCodec as any);
+    // Before the fix, this `.then((h) => h.cancel())` chain had no rejection
+    // handler, so once `pending` settled rejected on a later microtask tick,
+    // Deno's unhandled-rejection sanitizer would fail the test.
+    f.cancel();
+    // Give the rejection a turn to (not) escape as unhandled.
+    await new Promise((r) => setTimeout(r, 10));
+  },
+});
+
+Deno.test({
+  name:
+    "futures (#182): a deferred future never awaited/dropped/cancelled does not raise an unhandled rejection",
+  ignore: false,
+  fn: async () => {
+    const pending = Promise.reject(new Error("producer call exploded"));
+    // deno-lint-ignore no-explicit-any
+    Future.deferred(pending, dummyCodec as any);
+    // The handle is deliberately discarded here, untouched — the backstop
+    // at construction time (streams.ts `Future.deferred`) is what must catch
+    // this, since no handle method is ever called to attach a swallow.
+    await new Promise((r) => setTimeout(r, 10));
+  },
+});
+
+Deno.test({
+  name:
+    "futures (#182): the rejection is still observable through the normal await/read path (semantics unchanged)",
+  ignore: false,
+  fn: async () => {
+    const pending = Promise.reject(new Error("producer call exploded"));
+    // deno-lint-ignore no-explicit-any
+    const f = Future.deferred(pending, dummyCodec as any);
+    const e = await caught(() => Promise.resolve(f));
+    assertEq(e instanceof Error, true, `expected an Error, got ${e}`);
+    assertEq(
+      String((e as Error).message).includes("producer call exploded"),
+      true,
+      `the read path must still surface the real failure: ${e}`,
+    );
+  },
+});

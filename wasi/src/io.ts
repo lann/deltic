@@ -222,6 +222,18 @@ export class InputStream {
     const n = Math.max(0, Math.min(Number(len), this.#buf.length - this.#pos));
     const out = this.#buf.slice(this.#pos, this.#pos + n);
     this.#pos += n;
+    // Issue #178: a nonzero-len request against an already-drained buffer
+    // is EOF, and p2's `read` reports that as the `closed` stream-error,
+    // not an empty-forever list (the guest's read-until-closed loop would
+    // otherwise livelock). Matches SyncFileInputStream
+    // (fs_provider.ts:519-521: `if (n > 0 && bytes.length === 0) throw
+    // closed`) and FedInputStream (io.ts:418). The `len > 0` guard keeps a
+    // zero-length probe a no-op, same as both siblings. This also covers
+    // the zero-length-initial-buffer case: the very first nonzero read
+    // against an empty buffer yields `out.length === 0` and throws here.
+    if (Number(len) > 0 && out.length === 0) {
+      throw closedError();
+    }
     return out;
   }
 

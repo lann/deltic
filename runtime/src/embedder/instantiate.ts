@@ -112,7 +112,14 @@ export function artifactsFromEnvelope(
   return { plan: wire, componentBytes, adapters };
 }
 
-async function resolveArtifacts(
+/**
+ * Normalize either accepted input form to `ComponentArtifacts` — i.e. make
+ * the PLAN available without instantiating anything. Exported because the
+ * world-digest handshake (contracts/digest.md) must complete before any
+ * guest code runs: generated `instantiate` wrappers call this, verify the
+ * plan, and only then delegate to `instantiate` below.
+ */
+export async function resolveArtifacts(
   src: InstantiateSource,
 ): Promise<ComponentArtifacts> {
   if ("plan" in src) return src;
