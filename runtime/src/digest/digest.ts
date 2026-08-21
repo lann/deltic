@@ -45,8 +45,10 @@ import type {
 } from "../plan/format.ts";
 
 // cewd = component-engine world digest, the project's pre-rebrand name; kept as an opaque wire constant.
+/** @internal */
 export const CEWD_VERSION = 1;
 
+/** @internal */
 export class DigestError extends Error {
   constructor(message: string) {
     super(message);
@@ -54,6 +56,7 @@ export class DigestError extends Error {
   }
 }
 
+/** @internal */
 export interface WorldDigestResult {
   canonicalJson: string;
   digest: string;
@@ -63,7 +66,10 @@ export interface WorldDigestResult {
 // deno-lint-ignore no-explicit-any
 type Canon = any;
 
-/** Compute the canonical world digest from a loaded wire plan. */
+/**
+ * Compute the canonical world digest from a loaded wire plan.
+ * @internal
+ */
 export async function computeWorldDigest(
   plan: WirePlan,
 ): Promise<WorldDigestResult> {
@@ -380,6 +386,7 @@ function sortByName(items: Canon[]): Canon[] {
  * Recursively sort object keys (alphabetically) and serialize with no extra
  * whitespace. Array order is preserved verbatim — this must match
  * `crates/bindgen/src/digest.rs::canonical_string` byte-for-byte.
+ * @internal
  */
 export function canonicalStringify(v: unknown): string {
   return JSON.stringify(sortKeysDeep(v));

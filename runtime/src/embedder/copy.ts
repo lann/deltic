@@ -12,7 +12,11 @@
 
 import { copyCensus } from "@polyengine/protocol";
 
-/** The URL of this copy of the runtime. Identity of the copy. */
+/**
+ * The URL of this copy of the runtime. Identity of the copy.
+ * @internal — copy-identity constant for the A9 multi-copy diagnostics; not
+ * host-facing.
+ */
 export const COPY_URL: string = import.meta.url;
 
 /**
@@ -25,8 +29,10 @@ export const COPY_URL: string = import.meta.url;
  *
  * INVARIANT: keep in sync with `version` in runtime/deno.json — pinned by
  * runtime/tests/embedder/cross_copy_test.ts.
+ * @internal — copy-identity constant for the A9 multi-copy diagnostics; not
+ * host-facing.
  */
-export const RUNTIME_VERSION = "0.1.0";
+export const RUNTIME_VERSION = "0.2.0";
 
 /**
  * Compose a cross-copy diagnostic: what was foreign, which copy is speaking,

@@ -103,7 +103,12 @@ export function componentError(
 
 // --- address codec ------------------------------------------------------------
 
-/** Render the address part of `addr` as a Deno hostname string. */
+/**
+ * Render the address part of `addr` as a Deno hostname string.
+ *
+ * @internal — shared by the node/Deno socket backends; the public entry
+ * point is `sockets()`.
+ */
 export function ipHostname(addr: IpSocketAddress): string {
   if (addr.kind === "ipv4") return addr.value.address.join(".");
   // The uncompressed spelling; Deno's address parser accepts it.
@@ -119,6 +124,9 @@ export function ipHostname(addr: IpSocketAddress): string {
  * when it is numeric and drops to 0 otherwise (interface names are not
  * representable in the WIT shape); flow-info is not observable and is
  * always 0.
+ *
+ * @internal — shared by the node/Deno socket backends; the public entry
+ * point is `sockets()`.
  */
 export function parseNetAddr(addr: NetAddr): IpSocketAddress {
   const host = addr.hostname;
@@ -219,6 +227,9 @@ function isDeprecatedV4CompatibleV6(groups: Ipv6Address): boolean {
 /**
  * Whether `addr` may cross this socket's family boundary: same family, and
  * never an IPv4-mapped or deprecated IPv4-compatible IPv6 address.
+ *
+ * @internal — shared by the node/Deno socket backends; the public entry
+ * point is `sockets()`.
  */
 export function isValidAddressFamily(family: IpAddressFamily, addr: IpSocketAddress): boolean {
   if (family === "ipv4") return addr.kind === "ipv4";
@@ -227,12 +238,21 @@ export function isValidAddressFamily(family: IpAddressFamily, addr: IpSocketAddr
     !isDeprecatedV4CompatibleV6(addr.value.address);
 }
 
+/**
+ * @internal — shared by the node/Deno socket backends; the public entry
+ * point is `sockets()`.
+ */
 export function isUnspecified(addr: IpSocketAddress): boolean {
   if (addr.kind === "ipv4") return addr.value.address.every((o) => o === 0);
   return addr.value.address.every((g) => g === 0);
 }
 
-/** Same endpoint: family, address, and port (udp connected-mode filter). */
+/**
+ * Same endpoint: family, address, and port (udp connected-mode filter).
+ *
+ * @internal — shared by the node/Deno socket backends; the public entry
+ * point is `sockets()`.
+ */
 export function sameSocketAddress(a: IpSocketAddress, b: IpSocketAddress): boolean {
   if (a.kind !== b.kind || a.value.port !== b.value.port) return false;
   return a.value.address.length === b.value.address.length &&
@@ -292,6 +312,9 @@ const CODE_ERRORS: Record<string, SocketErrorCode> = {
  * capability re-detection throw branded errors from inside the same try
  * blocks that guard the platform calls, and re-wrapping one would demote
  * its payload to `other`.
+ *
+ * @internal — shared by the node/Deno socket backends; the public entry
+ * point is `sockets()`.
  */
 export function mapPlatformError(e: unknown, what: string): ComponentException<SocketErrorCode> {
   if (e instanceof ComponentException) return e as ComponentException<SocketErrorCode>;
@@ -464,7 +487,12 @@ export interface TcpSocketClass {
 }
 
 
-/** The family's wildcard address, port 0 (tcp listen's implicit bind). */
+/**
+ * The family's wildcard address, port 0 (tcp listen's implicit bind).
+ *
+ * @internal — shared by the node/Deno socket backends; the public entry
+ * point is `sockets()`.
+ */
 export function wildcardAddress(family: IpAddressFamily): IpSocketAddress {
   return family === "ipv4"
     ? { kind: "ipv4", value: { port: 0, address: [0, 0, 0, 0] } }

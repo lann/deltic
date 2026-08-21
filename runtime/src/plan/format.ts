@@ -3,9 +3,13 @@
 // shapes must track the Rust side tag-for-tag; the shim is the producer of
 // record.
 
-/** Core wasm lane types as emitted in `coreType` and `rep` fields. */
+/**
+ * Core wasm lane types as emitted in `coreType` and `rep` fields.
+ * @internal
+ */
 export type WireCoreType = "i32" | "i64" | "f32" | "f64";
 
+/** @internal */
 export interface WirePlan {
   formatVersion: number;
   producer: {
@@ -64,6 +68,7 @@ export interface WirePlan {
   worldDigest: string;
 }
 
+/** @internal */
 export type WireModule =
   | { kind: "embedded"; offset: number; len: number }
   | {
@@ -73,6 +78,7 @@ export type WireModule =
     intrinsics: WireIntrinsicEntry[];
   };
 
+/** @internal */
 export interface WireIntrinsicEntry {
   module: string;
   name: string;
@@ -80,6 +86,7 @@ export interface WireIntrinsicEntry {
   def: WireCoreDef;
 }
 
+/** @internal */
 export type WireInitializer =
   | {
     op: "instantiate-module";
@@ -101,6 +108,7 @@ export type WireInitializer =
     instance: number;
   };
 
+/** @internal */
 export type WireCoreDef =
   | { kind: "export"; instance: number; item: WireExportItem }
   | { kind: "instance-flags"; instance: number }
@@ -117,11 +125,13 @@ export type WireCoreDef =
   | { kind: "unsafe-intrinsic"; intrinsic: string }
   | { kind: "task-may-block" };
 
+/** @internal */
 export interface WireCoreExport {
   instance: number;
   item: WireExportItem;
 }
 
+/** @internal */
 export interface WireExportItem {
   name: string;
   space: "func" | "table" | "memory" | "global" | "tag" | "unknown";
@@ -132,6 +142,7 @@ export interface WireExportItem {
  * Only the M0-relevant variants are given precise field types; the rest are
  * matched by `kind` and rejected at instantiate time with milestone-aware
  * errors (contracts/intrinsics.md §B).
+ * @internal
  */
 export type WireTrampoline =
   | {
@@ -174,6 +185,7 @@ export type WireTrampoline =
   }
   | { kind: string; index: number; [field: string]: unknown };
 
+/** @internal */
 export interface WireCanonicalOptions {
   instance: number;
   stringEncoding: "utf8" | "utf16" | "latin1+utf16";
@@ -186,7 +198,10 @@ export interface WireCanonicalOptions {
   coreType: { params: WireCoreType[]; results: WireCoreType[] };
 }
 
-/** descriptor-ir.md ValType JSON (nested structurally). */
+/**
+ * descriptor-ir.md ValType JSON (nested structurally).
+ * @internal
+ */
 export type WireValType =
   | {
     kind:
@@ -219,6 +234,7 @@ export type WireValType =
   | { kind: "stream"; element: WireValType | null }
   | { kind: "future"; element: WireValType | null };
 
+/** @internal */
 export type WireTypeDecl =
   | {
     kind: "func";
@@ -228,27 +244,36 @@ export type WireTypeDecl =
   }
   | WireValType;
 
+/** @internal */
 export type WireResourceTable =
   | { kind: "concrete"; resource: number; instance: number }
   | { kind: "abstract"; id: number };
 
 /** One stream or future table (plan v2). */
-/** One error-context table: the owning component instance, nothing else. */
+/**
+ * One error-context table: the owning component instance, nothing else.
+ * @internal
+ */
 export interface WireErrorContextTable {
   instance: number;
 }
 
+/** @internal */
 export interface WireAsyncTable {
   element: WireValType | null;
   instance: number;
 }
 
-/** One imported resource type: back-reference into `plan.imports`. */
+/**
+ * One imported resource type: back-reference into `plan.imports`.
+ * @internal
+ */
 export interface WireImportedResource {
   /** `RuntimeImportIndex` — index into `plan.imports`. */
   import: number;
 }
 
+/** @internal */
 export interface WireImport {
   name: string;
   path: string[];
@@ -256,6 +281,7 @@ export interface WireImport {
   type?: number;
 }
 
+/** @internal */
 export type WireExport =
   | {
     kind: "lifted-func";
@@ -272,6 +298,7 @@ export type WireExport =
    */
   | { kind: "module"; name: string; module: number };
 
+/** @internal */
 export type WireTypeExport =
   | { kind: "resource"; resource: number }
   | { kind: "value"; type: number };
@@ -280,6 +307,7 @@ export type WireTypeExport =
  * The shim's C-ABI envelope: plan + adapter artifacts in one JSON document
  * (crates/translator-shim/README.md documents the 1:1 mapping to the
  * contract's artifact set).
+ * @internal
  */
 export interface WireEnvelope {
   plan?: WirePlan;
@@ -303,6 +331,7 @@ export interface WireEnvelope {
  * valid but uses a shape this plan-format version cannot express, and
  * `"internal"` is a shim bug. Neither of the latter two may be scored as a
  * correct rejection.
+ * @internal
  */
 export interface WireErrorDetail {
   phase: "validation" | "unsupported" | "internal";

@@ -68,7 +68,12 @@
 
 import { ComponentException, Stream } from "@polyengine/runtime/embedder";
 
-/** The compatibility track the fragment registers on by default. */
+/**
+ * The compatibility track the fragment registers on by default.
+ *
+ * @internal — test-only export; wasi/tests/http_test.ts pins the default
+ * track literally, but the public entry point is `http()`.
+ */
 export const HTTP_TRACK = "0.3";
 
 // --- WIT value shapes -----------------------------------------------------------
@@ -136,7 +141,12 @@ function headerError(
   return new ComponentException<HeaderError>({ kind }, `wasi:http/types: ${detail}`);
 }
 
-/** Map a fetch failure onto `error-code` (sniff table + honest catch-all). */
+/**
+ * Map a fetch failure onto `error-code` (sniff table + honest catch-all).
+ *
+ * @internal — used only inside this module's `send` implementation; no
+ * importer outside wasi/src/http.ts. The public entry point is `http()`.
+ */
 export function mapFetchError(e: unknown): ErrorCode {
   // Deno/undici wrap the transport detail in the `cause` chain; sniff the
   // whole chain, report the top-level message.

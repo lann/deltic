@@ -76,7 +76,14 @@ export const POLLABLE: unique symbol = Symbol.for("polyengine.pollable/1");
 export const WASI_EXIT: unique symbol = Symbol.for(
   "polyengine.wasiExit/1",
 );
-/** The copy registry array, on `globalThis`. */
+/**
+ * The copy registry array, on `globalThis`.
+ *
+ * @internal — the raw symbol is an implementation detail of registry.ts's
+ * `slot()`; consumers observe/mutate the registry through
+ * `registerRuntimeCopy`/`runtimeCopies`/`copyCensus` instead. No importer
+ * outside protocol/src and protocol/tests references this symbol directly.
+ */
 export const RUNTIME_COPIES: unique symbol = Symbol.for(
   "polyengine.runtimeCopies/1",
 );

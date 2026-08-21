@@ -6,6 +6,7 @@
 import type { WirePlan } from "../plan/format.ts";
 import { computeWorldDigest } from "./digest.ts";
 
+/** @internal */
 export interface DigestMismatch {
   expected: string;
   actual: string;
@@ -26,6 +27,7 @@ export interface DigestMismatch {
  *
  * Named and catchable: `err instanceof WorldDigestMismatchError`, or
  * `err.name === "WorldDigestMismatchError"` across realms.
+ * @internal
  */
 export class WorldDigestMismatchError extends Error {
   override readonly name = "WorldDigestMismatchError";
@@ -62,6 +64,7 @@ export class WorldDigestMismatchError extends Error {
  * constant bindgen embedded at generation time). Returns `null` on match,
  * or a `DigestMismatch` report naming the first divergent path on
  * mismatch.
+ * @internal
  */
 export async function verifyWorldDigest(
   plan: WirePlan,
@@ -82,6 +85,7 @@ export async function verifyWorldDigest(
  * trees in parallel to name the first divergent import/export/type path.
  * `expectedCanonicalJson` is normally produced by `crates/bindgen`'s
  * `digest --json` output, or by `computeWorldDigest` on a reference plan.
+ * @internal
  */
 export async function diffWorldDigest(
   plan: WirePlan,

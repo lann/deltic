@@ -71,7 +71,13 @@
 // module never assumes a platform at evaluation, and `create` can answer
 // `not-supported` truthfully on hosts with no node builtins (browsers).
 
-/** The address shape the socket backends speak. */
+/**
+ * The address shape the socket backends speak.
+ *
+ * @internal — a Deno/node platform backend type; its only non-backend
+ * reference was `parseNetAddr`'s parameter, itself internal. The public
+ * entry point is `sockets()`.
+ */
 export interface NetAddr {
   transport?: string;
   hostname: string;

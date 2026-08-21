@@ -12,7 +12,12 @@
 // as wasm — permitted as long as it stays behaviorally equivalent to the
 // layered path. It must never grow beyond what `test-context` names.
 
-/** The frozen L1 interface id `test-context` is provided under. */
+/**
+ * The frozen L1 interface id `test-context` is provided under.
+ *
+ * @internal — test-only export; wired automatically by `runSuite()`, which
+ * is the public entry point. No caller supplies or overrides this key.
+ */
 export const TEST_CONTEXT_INTERFACE = "polymorph:test/test-context@0.1.0";
 
 /**
@@ -23,6 +28,9 @@ export const TEST_CONTEXT_INTERFACE = "polymorph:test/test-context@0.1.0";
  * in-process host implementation never blocks (no backpressure to model),
  * so it resolves immediately — still a valid `async func` implementation
  * (contracts/embedder-api.md: "sync implementations remain legal").
+ *
+ * @internal — constructed only by `runSuite()`'s internal wiring; no
+ * `RunSuiteOptions` field accepts or overrides a `Context` instance.
  */
 export class Context {
   #onDiagnostic: (msg: string) => void;
@@ -47,6 +55,9 @@ export class Context {
  * cases run against that instance; the runner never asks the guest to
  * construct a `context` (the WIT resource has no constructor — the host
  * always initiates the borrow itself when calling `run`).
+ *
+ * @internal — called only by `runSuite()`'s internal import-merging; the
+ * public entry point is `runSuite()` itself.
  */
 export function testContextImportRecord(): Record<string, unknown> {
   return { [TEST_CONTEXT_INTERFACE]: { Context } };

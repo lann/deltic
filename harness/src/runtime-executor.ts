@@ -20,8 +20,8 @@ import { Translator } from "@polyengine/runtime/shim";
 import {
   type ComponentHandle,
   instantiateComponent,
-} from "@polyengine/runtime/exec";
-import { AssertionError, NotImplemented, Trap } from "@polyengine/runtime/cabi";
+} from "../../runtime/src/exec/mod.ts";
+import { AssertionError, NotImplemented, Trap } from "../../runtime/src/cabi/mod.ts";
 import {
   type Artifact,
   CoreOnlyExecutor,

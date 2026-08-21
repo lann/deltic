@@ -26,7 +26,13 @@ import {
   tagsOf,
 } from "./tags.ts";
 
-/** The suite's `tests` interface id (wit/tests.wit `interface tests`, v0.1.0). */
+/**
+ * The suite's `tests` interface id (wit/tests.wit `interface tests`, v0.1.0).
+ *
+ * @internal — used only inside this module's export lookup; no importer
+ * (including this package's own tests) references it. The public entry
+ * point is `runSuite()`.
+ */
 export const TESTS_INTERFACE = "polymorph:test/tests@0.1.0";
 
 export interface RunSuiteOptions {

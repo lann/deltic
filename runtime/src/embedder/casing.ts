@@ -17,13 +17,20 @@
  *
  * WIT labels are already lower-kebab in practice, so the first fragment needs
  * no adjustment; nothing here lower-cases anything.
+ * @internal — the runtime applies the naming rules; embedders write the
+ * resulting JS names literally (contracts/embedder-api.md §"Naming and
+ * casing").
  */
 export function camelCase(label: string): string {
   const parts = label.split("-");
   return parts[0] + parts.slice(1).map(upperFirst).join("");
 }
 
-/** `tcp-socket` -> `TcpSocket` (resource class names). */
+/**
+ * `tcp-socket` -> `TcpSocket` (resource class names).
+ * @internal — the runtime applies the naming rules; embedders write the
+ * resulting class names literally.
+ */
 export function pascalCase(label: string): string {
   return label.split("-").map(upperFirst).join("");
 }
@@ -48,7 +55,11 @@ export type LeafName =
 
 const MANGLED = /^\[([a-z-]+)\](.*)$/;
 
-/** Decode a mangled leaf name; unmangled names come back as `plain`. */
+/**
+ * Decode a mangled leaf name; unmangled names come back as `plain`.
+ * @internal — leaf-name demangling, performed by the runtime and by
+ * bindgen-generated code.
+ */
 export function parseLeafName(raw: string): LeafName {
   const m = MANGLED.exec(raw);
   if (m === null) return { form: "plain", name: raw };

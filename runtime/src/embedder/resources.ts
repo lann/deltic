@@ -446,6 +446,8 @@ export function makeWrapper(
  * guest holds handles: the guest's handle is the only reference keeping a
  * host object alive across calls, and a weak map here would let it be
  * collected under the guest's feet.
+ * @internal — runtime-owned instance<->rep mapping; hosts supply a class, not
+ * a registry.
  */
 export class HostResourceRegistry {
   readonly #byRep = new Map<number, object>();

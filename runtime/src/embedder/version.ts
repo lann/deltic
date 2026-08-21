@@ -33,7 +33,11 @@ export class ImportResolutionError extends Error {
   }
 }
 
-/** A parsed `name@version` interface id. `version` is null when unversioned. */
+/**
+ * A parsed `name@version` interface id. `version` is null when unversioned.
+ * @internal — interface-id parsing internals; embedders write ids, the
+ * runtime parses them.
+ */
 export interface ParsedId {
   /** The id with the version suffix removed (`wasi:clocks/monotonic-clock`). */
   base: string;
@@ -43,6 +47,10 @@ export interface ParsedId {
   semver: Semver | null;
 }
 
+/**
+ * @internal — version-resolution internals; §"Version canonicalization" of
+ * contracts/embedder-api.md is implemented here, not called by hosts.
+ */
 export interface Semver {
   major: number;
   minor: number;
@@ -60,6 +68,7 @@ const SEMVER =
  *
  * Last, not first: a package name may not contain `@`, but being explicit
  * costs nothing and matches how wasmtime splits (`name.rfind('@')`).
+ * @internal — version-resolution internals.
  */
 export function parseInterfaceId(id: string): ParsedId {
   const at = id.lastIndexOf("@");
@@ -69,6 +78,7 @@ export function parseInterfaceId(id: string): ParsedId {
   return { base, version, semver: parseSemver(version) };
 }
 
+/** @internal — version-resolution internals. */
 export function parseSemver(v: string): Semver | null {
   const m = SEMVER.exec(v);
   if (m === null) return null;
@@ -98,6 +108,7 @@ export function parseSemver(v: string): Semver | null {
  *
  * Build metadata is ignored for track purposes (`2.1.2+abc` -> `@2`), as
  * semver requires.
+ * @internal — version-resolution internals.
  */
 export function trackKey(id: string): string | null {
   const p = parseInterfaceId(id);
@@ -118,6 +129,7 @@ function trackKeyOf(base: string, v: Semver): string | null {
  * Note `semver::Version::parse("0.2")` fails — which is exactly why the two
  * mechanisms compose: a track key can never be mistaken for a full version,
  * and a full version never generates a track key equal to itself.
+ * @internal — version-resolution internals.
  */
 export function asTrackKeySpelling(id: string): string | null {
   const p = parseInterfaceId(id);
@@ -142,6 +154,8 @@ interface TrackClaim {
  * Only the *interface-id* keys participate: world-level bare imports live at
  * the record's top level under camelCase names and are matched by exact
  * string equality, never by version machinery.
+ * @internal — built by `instantiate` from the embedder's plain imports
+ * record; hosts never construct one.
  */
 export class ImportResolver {
   readonly #exact = new Map<string, unknown>();
@@ -278,7 +292,10 @@ export class ImportResolver {
   }
 }
 
-/** Semver precedence, prerelease-aware (semver.org §11). */
+/**
+ * Semver precedence, prerelease-aware (semver.org §11).
+ * @internal — version-resolution internals.
+ */
 export function compareSemver(a: Semver, b: Semver): number {
   if (a.major !== b.major) return a.major - b.major;
   if (a.minor !== b.minor) return a.minor - b.minor;
