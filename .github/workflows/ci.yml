@@ -104,4 +104,5 @@ jobs:
     permissions:
       contents: write
       id-token: write # JSR OIDC publishing (the called workflow requests it)
+      actions: write # ditto: it dispatches npm-publish.yml
     uses: ./.github/workflows/release.yml

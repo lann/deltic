@@ -43,6 +43,7 @@ on:
 permissions:
   contents: write
   id-token: write # JSR OIDC publishing
+  actions: write # dispatching npm-publish.yml (see the last step)
 
 jobs:
   release:
@@ -195,3 +196,28 @@ jobs:
           TAG: ${{ steps.tag.outputs.tag }}
           VERSION: ${{ steps.tag.outputs.version }}
           RELEASE: ${{ inputs.release }}
+
+      - name: publish to npm
+        # An explicit dispatch, not npm-publish.yml's `release: published`
+        # trigger: GitHub deliberately does NOT start workflow runs from events
+        # raised with GITHUB_TOKEN, so the release created above fires nothing.
+        # `workflow_dispatch` is the documented exception to that rule, and it
+        # keeps npm's OIDC audience correct — the run's entry workflow is
+        # npm-publish.yml itself, which is what the trusted publisher is keyed
+        # on (npm validates the CALLING workflow's filename, and this workflow
+        # is itself reached two different ways; see npm-publish.yml's header).
+        #
+        # `--ref main` selects the workflow DEFINITION; the run checks out the
+        # release tag for the sources. Fire-and-forget by design: npm is a
+        # second registry, and a failure there must not retroactively fail a
+        # release whose JSR publish and GitHub release already succeeded. The
+        # dispatched run is re-runnable on its own.
+        run: |
+          gh workflow run npm-publish.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main \
+            -f tag="$TAG"
+          echo "dispatched npm-publish.yml for $TAG"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
