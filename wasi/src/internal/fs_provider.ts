@@ -30,10 +30,36 @@
 // marks: its methods are `async func` in WIT, and async-typed imports
 // accept thenables.
 //
+// READ-ONLY BY DEFAULT (`makeFilesystem(..., { writable })`). Write
+// access is a PACKAGE-LEVEL opt-in: one flag for the whole
+// implementation, never per-preopen. The rationale is a proof
+// obligation, not ergonomics. Per-preopen permissions form a lattice,
+// and the two-descriptor operations (`link-at`, `rename-at`) are edges
+// between its cells: each is a place where the check can be attached to
+// the wrong descriptor, letting a guest bridge from a read-only preopen
+// into a writable one — wasmtime-wasi shipped a vulnerability of exactly
+// that shape. With a single global flag there is no lattice to bridge,
+// so the obligation collapses to a closed enumeration ("every mutating
+// leaf refuses"), checkable against the WIT method list rather than
+// requiring per-path reasoning. Enforcement therefore lives HERE, in the
+// provider, and nowhere else: both backends and both tracks inherit it
+// from one site. Refusals use the WIT `read-only` error code.
+//
+// Two DISTINCT concerns, deliberately not merged:
+//   * per-descriptor flags (`requireWrite`) -> `bad-descriptor`: this
+//     descriptor was not opened for writing / directory mutation;
+//   * the global grant (`requireWritable`) -> `read-only`: this
+//     filesystem is read-only, whatever the descriptor says.
+// The global check runs FIRST on every mutating leaf, so a read-only
+// package answers `read-only` uniformly rather than leaking descriptor
+// bookkeeping.
+//
 // PATHS. Guest paths are resolved TEXTUALLY: split on "/", drop "." and
 // empty segments, ".." pops (underflow = `not-permitted`), absolute
 // paths and NUL rejected. Backends receive clean, non-escaping segment
-// lists. SECURITY: this layer confines lookups TEXTUALLY only — it does
+// lists. SECURITY: containment here is a CORRECTNESS mechanism, not a
+// security boundary — see docs/security.md. This layer confines lookups
+// TEXTUALLY only — it does
 // not chase symlinks per-component (no openat2/RESOLVE_BENEATH analogue
 // in node or OPFS). PHYSICAL containment is the backend's job: the node
 // backend realpaths every op against the preopen root before the OS call
@@ -439,14 +465,35 @@ const PARKED_02 = [
 ] as const;
 
 /**
+ * Package-level capability options shared by every `wasi:filesystem`
+ * implementation (module header, "READ-ONLY BY DEFAULT").
+ */
+export interface FilesystemAccessOptions {
+  /**
+   * Grant write access to the WHOLE implementation. Default `false`:
+   * every mutating operation refuses with the WIT `read-only` error
+   * code, `get-flags` never advertises `write`/`mutate-directory`, and
+   * `open-at` refuses write descriptor-flags as well as the
+   * `create`/`truncate`/`exclusive` open-flags.
+   *
+   * Deliberately NOT per-preopen: see the module header for why a
+   * global flag is the checkable design.
+   */
+  writable?: boolean;
+}
+
+/**
  * Build the two-track `wasi:filesystem` import fragment over a backend.
  * `preopens`: directory handles with their guest names, served (as fresh
  * per-call descriptors) by both tracks' `preopens#get-directories`.
+ * `access.writable` (default false) is the package-level write grant.
  */
 export function makeFilesystem<H>(
   backend: FsBackend<H>,
   preopens: [H, string][],
+  access: FilesystemAccessOptions = {},
 ): FilesystemFragment {
+  const writable = access.writable === true;
   const map = (e: unknown): FsErrorCode => backend.mapError(e);
   const g02 = <T>(fn: () => MaybeAsync<T>): MaybeAsync<T> => guarded(map, err02, fn);
   const g03 = <T>(fn: () => MaybeAsync<T>): MaybeAsync<T> => guarded(map, err03, fn);
@@ -470,16 +517,44 @@ export function makeFilesystem<H>(
     write: df.write === true || df.mutateDirectory === true,
   });
 
+  /** Descriptor flags as VALUES, masked by the package grant: a
+   * read-only package never advertises `write`/`mutate-directory`, on
+   * preopens or on anything `open-at` mints, so a guest that checks
+   * flags before acting sees the same story the operations tell. */
   const flagsValue = (df: Partial<DescriptorFlagsValue>): DescriptorFlagsValue => ({
     read: df.read === true,
-    write: df.write === true,
+    write: writable && df.write === true,
     fileIntegritySync: df.fileIntegritySync === true,
     dataIntegritySync: df.dataIntegritySync === true,
     requestedWriteSync: df.requestedWriteSync === true,
-    mutateDirectory: df.mutateDirectory === true,
+    mutateDirectory: writable && df.mutateDirectory === true,
   });
 
   const PREOPEN_FLAGS = flagsValue({ read: true, write: true, mutateDirectory: true });
+
+  /** The package-level grant. Refuses with the WIT `read-only` code —
+   * distinct from `requireWrite`'s per-descriptor `bad-descriptor`
+   * (module header). Called FIRST by every mutating leaf. */
+  const requireWritable = (shape: ErrShape): void => {
+    if (!writable) throw shape("read-only");
+  };
+
+  /** `open-at` is mutating exactly when it asks for write access or for
+   * an open-flag that creates/truncates: read-only means a guest cannot
+   * bring a file into existence either. */
+  const requireOpenAllowed = (
+    of: OpenFlagsValue,
+    df: Partial<DescriptorFlagsValue>,
+    shape: ErrShape,
+  ): void => {
+    if (writable) return;
+    if (
+      df.write === true || df.mutateDirectory === true ||
+      of.create === true || of.truncate === true || of.exclusive === true
+    ) {
+      throw shape("read-only");
+    }
+  };
 
   /** An async pull over positional reads: the byte source for both
    * tracks' read-via-stream on any backend. */
@@ -624,6 +699,7 @@ export function makeFilesystem<H>(
 
     writeViaStream(offset: bigint): OutputStream | SinkOutputStream {
       return g02(() => {
+        requireWritable(err02);
         requireFile(this.core, err02);
         requireWrite(this.core, err02);
         let cursor = Number(offset);
@@ -640,6 +716,7 @@ export function makeFilesystem<H>(
 
     appendViaStream(): OutputStream | SinkOutputStream {
       return g02(() => {
+        requireWritable(err02);
         requireFile(this.core, err02);
         requireWrite(this.core, err02);
         if (backend.isSync) {
@@ -669,15 +746,22 @@ export function makeFilesystem<H>(
 
     setSize(size: bigint): MaybeAsync<void> {
       return g02(() => {
+        requireWritable(err02);
         requireWrite(this.core, err02);
         return backend.setSize(this.core.h, Number(size));
       });
     }
 
     setTimes(atime: NewTimestampValue, mtime: NewTimestampValue): MaybeAsync<void> {
-      return g02(() =>
-        backend.setTimes(this.core.h, newTimestampToSpec(atime), newTimestampToSpec(mtime))
-      );
+      return g02(() => {
+        requireWritable(err02);
+        requireWrite(this.core, err02);
+        return backend.setTimes(
+          this.core.h,
+          newTimestampToSpec(atime),
+          newTimestampToSpec(mtime),
+        );
+      });
     }
 
     read(length: bigint, offset: bigint): MaybeAsync<[Uint8Array, boolean]> {
@@ -694,6 +778,7 @@ export function makeFilesystem<H>(
 
     write(buffer: Uint8Array, offset: bigint): MaybeAsync<bigint> {
       return g02(() => {
+        requireWritable(err02);
         requireFile(this.core, err02);
         requireWrite(this.core, err02);
         return chain(backend.write(this.core.h, buffer, Number(offset)), BigInt);
@@ -715,9 +800,14 @@ export function makeFilesystem<H>(
     }
 
     createDirectoryAt(path: string): MaybeAsync<void> {
-      return g02(() =>
-        backend.createDirectoryAt(this.core.h, requireFinal(parsePath(path, err02), err02))
-      );
+      return g02(() => {
+        requireWritable(err02);
+        requireWrite(this.core, err02);
+        return backend.createDirectoryAt(
+          this.core.h,
+          requireFinal(parsePath(path, err02), err02),
+        );
+      });
     }
 
     stat(): MaybeAsync<DescriptorStatValue> {
@@ -743,15 +833,17 @@ export function makeFilesystem<H>(
       atime: NewTimestampValue,
       mtime: NewTimestampValue,
     ): MaybeAsync<void> {
-      return g02(() =>
-        backend.setTimesAt(
+      return g02(() => {
+        requireWritable(err02);
+        requireWrite(this.core, err02);
+        return backend.setTimesAt(
           this.core.h,
           parsePath(path, err02),
           pathFlags.symlinkFollow === true,
           newTimestampToSpec(atime),
           newTimestampToSpec(mtime),
-        )
-      );
+        );
+      });
     }
 
     linkAt(
@@ -761,7 +853,12 @@ export function makeFilesystem<H>(
       newPath: string,
     ): MaybeAsync<void> {
       return g02(() => {
+        requireWritable(err02);
         if (backend.linkAt === undefined) throw err02("unsupported");
+        // Both ends: a two-descriptor op checked on one side only is the
+        // classic bridge bug (module header).
+        requireWrite(this.core, err02);
+        requireWrite(newDescriptor.core, err02);
         return backend.linkAt(
           this.core.h,
           requireFinal(parsePath(oldPath, err02), err02),
@@ -778,16 +875,17 @@ export function makeFilesystem<H>(
       openFlags: OpenFlagsValue,
       flags: Partial<DescriptorFlagsValue>,
     ): MaybeAsync<Descriptor02> {
-      return g02(() =>
-        chain(
+      return g02(() => {
+        requireOpenAllowed(openFlags, flags, err02);
+        return chain(
           backend.openAt(
             this.core.h,
             parsePath(path, err02),
             decodeOpen(pathFlags, openFlags, flags),
           ),
           ({ handle, type }) => new Descriptor02(handle, type, flagsValue(flags)),
-        )
-      );
+        );
+      });
     }
 
     readlinkAt(path: string): MaybeAsync<string> {
@@ -798,25 +896,36 @@ export function makeFilesystem<H>(
     }
 
     removeDirectoryAt(path: string): MaybeAsync<void> {
-      return g02(() =>
-        backend.removeDirectoryAt(this.core.h, requireFinal(parsePath(path, err02), err02))
-      );
+      return g02(() => {
+        requireWritable(err02);
+        requireWrite(this.core, err02);
+        return backend.removeDirectoryAt(
+          this.core.h,
+          requireFinal(parsePath(path, err02), err02),
+        );
+      });
     }
 
     renameAt(oldPath: string, newDescriptor: Descriptor02, newPath: string): MaybeAsync<void> {
-      return g02(() =>
-        backend.renameAt(
+      return g02(() => {
+        requireWritable(err02);
+        // Both ends (see link-at).
+        requireWrite(this.core, err02);
+        requireWrite(newDescriptor.core, err02);
+        return backend.renameAt(
           this.core.h,
           requireFinal(parsePath(oldPath, err02), err02),
           newDescriptor.core.h,
           requireFinal(parsePath(newPath, err02), err02),
-        )
-      );
+        );
+      });
     }
 
     symlinkAt(oldPath: string, newPath: string): MaybeAsync<void> {
       return g02(() => {
+        requireWritable(err02);
         if (backend.symlinkAt === undefined) throw err02("unsupported");
+        requireWrite(this.core, err02);
         // old-path is the link CONTENTS (never validated as a lookup path).
         return backend.symlinkAt(
           oldPath,
@@ -827,9 +936,14 @@ export function makeFilesystem<H>(
     }
 
     unlinkFileAt(path: string): MaybeAsync<void> {
-      return g02(() =>
-        backend.unlinkFileAt(this.core.h, requireFinal(parsePath(path, err02), err02))
-      );
+      return g02(() => {
+        requireWritable(err02);
+        requireWrite(this.core, err02);
+        return backend.unlinkFileAt(
+          this.core.h,
+          requireFinal(parsePath(path, err02), err02),
+        );
+      });
     }
 
     /** Returns bool, not result: backend failures TRAP (unguarded). */
@@ -891,6 +1005,7 @@ export function makeFilesystem<H>(
     /** The promise IS the future source (A12): drain the guest's stream. */
     async writeViaStream(data: FsByteSource, offset: bigint): Promise<FsResult03> {
       try {
+        requireWritable(err03);
         requireFile(this.core, err03);
         requireWrite(this.core, err03);
         let cursor = Number(offset);
@@ -910,6 +1025,7 @@ export function makeFilesystem<H>(
 
     async appendViaStream(data: FsByteSource): Promise<FsResult03> {
       try {
+        requireWritable(err03);
         requireFile(this.core, err03);
         requireWrite(this.core, err03);
         for await (const chunk of data as AsyncIterable<Uint8Array | number[]>) {
@@ -944,15 +1060,22 @@ export function makeFilesystem<H>(
 
     setSize(size: bigint): MaybeAsync<void> {
       return g03(() => {
+        requireWritable(err03);
         requireWrite(this.core, err03);
         return backend.setSize(this.core.h, Number(size));
       });
     }
 
     setTimes(atime: NewTimestampValue, mtime: NewTimestampValue): MaybeAsync<void> {
-      return g03(() =>
-        backend.setTimes(this.core.h, newTimestampToSpec(atime), newTimestampToSpec(mtime))
-      );
+      return g03(() => {
+        requireWritable(err03);
+        requireWrite(this.core, err03);
+        return backend.setTimes(
+          this.core.h,
+          newTimestampToSpec(atime),
+          newTimestampToSpec(mtime),
+        );
+      });
     }
 
     /** tuple<stream<directory-entry>, future<result<_, error-code>>> */
@@ -974,9 +1097,14 @@ export function makeFilesystem<H>(
     }
 
     createDirectoryAt(path: string): MaybeAsync<void> {
-      return g03(() =>
-        backend.createDirectoryAt(this.core.h, requireFinal(parsePath(path, err03), err03))
-      );
+      return g03(() => {
+        requireWritable(err03);
+        requireWrite(this.core, err03);
+        return backend.createDirectoryAt(
+          this.core.h,
+          requireFinal(parsePath(path, err03), err03),
+        );
+      });
     }
 
     stat(): MaybeAsync<DescriptorStatValue> {
@@ -1002,15 +1130,17 @@ export function makeFilesystem<H>(
       atime: NewTimestampValue,
       mtime: NewTimestampValue,
     ): MaybeAsync<void> {
-      return g03(() =>
-        backend.setTimesAt(
+      return g03(() => {
+        requireWritable(err03);
+        requireWrite(this.core, err03);
+        return backend.setTimesAt(
           this.core.h,
           parsePath(path, err03),
           pathFlags.symlinkFollow === true,
           newTimestampToSpec(atime),
           newTimestampToSpec(mtime),
-        )
-      );
+        );
+      });
     }
 
     linkAt(
@@ -1020,7 +1150,12 @@ export function makeFilesystem<H>(
       newPath: string,
     ): MaybeAsync<void> {
       return g03(() => {
+        requireWritable(err03);
         if (backend.linkAt === undefined) throw err03("unsupported");
+        // Both ends: a two-descriptor op checked on one side only is the
+        // classic bridge bug (module header).
+        requireWrite(this.core, err03);
+        requireWrite(newDescriptor.core, err03);
         return backend.linkAt(
           this.core.h,
           requireFinal(parsePath(oldPath, err03), err03),
@@ -1037,16 +1172,17 @@ export function makeFilesystem<H>(
       openFlags: OpenFlagsValue,
       flags: Partial<DescriptorFlagsValue>,
     ): MaybeAsync<Descriptor03> {
-      return g03(() =>
-        chain(
+      return g03(() => {
+        requireOpenAllowed(openFlags, flags, err03);
+        return chain(
           backend.openAt(
             this.core.h,
             parsePath(path, err03),
             decodeOpen(pathFlags, openFlags, flags),
           ),
           ({ handle, type }) => new Descriptor03(handle, type, flagsValue(flags)),
-        )
-      );
+        );
+      });
     }
 
     readlinkAt(path: string): MaybeAsync<string> {
@@ -1057,25 +1193,36 @@ export function makeFilesystem<H>(
     }
 
     removeDirectoryAt(path: string): MaybeAsync<void> {
-      return g03(() =>
-        backend.removeDirectoryAt(this.core.h, requireFinal(parsePath(path, err03), err03))
-      );
+      return g03(() => {
+        requireWritable(err03);
+        requireWrite(this.core, err03);
+        return backend.removeDirectoryAt(
+          this.core.h,
+          requireFinal(parsePath(path, err03), err03),
+        );
+      });
     }
 
     renameAt(oldPath: string, newDescriptor: Descriptor03, newPath: string): MaybeAsync<void> {
-      return g03(() =>
-        backend.renameAt(
+      return g03(() => {
+        requireWritable(err03);
+        // Both ends (see link-at).
+        requireWrite(this.core, err03);
+        requireWrite(newDescriptor.core, err03);
+        return backend.renameAt(
           this.core.h,
           requireFinal(parsePath(oldPath, err03), err03),
           newDescriptor.core.h,
           requireFinal(parsePath(newPath, err03), err03),
-        )
-      );
+        );
+      });
     }
 
     symlinkAt(oldPath: string, newPath: string): MaybeAsync<void> {
       return g03(() => {
+        requireWritable(err03);
         if (backend.symlinkAt === undefined) throw err03("unsupported");
+        requireWrite(this.core, err03);
         return backend.symlinkAt(
           oldPath,
           this.core.h,
@@ -1085,9 +1232,14 @@ export function makeFilesystem<H>(
     }
 
     unlinkFileAt(path: string): MaybeAsync<void> {
-      return g03(() =>
-        backend.unlinkFileAt(this.core.h, requireFinal(parsePath(path, err03), err03))
-      );
+      return g03(() => {
+        requireWritable(err03);
+        requireWrite(this.core, err03);
+        return backend.unlinkFileAt(
+          this.core.h,
+          requireFinal(parsePath(path, err03), err03),
+        );
+      });
     }
 
     isSameObject(other: Descriptor03): MaybeAsync<boolean> {

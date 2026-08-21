@@ -1,6 +1,7 @@
 // `wasi:http@0.3` — the OUTBOUND half (`types` + `client`), served over
 // `fetch`. À la carte (`@polyengine/wasi/http`): fetch is universal across
-// the JS runtimes, but this fragment grants NETWORK EGRESS, and the
+// the JS runtimes, but this fragment grants NETWORK EGRESS — unscoped,
+// with no allowlist or address check (docs/security.md) — and the
 // default `wasi()` merge carries only ambient, side-effect-benign
 // capabilities (mod.ts "COMPOSITION") — portability is not the
 // criterion, capability is.

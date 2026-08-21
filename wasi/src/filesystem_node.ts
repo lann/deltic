@@ -6,13 +6,22 @@
 //
 //   instantiate(a, { ...wasi(), ...filesystemNode({ preopens: { "/": "./sandbox" } }).imports })
 //
+// READ-ONLY BY DEFAULT: the grant above is read-only. Writes need the
+// package-level `writable: true` — one flag for the whole
+// implementation, never per-preopen (fs_provider.ts header for why, and
+// for the enforcement site: it is the provider, not this backend).
+//
 // SYNC BY CONSTRUCTION: every backend op uses node's `*Sync` API, so the
 // 0.2 track's sync WIT functions are served without parking — guests run
 // in plain callback mode, no JSPI required (the A14 marks stay off; see
 // fs_provider.ts). The 0.3 track returns plain values from async funcs,
 // which the runtime accepts.
 //
-// SECURITY: guest paths are confined TEXTUALLY by fs_provider.ts ("`..`"
+// SECURITY: this containment is a CORRECTNESS mechanism, not a security
+// boundary — see docs/security.md before granting a guest host access.
+// It cannot see hardlinks or bind mounts (both resolve "inside" by every
+// path-shaped measure) and it loses cross-process races. Guest paths are
+// confined TEXTUALLY by fs_provider.ts ("`..`"
 // cannot escape), and this backend adds PHYSICAL containment on top:
 // every path-taking op realpaths the parent directory (and, when
 // symlink-follow is set, chases the final component's link chain) and
@@ -48,6 +57,7 @@
 
 import {
   type DescriptorType,
+  type FilesystemAccessOptions,
   type FilesystemFragment,
   type FsBackend,
   type FsErrorCode,
@@ -575,12 +585,12 @@ function makeNodeBackend(fs: NodeFsModule, path: NodePathModule): FsBackend<Node
 
 // --- the fragment ----------------------------------------------------------------
 
-export interface FilesystemNodeOptions {
+export interface FilesystemNodeOptions extends FilesystemAccessOptions {
   /**
    * Guest name → host directory path. Each entry becomes a preopen
    * (`preopens#get-directories`). No default: filesystem access is an
    * explicit grant. Host paths are resolved (realpath) at construction
-   * and must name directories.
+   * and must name directories. Read-only unless `writable` is set.
    */
   preopens: Record<string, string>;
 }
@@ -608,7 +618,9 @@ export function filesystemNode(options: FilesystemNodeOptions): FilesystemFragme
       return [{ path: real, root: real, type: "directory" }, guestName];
     },
   );
-  return makeFilesystem(makeNodeBackend(fs, path), preopens);
+  return makeFilesystem(makeNodeBackend(fs, path), preopens, {
+    writable: options.writable === true,
+  });
 }
 
 // Re-exported for tests and typed embedders.
