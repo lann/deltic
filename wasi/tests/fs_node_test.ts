@@ -92,7 +92,7 @@ const RW: Flags = { read: true, write: true };
 
 function setup(): { root02: D02; root03: D03; dir: string } {
   const dir = Deno.makeTempDirSync({ dir: "/tmp", prefix: "polyengine-fs-node-" });
-  const { imports } = filesystemNode({ preopens: { "/": dir } });
+  const { imports } = filesystemNode({ preopens: { "/": dir }, writable: true });
   const p02 = imports["wasi:filesystem/preopens@0.2"] as {
     getDirectories(): [D02, string][];
   };

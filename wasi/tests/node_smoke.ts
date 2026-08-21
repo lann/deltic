@@ -322,7 +322,7 @@ async function main(): Promise<void> {
     }).process.getBuiltinModule("node:os") as { tmpdir(): string };
     const dir = nodeFs.mkdtempSync(`${nodeOs.tmpdir()}/polyengine-fs-smoke-`);
     try {
-      const { imports } = filesystemNode({ preopens: { "/": dir } });
+      const { imports } = filesystemNode({ preopens: { "/": dir }, writable: true });
       const [[root]] = (imports["wasi:filesystem/preopens@0.2"] as {
         // deno-lint-ignore no-explicit-any
         getDirectories(): [any, string][];

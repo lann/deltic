@@ -56,7 +56,7 @@ Deno.test({
           // keys; the node backend spread AFTER wins the track (mod.ts
           // composition form 3).
           ...wasi(),
-          ...filesystemNode({ preopens: { "/": dir } }).imports,
+          ...filesystemNode({ preopens: { "/": dir }, writable: true }).imports,
         },
         { jspi: false }, // the sync backend must never park
       );

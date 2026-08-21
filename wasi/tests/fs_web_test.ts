@@ -67,7 +67,7 @@ const RW: Flags = { read: true, write: true };
 
 function setup(): { root02: D02; root03: D03; fake: FakeDirectoryHandle } {
   const fake = new FakeDirectoryHandle("");
-  const { imports } = filesystemWeb({ preopens: { "/": fake } });
+  const { imports } = filesystemWeb({ preopens: { "/": fake }, writable: true });
   const [[root02]] = (imports["wasi:filesystem/preopens@0.2"] as {
     getDirectories(): [D02, string][];
   }).getDirectories();

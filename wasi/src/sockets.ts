@@ -1,4 +1,10 @@
-// `wasi:sockets` — BOTH tracks: `types@0.3` + `ip-name-lookup@0.3` (UDP
+// `wasi:sockets` — grants this process's NETWORK REACH to the guest,
+// unscoped: there is no allowlist, address check, or TCP/UDP toggle, so
+// a guest can reach anything this process can, loopback and instance
+// metadata endpoints included (docs/security.md). Never rides the
+// default `wasi()` merge.
+//
+// BOTH tracks: `types@0.3` + `ip-name-lookup@0.3` (UDP
 // and TCP, client + listener; internal/sockets_03.ts) and the poll-shaped
 // `@0.2` surface (internal/sockets_02.ts). THIS module is the public
 // face: the `sockets()` fragment factory and the vocabulary re-exports.

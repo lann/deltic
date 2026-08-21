@@ -7,6 +7,11 @@
 //   const root = await navigator.storage.getDirectory();
 //   instantiate(a, { ...wasi(), ...filesystemWeb({ preopens: { "/": root } }).imports })
 //
+// READ-ONLY BY DEFAULT: the grant above is read-only. Writes need the
+// package-level `writable: true` — one flag for the whole
+// implementation, never per-preopen (fs_provider.ts header for why, and
+// for the enforcement site: it is the provider, not this backend).
+//
 // ASYNC BY CONSTRUCTION: every OPFS op returns a promise, so the 0.2
 // track's sync WIT descriptor methods are marked park-capable (A14, on
 // the per-call class prototypes — fs_provider.ts): a p2 guest that
@@ -33,6 +38,7 @@
 
 import {
   type DescriptorType,
+  type FilesystemAccessOptions,
   type FilesystemFragment,
   type FsBackend,
   type FsErrorCode,
@@ -382,12 +388,13 @@ function makeWebBackend(): FsBackend<WebHandle> {
 
 // --- the fragment ------------------------------------------------------------------
 
-export interface FilesystemWebOptions {
+export interface FilesystemWebOptions extends FilesystemAccessOptions {
   /**
    * Guest name → OPFS directory handle. Each entry becomes a preopen.
    * No default: filesystem access is an explicit grant — pass
    * `await navigator.storage.getDirectory()` (or any structural
-   * equivalent, e.g. an in-memory fake) yourself.
+   * equivalent, e.g. an in-memory fake) yourself. Read-only unless
+   * `writable` is set.
    */
   preopens: Record<string, OpfsDirectoryHandle>;
 }
@@ -405,7 +412,9 @@ export function filesystemWeb(options: FilesystemWebOptions): FilesystemFragment
       return [{ handle, path: guestName }, guestName];
     },
   );
-  return makeFilesystem(makeWebBackend(), preopens);
+  return makeFilesystem(makeWebBackend(), preopens, {
+    writable: options.writable === true,
+  });
 }
 
 export type { FilesystemFragment };

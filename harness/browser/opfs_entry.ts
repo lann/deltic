@@ -138,7 +138,7 @@ async function runDirect(report: OpfsSmokeReport): Promise<void> {
   const probe = await dir.getFileHandle("rename-probe", { create: true });
   report.renamePath = (probe as { move?: unknown }).move !== undefined ? "move" : "copy-delete";
   await dir.removeEntry("rename-probe");
-  const { imports } = filesystemWeb({ preopens: { "/": dir } });
+  const { imports } = filesystemWeb({ preopens: { "/": dir }, writable: true });
   const [[root02]] = (imports["wasi:filesystem/preopens@0.2"] as {
     getDirectories(): [D02, string][];
   }).getDirectories();
@@ -278,7 +278,7 @@ async function runComposed(report: OpfsSmokeReport): Promise<void> {
       { plan, componentBytes, adapters },
       {
         ...wasi(),
-        ...filesystemWeb({ preopens: { "/": dir } }).imports,
+        ...filesystemWeb({ preopens: { "/": dir }, writable: true }).imports,
       },
       // Default mode selection picks jspi from the A14 marks; make the
       // requirement explicit so a silent fallback cannot pass vacuously.

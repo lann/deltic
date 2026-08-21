@@ -127,6 +127,7 @@ while keeping the gate for the rest of your graph, exempt the scope
 |---|---|
 | [`examples/`](examples/) | runnable embedder examples: [hello-world](examples/hello-world/) (smallest complete embedding) and [kitchen-sink](examples/kitchen-sink/) (imports incl. suspending, resources both directions, value-shape tour) |
 | [`docs/architecture.md`](docs/architecture.md) | the system design and decisions, with rationale (§-numbered; cited from code comments) |
+| [`docs/security.md`](docs/security.md) | what the WASI filesystem/network confinement does and does not guarantee — **read before granting a guest host access** |
 | [`docs/milestones.md`](docs/milestones.md) | the verified milestone record (S0 → C3) |
 | [`docs/consumers.md`](docs/consumers.md) | the polymorph adoption track: jco blocker mapping, cutover evidence, in-repo ports |
 | [`docs/references.md`](docs/references.md) | canonical upstream links (spec, JSPI, wasmtime internals, toolchain pins) |
