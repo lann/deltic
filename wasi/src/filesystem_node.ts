@@ -12,12 +12,34 @@
 // fs_provider.ts). The 0.3 track returns plain values from async funcs,
 // which the runtime accepts.
 //
-// SECURITY (fs_provider.ts module header): guest paths are confined
-// TEXTUALLY to the preopen root ("`..`" cannot escape), but symlink
-// TARGETS are followed by the OS without per-component containment
-// checks (node has no openat2/RESOLVE_BENEATH). A symlink inside the
-// preopen pointing outside it will be followed. Do not preopen trees
-// containing untrusted symlinks.
+// SECURITY: guest paths are confined TEXTUALLY by fs_provider.ts ("`..`"
+// cannot escape), and this backend adds PHYSICAL containment on top:
+// every path-taking op realpaths the parent directory (and, when
+// symlink-follow is set, chases the final component's link chain) and
+// refuses — `not-permitted` — anything that resolves outside the
+// preopen's realpath root. Symlinks the guest creates itself therefore
+// cannot be used to read or write outside the preopen, and neither can
+// symlinks that were already in the preopened tree (issue #177).
+//
+// Residual risk is cross-process TOCTOU: node has no openat2 /
+// RESOLVE_BENEATH analogue, so between the realpath check and the OS
+// call another PROCESS could swap a component for a symlink. The guest
+// itself cannot interleave — every backend op is synchronous on the
+// guest's own thread — so this is only reachable when something else
+// with write access to the preopened tree races us.
+//
+// PLATFORM TRAPS the containment code deliberately works around — both
+// observed on Deno's node compat, both silent, both only when the
+// process runs WITHOUT blanket read/write permission (i.e. under this
+// package's own `deno task test` flags, which is how they were found):
+//   * `openSync` drops `O_NOFOLLOW`, so a nofollow open of a symlink
+//     opens the target. `openAt` therefore raises ELOOP itself after an
+//     lstat rather than trusting the flag.
+//   * `realpathSync` normalizes `..` LEXICALLY, so
+//     `realpathSync("<root>/link-pointing-out/..")` answers `<root>`
+//     instead of the outside parent. Nothing here ever hands a `..` to
+//     realpathSync: link targets are walked one component at a time
+//     (see `walkReal`).
 //
 // Fidelity notes: `append` stats-then-writes (not O_APPEND atomic);
 // set-times converts to seconds-resolution node utimes (ns precision is
@@ -104,6 +126,14 @@ interface NodeFsModule {
   realpathSync(path: string): string;
 }
 
+/** The `node:path` surface we consume (containment arithmetic). */
+interface NodePathModule {
+  sep: string;
+  dirname(p: string): string;
+  basename(p: string): string;
+  isAbsolute(p: string): boolean;
+}
+
 /** `process.getBuiltinModule(name)`, if this host has it (Node, Deno, Bun). */
 function nodeBuiltin(name: string): unknown {
   const proc = (globalThis as {
@@ -149,9 +179,12 @@ const ERRNO_MAP: Record<string, FsErrorCode> = {
 
 // --- the backend -----------------------------------------------------------------
 
-/** A descriptor handle: dirs are path-only; files carry the open fd. */
+/** A descriptor handle: dirs are path-only; files carry the open fd.
+ * `root` is the realpath of the preopen this handle descends from — the
+ * containment boundary every path-taking op is checked against. */
 interface NodeHandle {
   path: string;
+  root: string;
   type: DescriptorType;
   fd?: number;
 }
@@ -175,9 +208,145 @@ function direntType(d: {
   return "unknown";
 }
 
-function makeNodeBackend(fs: NodeFsModule): FsBackend<NodeHandle> {
+function makeNodeBackend(fs: NodeFsModule, path: NodePathModule): FsBackend<NodeHandle> {
   const join = (base: NodeHandle, segments: string[]): string =>
     segments.length === 0 ? base.path : `${base.path}/${segments.join("/")}`;
+
+  // --- physical containment (issue #177) -----------------------------------------
+  //
+  // fs_provider.ts confines guest paths textually; the OS still resolves
+  // symlinks, so containment has to be re-established against REAL paths
+  // before every OS call. `not-permitted` is the escape code, matching
+  // parsePath's choice for `..` underflow and absolute paths. Raw EPERM
+  // is what we throw: mapError names it, so both WIT tracks shape it.
+
+  const escape = (full: string): Error =>
+    Object.assign(new Error(`path escapes the preopen: ${full}`), { code: "EPERM" });
+
+  /** `real` must be the root itself or strictly beneath it. */
+  const requireInside = (real: string, root: string, full: string): void => {
+    const prefix = root.endsWith(path.sep) ? root : root + path.sep;
+    if (real !== root && !real.startsWith(prefix)) throw escape(full);
+  };
+
+  const errCode = (e: unknown): unknown => (e as { code?: unknown })?.code;
+
+  const joinReal = (dir: string, seg: string): string =>
+    dir.endsWith(path.sep) ? `${dir}${seg}` : `${dir}${path.sep}${seg}`;
+
+  /**
+   * Walk `rel` from the ALREADY-REALPATHED directory `dir`, one
+   * component at a time, keeping the accumulated directory a realpath at
+   * every step and requiring containment at every step.
+   *
+   * Why component-wise, and why `..` is handled here rather than handed
+   * to the OS: `..` is where lexical and physical resolution diverge —
+   * the kernel applies it after traversing the preceding component, so
+   * with `esc` an escaping symlink, `esc/..` is the OUTSIDE parent while
+   * any string collapse says "back where we started". realpathSync is
+   * the physical authority, but it cannot be handed a `..` either:
+   * Deno's node-compat realpathSync normalizes `..` LEXICALLY when the
+   * process runs without blanket read permission — exactly the flags
+   * `deno task test` uses — so `realpathSync("<root>/esc/..")` answers
+   * `<root>` there and the outside parent under `-A`. Resolving one
+   * component at a time keeps every string we hand to node free of
+   * `..`, which is the only form both modes agree on.
+   *
+   * `..` itself is then a pure lexical `dirname` — and that is exact,
+   * because `dir` is a realpath: it contains no symlinks and no `..`,
+   * so its lexical parent IS its physical parent.
+   */
+  const walkReal = (dir: string, rel: string, root: string, full: string): string => {
+    let d = dir;
+    for (const seg of rel.split(path.sep)) {
+      if (seg === "" || seg === ".") continue;
+      // A climb above the root is refused here rather than allowed to
+      // dip back in, matching parsePath's `..`-underflow rule.
+      d = seg === ".." ? path.dirname(d) : fs.realpathSync(joinReal(d, seg));
+      requireInside(d, root, full);
+    }
+    return d;
+  };
+
+  /**
+   * Follow the final component's symlink chain, requiring the result to
+   * land inside `root`. `parentReal` is the caller's already-resolved,
+   * already-contained parent directory. Dangling chains are chased so a
+   * create through `link -> outside/new` cannot plant a file outside.
+   */
+  const chaseFinal = (full: string, root: string, parentReal: string): void => {
+    // `dir` is a realpath at all times; `name` is a single component
+    // (never "." or ".." — those are folded into `dir` below). `full`
+    // itself carries no "." / ".." segments: parsePath removed them
+    // before the backend saw the path.
+    let dir = parentReal;
+    let name = path.basename(full);
+    for (let i = 0; i < 40; i++) {
+      if (name === "") {
+        requireInside(dir, root, full); // chain ended at a directory
+        return;
+      }
+      const cur = joinReal(dir, name);
+      try {
+        // The whole chain resolved: this is the physical truth the OS
+        // call will see, and the string is `..`-free, so both Deno
+        // permission modes agree on it. One check settles it.
+        requireInside(fs.realpathSync(cur), root, full);
+        return;
+      } catch (e) {
+        // EPERM (our escape), ELOOP, ENOTDIR, EACCES … all stand.
+        if (errCode(e) !== "ENOENT") throw e;
+      }
+      // ENOENT: either `cur` does not exist (fine — its directory is
+      // contained, so a create lands inside), or it is a link whose
+      // chain dangles. Only the latter needs chasing.
+      let st: NodeBigIntStats;
+      try {
+        st = fs.lstatSync(cur, { bigint: true });
+      } catch {
+        return; // genuinely absent
+      }
+      if (!st.isSymbolicLink()) return;
+      const target = fs.readlinkSync(cur);
+      // Split off the last component TEXTUALLY — this only separates
+      // "directory part" from "name", it normalizes nothing. The
+      // directory part is then walked physically; absolute and relative
+      // targets differ only in where that walk starts.
+      const cut = target.lastIndexOf(path.sep);
+      name = cut < 0 ? target : target.slice(cut + 1);
+      dir = walkReal(
+        path.isAbsolute(target) ? path.sep : dir,
+        cut < 0 ? "" : target.slice(0, cut),
+        root,
+        full,
+      );
+      if (name === "." || name === "..") {
+        dir = walkReal(dir, name, root, full);
+        name = "";
+      }
+    }
+    throw Object.assign(new Error("too many symbolic links"), { code: "ELOOP" });
+  };
+
+  /**
+   * The guard every path-taking op runs before touching the OS: resolve
+   * the PARENT physically and require containment; with `follow`, the
+   * final component's link chain must stay contained too. Returns the
+   * path to hand to node.
+   */
+  const guard = (base: NodeHandle, segments: string[], follow: boolean): string => {
+    const full = join(base, segments);
+    if (segments.length === 0) {
+      // The base itself (no parent to check — its parent is typically the
+      // preopen's own parent, outside the root by construction).
+      requireInside(fs.realpathSync(full), base.root, full);
+      return full;
+    }
+    const parentReal = fs.realpathSync(path.dirname(full));
+    requireInside(parentReal, base.root, full);
+    if (follow) chaseFinal(full, base.root, parentReal);
+    return full;
+  };
 
   const requireFd = (h: NodeHandle): number => {
     if (h.fd === undefined) {
@@ -234,7 +403,11 @@ function makeNodeBackend(fs: NodeFsModule): FsBackend<NodeHandle> {
     },
 
     openAt(base, segments, opts): Opened<NodeHandle> {
-      const full = join(base, segments);
+      // Guarded BEFORE any fs call, including the directory fast path
+      // below — which returns a path handle without ever reaching
+      // openSync, so O_NOFOLLOW alone never covered directory opens.
+      const full = guard(base, segments, opts.follow);
+      const root = base.root;
       const c = fs.constants;
       let flags = opts.write ? (opts.read ? c.O_RDWR : c.O_WRONLY) : c.O_RDONLY;
       if (opts.create) flags |= c.O_CREAT;
@@ -250,11 +423,19 @@ function makeNodeBackend(fs: NodeFsModule): FsBackend<NodeHandle> {
       } catch {
         existing = undefined; // may be about to be created
       }
+      if (!opts.follow && existing?.isSymbolicLink()) {
+        // O_NOFOLLOW is NOT dependable here: Deno's node:fs compat drops
+        // the flag when the process runs without blanket read/write
+        // permission (openSync then happily opens the link target). The
+        // POSIX answer for a nofollow open of a symlink is ELOOP, so we
+        // give it ourselves rather than trusting the flag.
+        throw Object.assign(new Error("nofollow open of a symbolic link"), { code: "ELOOP" });
+      }
       if (existing?.isDirectory()) {
         if (opts.exclusive && opts.create) {
           throw Object.assign(new Error("exists"), { code: "EEXIST" });
         }
-        return { handle: { path: full, type: "directory" }, type: "directory" };
+        return { handle: { path: full, root, type: "directory" }, type: "directory" };
       }
       if (opts.directory && existing !== undefined) {
         throw Object.assign(new Error("not a directory"), { code: "ENOTDIR" });
@@ -265,9 +446,9 @@ function makeNodeBackend(fs: NodeFsModule): FsBackend<NodeHandle> {
       if (type === "directory") {
         // Raced into a directory: fall back to a path handle.
         fs.closeSync(fd);
-        return { handle: { path: full, type }, type };
+        return { handle: { path: full, root, type }, type };
       }
-      return { handle: { path: full, type, fd }, type };
+      return { handle: { path: full, root, type, fd }, type };
     },
 
     close(h): void {
@@ -278,7 +459,7 @@ function makeNodeBackend(fs: NodeFsModule): FsBackend<NodeHandle> {
 
     statAt(base, segments, follow): FsStat {
       const st = (follow ? fs.statSync : fs.lstatSync).bind(fs);
-      return statOf(st(join(base, segments), { bigint: true }));
+      return statOf(st(guard(base, segments, follow), { bigint: true }));
     },
 
     read(h, length, offset): Uint8Array {
@@ -309,7 +490,7 @@ function makeNodeBackend(fs: NodeFsModule): FsBackend<NodeHandle> {
     },
 
     setTimesAt(base, segments, follow, atime, mtime): void {
-      const full = join(base, segments);
+      const full = guard(base, segments, follow);
       const st = (follow ? fs.statSync : fs.lstatSync).bind(fs);
       const [a, m] = timeArgs(() => st(full, { bigint: true }), atime, mtime);
       (follow ? fs.utimesSync : fs.lutimesSync).call(fs, full, a, m);
@@ -324,6 +505,9 @@ function makeNodeBackend(fs: NodeFsModule): FsBackend<NodeHandle> {
     },
 
     readDirectory(h): { name: string; type: DescriptorType }[] {
+      // Handle-only op: re-check the handle's own path (a directory
+      // handle is path-based, so it is re-resolved on every listing).
+      requireInside(fs.realpathSync(h.path), h.root, h.path);
       return fs.readdirSync(h.path, { withFileTypes: true }).map((d) => ({
         name: d.name,
         type: direntType(d),
@@ -331,31 +515,43 @@ function makeNodeBackend(fs: NodeFsModule): FsBackend<NodeHandle> {
     },
 
     createDirectoryAt(base, segments): void {
-      fs.mkdirSync(join(base, segments));
+      fs.mkdirSync(guard(base, segments, false));
     },
 
     removeDirectoryAt(base, segments): void {
-      fs.rmdirSync(join(base, segments));
+      fs.rmdirSync(guard(base, segments, false));
     },
 
     unlinkFileAt(base, segments): void {
-      fs.unlinkSync(join(base, segments));
+      fs.unlinkSync(guard(base, segments, false));
     },
 
     renameAt(oldBase, oldSegments, newBase, newSegments): void {
-      fs.renameSync(join(oldBase, oldSegments), join(newBase, newSegments));
+      // Both endpoints are guarded; neither op follows the final link.
+      fs.renameSync(
+        guard(oldBase, oldSegments, false),
+        guard(newBase, newSegments, false),
+      );
     },
 
-    linkAt(oldBase, oldSegments, _follow, newBase, newSegments): void {
-      fs.linkSync(join(oldBase, oldSegments), join(newBase, newSegments));
+    linkAt(oldBase, oldSegments, follow, newBase, newSegments): void {
+      fs.linkSync(
+        guard(oldBase, oldSegments, follow),
+        guard(newBase, newSegments, false),
+      );
     },
 
     symlinkAt(target, base, segments): void {
-      fs.symlinkSync(target, join(base, segments));
+      // The LINK path is confined; `target` is deliberately not
+      // restricted (an absolute or escaping target is inert — every
+      // later resolution through it is refused by `guard`). wasmtime-wasi
+      // could not be confirmed to reject absolute targets at creation,
+      // so we stay permissive: containment is enforced at resolution.
+      fs.symlinkSync(target, guard(base, segments, false));
     },
 
     readlinkAt(base, segments): string {
-      return fs.readlinkSync(join(base, segments));
+      return fs.readlinkSync(guard(base, segments, false));
     },
 
     identity(h): FsIdentity {
@@ -365,7 +561,7 @@ function makeNodeBackend(fs: NodeFsModule): FsBackend<NodeHandle> {
 
     identityAt(base, segments, follow): FsIdentity {
       const st = (follow ? fs.statSync : fs.lstatSync).bind(fs);
-      const s = st(join(base, segments), { bigint: true });
+      const s = st(guard(base, segments, follow), { bigint: true });
       return { a: s.dev, b: s.ino };
     },
 
@@ -395,11 +591,12 @@ export interface FilesystemNodeOptions {
  */
 export function filesystemNode(options: FilesystemNodeOptions): FilesystemFragment {
   const fs = nodeBuiltin("node:fs") as NodeFsModule | undefined;
-  if (fs === undefined) {
+  const path = nodeBuiltin("node:path") as NodePathModule | undefined;
+  if (fs === undefined || path === undefined) {
     throw new TypeError(
       "filesystemNode: no `process.getBuiltinModule` on this host — " +
-        "node:fs is required (real Node, or Deno's stable node compat); " +
-        "browsers want @deltic/wasi/filesystem-web",
+        "node:fs and node:path are required (real Node, or Deno's stable " +
+        "node compat); browsers want @deltic/wasi/filesystem-web",
     );
   }
   const preopens: [NodeHandle, string][] = Object.entries(options.preopens).map(
@@ -408,10 +605,10 @@ export function filesystemNode(options: FilesystemNodeOptions): FilesystemFragme
       if (!fs.statSync(real, { bigint: true }).isDirectory()) {
         throw new TypeError(`filesystemNode: preopen ${hostPath} is not a directory`);
       }
-      return [{ path: real, type: "directory" }, guestName];
+      return [{ path: real, root: real, type: "directory" }, guestName];
     },
   );
-  return makeFilesystem(makeNodeBackend(fs), preopens);
+  return makeFilesystem(makeNodeBackend(fs, path), preopens);
 }
 
 // Re-exported for tests and typed embedders.

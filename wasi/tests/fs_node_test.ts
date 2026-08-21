@@ -57,6 +57,7 @@ interface D02 {
   removeDirectoryAt(p: string): void;
   unlinkFileAt(p: string): void;
   renameAt(o: string, d: D02, n: string): void;
+  linkAt(pf: Flags, o: string, d: D02, n: string): void;
   symlinkAt(t: string, p: string): void;
   readlinkAt(p: string): string;
   setSize(n: bigint): void;
@@ -276,4 +277,241 @@ Deno.test("fs-node: filesystem-error-code downcasts our stream errors only", () 
   };
   assertEq(types.filesystemErrorCode(new FsIoError("no-entry", "gone")), "no-entry");
   assertEq(types.filesystemErrorCode(new Error("random")), undefined);
+});
+
+// --- symlink confinement (issue #177) ---------------------------------------------
+//
+// The guest can create symlinks itself, so "don't preopen trees with
+// adversarial symlinks" was never a sufficient mitigation. These verify
+// the node backend refuses to resolve ANY path — guest-made or not —
+// that lands outside the preopen's realpath root, with `not-permitted`.
+
+Deno.test("fs-node: rejects opening through a guest-created absolute symlink", () => {
+  const { root02 } = setup();
+  root02.symlinkAt("/etc", "escape"); // creation itself stays permissive
+  assertEq(root02.readlinkAt("escape"), "/etc");
+  // follow=true: the chain resolves outside the root.
+  assertEq(errPayload(() => root02.openAt(FOLLOW, "escape/passwd", {}, { read: true })), "not-permitted");
+  assertEq(errPayload(() => root02.openAt(FOLLOW, "escape", {}, { read: true })), "not-permitted");
+  // follow=false: the final component is refused as a symlink (ELOOP), and
+  // an intermediate escaping component is refused outright.
+  assertEq(errPayload(() => root02.openAt(NOFOLLOW, "escape", {}, { read: true })), "loop");
+  assertEq(
+    errPayload(() => root02.openAt(NOFOLLOW, "escape/passwd", {}, { read: true })),
+    "not-permitted",
+  );
+});
+
+Deno.test("fs-node: rejects writes and creation through an escaping symlink", () => {
+  const { root02, dir } = setup();
+  const outside = Deno.makeTempDirSync({ dir: "/tmp", prefix: "deltic-fs-outside-" });
+  root02.symlinkAt(outside, "out");
+  assertEq(
+    errPayload(() => root02.openAt(FOLLOW, "out/new.txt", { create: true }, RW)),
+    "not-permitted",
+  );
+  assertEq(errPayload(() => root02.createDirectoryAt("out/d")), "not-permitted");
+  assertEq(errPayload(() => root02.unlinkFileAt("out/x")), "not-permitted");
+  assertEq(errPayload(() => root02.renameAt("out/x", root02, "y")), "not-permitted");
+  assertEq(errPayload(() => root02.symlinkAt("t", "out/l")), "not-permitted");
+  assertTrue([...Deno.readDirSync(outside)].length === 0, "nothing was created outside");
+  // A dangling escaping link is refused too (create must not reach out).
+  root02.symlinkAt(`${outside}/gone/x`, "dangling");
+  // Containment is decided before existence, so a dangling ESCAPING
+  // target is refused as an escape and never reports whether the
+  // outside path exists.
+  assertEq(
+    errPayload(() => root02.openAt(FOLLOW, "dangling", { create: true }, RW)),
+    "not-permitted",
+  );
+  assertTrue(dir.length > 0, "sandbox dir named");
+});
+
+Deno.test("fs-node: confines but permits symlinks resolving inside the sandbox", () => {
+  const { root02 } = setup();
+  root02.createDirectoryAt("real");
+  const f = root02.openAt(FOLLOW, "real/data.txt", { create: true }, RW);
+  f.write(new TextEncoder().encode("inside"), 0n);
+  root02.symlinkAt("real", "alias"); // relative, stays inside
+  root02.symlinkAt("./real/data.txt", "afile");
+  assertEq(root02.statAt(FOLLOW, "alias").type, "directory");
+  assertEq(root02.statAt(FOLLOW, "afile").type, "regular-file");
+  const via = root02.openAt(FOLLOW, "alias/data.txt", {}, { read: true });
+  assertEq(new TextDecoder().decode(via.read(64n, 0n)[0]), "inside");
+  const d = root02.openAt(FOLLOW, "alias", { directory: true }, { read: true });
+  assertEq(d.readDirectory().readDirectoryEntry()?.name, "data.txt");
+  // A link that climbs out and back in is still inside.
+  root02.symlinkAt("../real", "alias/back");
+  assertEq(root02.statAt(FOLLOW, "alias/back").type, "directory");
+});
+
+Deno.test("fs-node: rejects opening or descending an escaping directory symlink", () => {
+  const { root02 } = setup();
+  const outside = Deno.makeTempDirSync({ dir: "/tmp", prefix: "deltic-fs-outside-" });
+  Deno.writeTextFileSync(`${outside}/secret.txt`, "secret");
+  root02.symlinkAt(outside, "outdir");
+  // Directory opens return a path handle before openSync — they get the
+  // same containment check, so no handle is ever minted for the escape.
+  assertEq(
+    errPayload(() => root02.openAt(FOLLOW, "outdir", { directory: true }, { read: true })),
+    "not-permitted",
+  );
+  assertEq(
+    errPayload(() => root02.openAt(FOLLOW, "outdir/secret.txt", {}, { read: true })),
+    "not-permitted",
+  );
+  // ".." laundering through the escaping link is refused as well.
+  assertEq(
+    errPayload(() => root02.statAt(FOLLOW, "outdir/../outdir/secret.txt")),
+    "not-permitted",
+  );
+});
+
+Deno.test("fs-node: rejects stat/readlink/metadata-hash through an escaping symlink", () => {
+  const { root02, root03 } = setup();
+  root02.symlinkAt("/etc", "e");
+  assertEq(errPayload(() => root02.statAt(FOLLOW, "e/passwd")), "not-permitted");
+  assertEq(errPayload(() => root02.statAt(FOLLOW, "e")), "not-permitted");
+  assertEq(errPayload(() => root02.metadataHashAt(FOLLOW, "e")), "not-permitted");
+  assertEq(errPayload(() => root02.readlinkAt("e/passwd")), "not-permitted");
+  // nofollow stat sees the link itself — that entry IS inside the sandbox.
+  assertEq(root02.statAt(NOFOLLOW, "e").type, "symbolic-link");
+  assertTrue(root03 !== undefined, "0.3 track shares the backend guard");
+});
+
+Deno.test("fs-node 0.3: rejects escaping symlink resolution with the variant shape", async () => {
+  const { root02, root03 } = setup();
+  root02.symlinkAt("/etc", "e");
+  try {
+    await root03.statAt(FOLLOW, "e/passwd");
+    throw new Error("expected a throw");
+  } catch (e) {
+    assertTrue(e instanceof ComponentException, `expected ComponentException, got ${e}`);
+    assertEq(((e as ComponentException).payload as { kind: string }).kind, "not-permitted");
+  }
+});
+
+// A symlink TARGET containing ".." is where lexical and physical
+// resolution diverge: the kernel walks the preceding component first, so
+// `esc/../secret` with `esc` an escaping link lands OUTSIDE, while any
+// lexical collapse of `esc/..` lands back inside. Containment must be
+// decided by realpath, never by string arithmetic.
+
+Deno.test("fs-node: rejects a '..' chain laundered through an escaping symlink", () => {
+  const { root02 } = setup();
+  const outside = Deno.makeTempDirSync({ dir: "/tmp", prefix: "deltic-fs-outside-" });
+  Deno.mkdirSync(`${outside}/inner`);
+  Deno.writeTextFileSync(`${outside}/secret.txt`, "secret payload");
+  root02.symlinkAt(`${outside}/inner`, "esc"); // creation stays permissive
+  // `esc/..` is the OUTSIDE directory: lexically it collapses back into
+  // the sandbox, physically it does not.
+  root02.symlinkAt("esc/../secret.txt", "L");
+  assertEq(errPayload(() => root02.statAt(FOLLOW, "L")), "not-permitted");
+  assertEq(errPayload(() => root02.metadataHashAt(FOLLOW, "L")), "not-permitted");
+  assertEq(
+    errPayload(() => root02.openAt(FOLLOW, "L", {}, { read: true })),
+    "not-permitted",
+  );
+  assertEq(
+    errPayload(() => root02.openAt(FOLLOW, "L", {}, RW)),
+    "not-permitted",
+  );
+  // Two-path op: link-at DOES follow its old path when asked, so the
+  // laundered chain is refused there too.
+  assertEq(
+    errPayload(() => root02.linkAt(FOLLOW, "L", root02, "hard")),
+    "not-permitted",
+  );
+  // rename-at never follows its final component (POSIX): renaming the
+  // link itself stays inside and must keep working — the guard must not
+  // over-refuse. The moved entry is still a symlink, not the target.
+  root02.renameAt("L", root02, "moved");
+  assertEq(root02.statAt(NOFOLLOW, "moved").type, "symbolic-link");
+  assertEq(errPayload(() => root02.statAt(FOLLOW, "moved")), "not-permitted");
+  // The same shape spelled as a GUEST path is neutralized a layer up:
+  // parsePath pops ".." textually, so "esc/../secret.txt" reaches the
+  // backend as "secret.txt" and simply is not there. Guest-level ".."
+  // can only ever climb the guest-visible tree, never out of it — the
+  // hazard was ".." inside symlink TARGETS, which parsePath never sees.
+  assertEq(
+    errPayload(() => root02.openAt(FOLLOW, "esc/../secret.txt", {}, { read: true })),
+    "no-entry",
+  );
+});
+
+Deno.test("fs-node: rejects creating through a dangling '..'-laundered symlink", () => {
+  const { root02 } = setup();
+  const outside = Deno.makeTempDirSync({ dir: "/tmp", prefix: "deltic-fs-outside-" });
+  Deno.mkdirSync(`${outside}/inner`);
+  root02.symlinkAt(`${outside}/inner`, "esc");
+  root02.symlinkAt("esc/../planted.txt", "D"); // dangles, outside
+  assertEq(
+    errPayload(() => root02.openAt(FOLLOW, "D", { create: true }, RW)),
+    "not-permitted",
+  );
+  assertTrue(
+    [...Deno.readDirSync(outside)].every((e) => e.name === "inner"),
+    "nothing was planted outside the sandbox",
+  );
+});
+
+Deno.test("fs-node: confines but permits an in-sandbox '..' link target", () => {
+  const { root02 } = setup();
+  root02.createDirectoryAt("real");
+  root02.createDirectoryAt("sub"); // a REAL directory, not a link
+  const f = root02.openAt(FOLLOW, "real/data.txt", { create: true }, RW);
+  f.write(new TextEncoder().encode("inside"), 0n);
+  root02.symlinkAt("sub/../real", "ok"); // climbs out of a real dir, stays inside
+  assertEq(root02.statAt(FOLLOW, "ok").type, "directory");
+  const via = root02.openAt(FOLLOW, "ok/data.txt", {}, { read: true });
+  assertEq(new TextDecoder().decode(via.read(64n, 0n)[0]), "inside");
+  const d = root02.openAt(FOLLOW, "ok", { directory: true }, { read: true });
+  assertEq(d.readDirectory().readDirectoryEntry()?.name, "data.txt");
+});
+
+Deno.test("fs-node: rejects listing and descending a laundered escaping directory link", () => {
+  const { root02 } = setup();
+  const outside = Deno.makeTempDirSync({ dir: "/tmp", prefix: "deltic-fs-outside-" });
+  Deno.mkdirSync(`${outside}/target`);
+  Deno.writeTextFileSync(`${outside}/target/f.txt`, "x");
+  root02.symlinkAt(`${outside}/target`, "esc");
+  root02.symlinkAt("esc/../target", "LD"); // a DIRECTORY, laundered
+  assertEq(
+    errPayload(() => root02.openAt(FOLLOW, "LD", { directory: true }, { read: true })),
+    "not-permitted",
+  );
+  assertEq(
+    errPayload(() => root02.openAt(FOLLOW, "LD/f.txt", {}, { read: true })),
+    "not-permitted",
+  );
+  assertEq(errPayload(() => root02.statAt(FOLLOW, "LD/f.txt")), "not-permitted");
+});
+
+Deno.test("fs-node: confines symlink targets that are bare '..' components", () => {
+  const { root02 } = setup();
+  const outside = Deno.makeTempDirSync({ dir: "/tmp", prefix: "deltic-fs-outside-" });
+  Deno.mkdirSync(`${outside}/inner`);
+  root02.createDirectoryAt("sub");
+  root02.symlinkAt(`${outside}/inner`, "esc");
+  // The whole target is a climb: "esc/.." is the outside directory.
+  root02.symlinkAt("esc/..", "up");
+  assertEq(errPayload(() => root02.statAt(FOLLOW, "up")), "not-permitted");
+  assertEq(
+    errPayload(() => root02.openAt(FOLLOW, "up", { directory: true }, { read: true })),
+    "not-permitted",
+  );
+  // A climb out of the ROOT is refused (parsePath's underflow rule,
+  // applied to link targets).
+  root02.symlinkAt("..", "root-up");
+  assertEq(errPayload(() => root02.statAt(FOLLOW, "root-up")), "not-permitted");
+  // The same shape that stays inside still resolves.
+  root02.symlinkAt("sub/..", "self");
+  assertEq(root02.statAt(FOLLOW, "self").type, "directory");
+  // Multi-hop: a chain of links, each individually inside.
+  root02.symlinkAt("self", "hop1");
+  root02.symlinkAt("hop1", "hop2");
+  assertEq(root02.statAt(FOLLOW, "hop2").type, "directory");
+  // Multi-hop ending outside is still caught.
+  root02.symlinkAt("up", "hop-out");
+  assertEq(errPayload(() => root02.statAt(FOLLOW, "hop-out")), "not-permitted");
 });
