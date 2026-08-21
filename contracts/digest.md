@@ -1,8 +1,10 @@
 # Contract: Canonical World Digest (`cewd:1`)
 
 The digest is the skew-protection handshake of docs/architecture.md §9: bindings generated
-from WIT embed an expected digest; the runtime recomputes it from the loaded
-plan at instantiate time and fails fast with a structural diff on mismatch.
+from WIT embed an expected digest; the generated typed `instantiate` recomputes
+it from the loaded plan and fails fast with a structural diff on mismatch,
+before any guest code runs (contracts/embedder-api.md amendment A17 — the
+runtime's untyped `instantiate` names no world, so it does not verify).
 A digest match must imply ABI-shape compatibility for positional calling.
 
 Status: **v1 of the normalization (`cewd:1`), adopted at M1.** The version
