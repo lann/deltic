@@ -36,15 +36,30 @@
 //     Then `drive()` would otherwise see no ready thread and no outstanding
 //     host call and declare deadlock — correctly, for a component that really
 //     is stuck, but wrongly here. `HostActivity` below registers a
-//     re-arming promise in `store.pendingHostCalls` for as long as a host end
-//     is live, which is precisely the signal `driveAsync` already understands:
-//     "progress is possible, but only after a turn of the event loop".
+//     re-arming promise in `store.pendingHostCalls` for as long as the host
+//     RETAINS a way to act, which is precisely the signal `driveAsync`
+//     already understands: "progress is possible, but only after a turn of
+//     the event loop".
+//
+// Retention, stated as the rule the arm implements (#162, embedder-api
+// amendment A15): the arm is live iff the host holds a retained end, a parked
+// host operation, or an unfinished producer pump. Which ends the host holds
+// follows from where the wrapper came from — a host-CREATED stream keeps its
+// writable end across every lower (only readable ends transfer,
+// definitions.py `lower_stream` line 1828), while a LIFTED one holds just the
+// readable end the guest passed out, so lowering that same object back into a
+// guest (the `identity: async func(s: stream<u8>) -> stream<u8>` round trip)
+// hands the host's last end away and the arm disarms. A later re-lift
+// re-arms. See `bindOnLower` and `HostActivity` for the mechanism.
 //
 // The consequence, stated plainly: an embedder that lowers a host stream into
 // a guest and then never writes to it or drops it will *hang* rather than
 // trap. That is the honest outcome — the component is not deadlocked, the
 // embedder simply has not done its half — and it matches how any other
-// unresolved Promise behaves in JS.
+// unresolved Promise behaves in JS. That policy is unchanged by A15; what
+// changed is that the claim now EXPIRES with retention, so a store that once
+// round-tripped a stream through the host no longer misreports every later
+// genuine deadlock as this hang.
 //
 // The inverse case is NOT a hang (#66, embedder-api amendment A7): when the
 // GUEST side dies — a trap poisons the instance holding the peer end — the
@@ -216,12 +231,32 @@ export class HostBuffer {
  * Keeps `store.pendingHostCalls` non-empty while a host end is live, so the
  * driving loop treats "waiting for the embedder" as progress-is-possible
  * rather than deadlock. Re-arms after every notification.
+ *
+ * RETENTION IS THE LIVENESS RULE (#162, embedder-api amendment A15). The arm
+ * is live iff the host retains a way to act on this shared object: a retained
+ * end, a parked host operation, or an unfinished producer pump. The claim it
+ * makes to the deadlock verdicts — "the embedder may still act" — therefore
+ * *expires*. Three state transitions implement it:
+ *
+ *   * `close()` — terminal: DROPPED, an explicit drop, or the shared object's
+ *     drop observers (either end, the A7 teardown walk). Nothing can revive
+ *     the wrapper.
+ *   * `disarm()` — NON-terminal: the host handed its last end back to a guest
+ *     (a lifted stream/future lowered back in — the identity round trip). The
+ *     object is still alive; the host merely holds nothing.
+ *   * `rearm()` — the inverse: a re-lift handed the readable end back.
+ *
+ * The embedder-negligence policy of the module header is unchanged — an
+ * embedder that lowers a host-CREATED stream and never writes still hangs
+ * rather than traps, because it genuinely retains the writable end.
  */
 class HostActivity {
   #store: Store | null = null;
   #promise: Promise<void> | null = null;
   #resolve: (() => void) | null = null;
   #closed = false;
+  /** Retention is momentarily zero; revivable via `rearm()` (#162). */
+  #disarmed = false;
   #pumping = false;
 
   bind(store: Store): void {
@@ -231,7 +266,8 @@ class HostActivity {
   }
 
   #arm(): void {
-    if (this.#store === null || this.#promise !== null || this.#closed) return;
+    if (this.#store === null || this.#promise !== null) return;
+    if (this.#closed || this.#disarmed) return;
     this.#promise = new Promise<void>((r) => (this.#resolve = r));
     markHostActivityArm(this.#promise);
     this.#store.pendingHostCalls.add(this.#promise);
@@ -375,6 +411,40 @@ class HostActivity {
     }
     r?.();
   }
+
+  /**
+   * The host retains no way to act: its lifted end was lowered back into a
+   * guest, which now owns it (#162, amendment A15). NON-terminal — a re-lift
+   * of the same shared object restores retention via `rearm()`.
+   *
+   * Resolving the stale arm is required, not tidiness: a `driveAsync` parked
+   * on `Promise.race([...pendingHostCalls])` re-evaluates its `done` predicate
+   * and its deadlock preconditions only when something it raced settles. An
+   * arm merely deleted from the set would leave that driver asleep on a
+   * promise nobody will ever settle.
+   */
+  disarm(): void {
+    const p = this.#promise, r = this.#resolve;
+    this.#disarmed = true;
+    this.#promise = null;
+    this.#resolve = null;
+    if (p !== null && this.#store !== null) {
+      this.#store.pendingHostCalls.delete(p);
+    }
+    r?.();
+  }
+
+  /**
+   * A lift handed the host the readable end again — the A5 cache-hit wrapper
+   * for a shared object that round-tripped back out of the guest (#162).
+   * A no-op for a closed activity (the object is gone for good) and for one
+   * that was never disarmed.
+   */
+  rearm(): void {
+    if (this.#closed) return;
+    this.#disarmed = false;
+    this.#arm();
+  }
 }
 
 /** Host end the embedder WRITES; the guest reads. */
@@ -449,14 +519,37 @@ export interface HostStream<T> {
   value: ComponentValue;
 }
 
-/** Attach host-activity bookkeeping to a shared object as it is lowered. */
+/**
+ * Attach host-activity bookkeeping to a shared object at the CABI seam.
+ *
+ * `kind` is the retention model (#162, amendment A15) — WHICH ends the host
+ * holds, which is decided entirely by where the wrapper came from:
+ *
+ *   * `"created"` — `hostStream()`/`hostFuture()`. Only READABLE ends
+ *     transfer across the boundary (definitions.py `lower_stream`, line 1828,
+ *     wraps the shared object in a fresh `ReadableStreamEnd` in the callee's
+ *     table), so lowering hands the guest the readable end and the host keeps
+ *     the WRITABLE one. Retention survives every lower; the arm ends only at
+ *     drop/end-of-pump.
+ *   * `"lifted"` — `hostStreamFor()`/`hostFutureFor()`. The host holds exactly
+ *     the readable end the guest passed out (`lift_async_value`, line 1530).
+ *     Lowering that same object back into a guest transfers it away, so
+ *     retention hits zero and the activity disarms; a later re-lift restores
+ *     it through the `onLifted` hook.
+ *
+ * The hooks live here rather than in the conventions layer's `takeValue` so
+ * that BOTH the conventions layer and the raw boundary are covered, with no
+ * window between "the embedder said transfer" and "the transfer happened".
+ */
 function bindOnLower(
   shared: SharedStreamImpl | SharedFutureImpl,
   activity: HostActivity,
+  kind: "created" | "lifted",
   alsoOnLowered?: () => void,
 ): void {
   const holder = shared as unknown as {
     onLowered?: ((i: ComponentInstanceState) => void) | null;
+    onLifted?: ((i: ComponentInstanceState) => void) | null;
   };
   // INTERNAL INVARIANT (not the embedder-facing policy): two live wrappers
   // on one shared object would mean two HostActivities pumping it, and the
@@ -471,12 +564,47 @@ function bindOnLower(
     "internal: a second host wrapper was built for an already-wrapped " +
       "stream/future (the wrapper cache should have returned the first)",
   );
+  assert_(
+    holder.onLifted == null,
+    "internal: a second host wrapper installed a lift hook on an " +
+      "already-wrapped stream/future (the wrapper cache should have " +
+      "returned the first)",
+  );
+  // `lowerStream`/`lowerFuture` (cabi/async_values.ts :177/:204) fire this on
+  // EVERY lower, not just the first — the hook persists, and the asserts
+  // above only forbid installing a SECOND one.
   holder.onLowered = (inst) => {
     alsoOnLowered?.();
-    activity.bind(inst.store);
+    if (kind === "lifted") {
+      // The wrapper was bound at construction off `boundStore` (the branch
+      // below); lowering this object back into a guest hands away the only
+      // end the host held.
+      activity.disarm();
+    } else {
+      activity.bind(inst.store);
+    }
   };
-  // A stream that came *out* of a guest was lifted, never lowered, so the hook
-  // above will not fire; `boundStore` was recorded at lift time instead.
+  // Fired by `liftAsyncValue` (cabi/async_values.ts :126) whenever this
+  // object is lifted out of a guest table. For a "created"-kind wrapper
+  // `rearm()` is a harmless no-op (it is never disarmed), so the hook is
+  // installed uniformly.
+  holder.onLifted = () => activity.rearm();
+  // Release the arm when the shared object dies, whatever kills it. This is
+  // the single point that covers three otherwise-separate leaks of one class:
+  // the `dropForTeardown` asymmetry (embedder/streams.ts — a teardown with
+  // nothing parked never reached `close()`), a guest dropping its end with no
+  // host operation parked (the `settle(DROPPED)` -> `close()` path only runs
+  // for a parked op), and `HostFuture.readResult`'s already-dropped fast path
+  // (which answers synchronously without touching the activity).
+  //
+  // Note on the guest-to-guest composed hop: a value lifted from the caller
+  // and immediately lowered into the callee, both synchronously inside one
+  // call's lower phase, fires rearm-then-disarm on any host wrapper that
+  // happens to exist for it. The pair nets out to the correct final state.
+  shared.whenDropped(() => activity.close());
+  // A stream that came *out* of a guest was lifted, never lowered, so the
+  // `onLowered` hook above will not fire first; `boundStore` was recorded at
+  // lift time instead.
   const bound = (shared as { boundStore?: unknown }).boundStore;
   if (bound) activity.bind(bound as Store);
 }
@@ -664,7 +792,7 @@ const futureWrappers = new WeakMap<object, HostFuture<unknown>>();
 export function hostStream<T>(element: ValType | null): HostStream<T> {
   const shared = new SharedStreamImpl(element);
   const activity = new HostActivity();
-  bindOnLower(shared, activity);
+  bindOnLower(shared, activity, "created");
   const ends = mkStreamEnds<T>(shared, activity);
   const wrapper = { ...ends, value: shared as unknown as ComponentValue };
   streamWrappers.set(shared, wrapper as HostStream<unknown>);
@@ -685,7 +813,7 @@ export function hostStreamFor<T>(value: ComponentValue): HostStream<T> {
   const cached = streamWrappers.get(shared);
   if (cached !== undefined) return cached as HostStream<T>;
   const activity = new HostActivity();
-  bindOnLower(shared, activity);
+  bindOnLower(shared, activity, "lifted");
   const ends = mkStreamEnds<T>(shared, activity);
   const wrapper = { ...ends, value };
   streamWrappers.set(shared, wrapper as HostStream<unknown>);
@@ -734,7 +862,7 @@ export function hostFuture<T>(element: ValType | null): HostFuture<T> {
   const shared = new SharedFutureImpl(element);
   const activity = new HostActivity();
   const lowering = { lowered: false };
-  bindOnLower(shared, activity, () => lowering.lowered = true);
+  bindOnLower(shared, activity, "created", () => lowering.lowered = true);
   const wrapper = mkFuture<T>(
     shared,
     activity,
@@ -759,7 +887,7 @@ export function hostFutureFor<T>(value: ComponentValue): HostFuture<T> {
   if (cached !== undefined) return cached as HostFuture<T>;
   const activity = new HostActivity();
   const lowering = { lowered: false };
-  bindOnLower(shared, activity, () => lowering.lowered = true);
+  bindOnLower(shared, activity, "lifted", () => lowering.lowered = true);
   const wrapper = mkFuture<T>(shared, activity, value, lowering);
   futureWrappers.set(shared, wrapper as HostFuture<unknown>);
   return wrapper;

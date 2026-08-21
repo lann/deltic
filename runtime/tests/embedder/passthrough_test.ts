@@ -11,7 +11,9 @@
 
 import { assertEq } from "../support/asserts.ts";
 import { artifactsOf, guest, haveFixture, instantiateFixture } from "./support.ts";
-import { Stream } from "../../src/embedder/mod.ts";
+import type { ComponentValue, ValType } from "../../src/cabi/types.ts";
+import { SharedFutureImpl } from "../../src/task/mod.ts";
+import { Future, Stream } from "../../src/embedder/mod.ts";
 import {
   hostFuture,
   hostFutureFor,
@@ -226,5 +228,149 @@ Deno.test({
     assertEq(got instanceof Uint8Array, true, "typed despite array source");
     assertEq([...got], [7, 8, 44], "mod-256 coercion parity");
     await w;
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Post-transfer read refusal (#162, embedder-api amendment A15)
+// ---------------------------------------------------------------------------
+
+/** Assert `p` rejects with a TypeError whose message names the transfer. */
+async function assertTransferRefusal(
+  p: Promise<unknown>,
+  what: string,
+): Promise<void> {
+  let err: unknown;
+  try {
+    await p;
+  } catch (e) {
+    err = e;
+  }
+  assertEq(err instanceof TypeError, true, `${what}: rejects with a TypeError`);
+  assertEq(
+    /already been passed to a guest/.test(String((err as Error)?.message)),
+    true,
+    `${what}: the message names the transfer (got: ${
+      String((err as Error)?.message)
+    })`,
+  );
+}
+
+Deno.test({
+  name: "A15: reading a Stream handle already passed to a guest is refused",
+  ignore: !ready,
+  fn: async () => {
+    // The guest owns the readable end after the transfer (definitions.py
+    // `lower_stream` line 1828 installs it in the callee's table, and the
+    // lift removed it from ours), so a host read here would operate a
+    // phantom duplicate. Refused loudly. The handle the guest passed BACK is
+    // a different handle over the same shared object and reads normally.
+    const c = await instantiateFixture(FIXTURE, { sink: () => 0n });
+    const { stream, writer } = Stream.create<number>();
+    const out = await c.exports.passThrough(stream) as Stream<number>;
+
+    await assertTransferRefusal(stream.read(1), "passed-in Stream");
+
+    const fed = (async () => {
+      await writer.writeAll(Uint8Array.from([5, 6]));
+      await writer.close();
+    })();
+    assertEq([...await out.read(8)], [5, 6], "the lifted handle still reads");
+    await fed;
+    out.drop();
+  },
+});
+
+Deno.test({
+  name:
+    "A15: a lifted handle passed back in is refused; the next hop still flows",
+  ignore: !ready,
+  fn: async () => {
+    // The identity round trip of issue #162, end to end: `out` is lifted out
+    // of the guest (the host holds its readable end, its activity arm is
+    // live), then handed straight back in — which transfers the end away and
+    // disarms. Reading `out` afterwards is refused, and the SECOND hop's
+    // handle works, which is also the re-arm regression against a real guest.
+    const c = await instantiateFixture(FIXTURE, { sink: () => 0n });
+    const { stream, writer } = Stream.create<number>();
+    const out = await c.exports.passThrough(stream) as Stream<number>;
+    const twice = await c.exports.passThrough(out) as Stream<number>;
+
+    await assertTransferRefusal(out.read(1), "re-passed Stream");
+
+    const fed = (async () => {
+      await writer.writeAll(Uint8Array.from([11, 12, 13]));
+      await writer.close();
+    })();
+    assertEq([...await twice.read(8)], [11, 12, 13], "data flows to hop two");
+    await fed;
+    assertEq(await twice.read(8), new Uint8Array(0), "then end-of-stream");
+    twice.drop();
+  },
+});
+
+Deno.test({
+  name: "A15: awaiting a Future handle already passed to a guest is refused",
+  ignore: false,
+  fn: async () => {
+    // The `Stream` mirror, at the handle layer (no fixture needed): once
+    // `takeValue` has handed the shared object to a lowering site, the guest
+    // owns the readable end.
+    const codec = {
+      element: { kind: "u32" } as ValType,
+      toHost: (v: ComponentValue) => v as number,
+      fromHost: (v: number) => v as ComponentValue,
+    };
+    const f = Future.fromHostFuture<number>(
+      hostFuture<number>(codec.element),
+      codec,
+    );
+    f.takeValue();
+    await assertTransferRefusal(Promise.resolve(f), "passed-in Future");
+  },
+});
+
+Deno.test({
+  name: "A15: a Future read memoized BEFORE the transfer still resolves",
+  ignore: false,
+  fn: async () => {
+    // The read genuinely happened while the host owned the end; only reads
+    // STARTED after the transfer are refused. Modelled on a LIFTED future
+    // (the host holds the readable end) with a guest-shaped write completing
+    // the rendezvous — a host-created future cannot read and write through
+    // one wrapper (one in-flight operation per wrapper).
+    const codec = {
+      element: { kind: "u32" } as ValType,
+      toHost: (v: ComponentValue) => v as number,
+      fromHost: (v: number) => v as ComponentValue,
+    };
+    const shared = new SharedFutureImpl(codec.element);
+    const f = Future.fromLifted<number>(
+      shared as unknown as ComponentValue,
+      codec,
+    );
+    // `then` must be entered BEFORE the transfer to memoize; a
+    // `Promise.resolve(f)` would adopt the thenable a microtask later, i.e.
+    // after `takeValue()`.
+    const pending = new Promise<number>((res, rej) => f.then(res, rej));
+    f.takeValue();
+
+    // The guest delivers the value into the parked read.
+    let progress = 0;
+    const src = {
+      remain: () => 1 - progress,
+      isZeroLength: () => false,
+      read: (n: number) => {
+        progress += n;
+        return [7];
+      },
+      write: () => {},
+    };
+    shared.write(
+      Object.freeze({ fakeGuest: true }),
+      src as never,
+      () => {},
+    );
+    assertEq(await pending, 7, "the pre-transfer read resolves");
   },
 });

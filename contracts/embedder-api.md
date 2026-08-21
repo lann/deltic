@@ -62,7 +62,16 @@ package's buffer-backed base streams keep their sync fast path (never
 park), while genuinely-async stream impls — the host-stdio cli — return
 Promises and park through the A6 kernel; the A2 mark-relay (prototype
 declares, instances behave) is what lets duck-typed stream impls park
-through the registered resource types.**
+through the registered resource types; amendment A15 (2026-08-21) makes
+host-activity arm liveness equal host retention (issue #162): the
+"embedder may still act" deadlock-verdict suppression expires when the
+host hands its last end back to a guest — a lifted stream/future lowered
+back in (the identity round trip) disarms, a re-lift re-arms, and every
+drop path (including the teardown walks) releases the arm — and reading
+through a `Stream`/`Future` handle already passed to a guest is refused
+loudly (`TypeError`) instead of operating a phantom duplicate of an end
+the guest now owns; `StreamWriter` operations after the pass stay legal
+(the host retains the writable end) — see §"Streams and futures".**
 This document supersedes `descriptor-ir.md`'s interim
 "host value mapping" table as the destination for host-facing value shapes.
 The runtime's *raw* boundary (`instance.exports`, `HostImports`) keeps the
@@ -552,6 +561,28 @@ class DroppedError extends Error { … }    // awaiting a dropped future rejects
     same-instance restriction applies to component instances only;
   - a `Stream.create()` writer keeps feeding the same stream across hops
     (the writer half addresses the shared end, not a particular handle).
+- **Deadlock-verdict suppression tracks host retention** (amendment A15,
+  2026-08-21 — issue #162). While the host retains a way to act on a
+  stream/future — a retained end, a parked host operation, or an
+  unfinished producer pump — a stalled guest is reported as the
+  documented embedder-may-act hang, never a deadlock trap. That claim
+  **expires with retention**: lowering a lifted handle back into a guest
+  (the `identity: async func(s: stream<u8>) -> stream<u8>` round trip)
+  hands the host's only end back, so the store's deadlock verdicts are
+  live again immediately; a later re-lift of the same shared object (the
+  A5 cache-hit wrapper) restores the suppression; and every drop path —
+  either end, the A7 teardown walk, instance retirement — releases it.
+  (Pre-A15, one identity round trip suppressed deadlock verdicts for the
+  store's remaining lifetime, presenting every later genuine deadlock as
+  the embedder-may-act hang.) Companion refusal: `read` through a
+  `Stream` handle — and awaiting a `Future` — that was already passed to
+  a guest rejects with a `TypeError` naming the transfer; a post-transfer
+  host read would operate a phantom duplicate of an end the guest now
+  owns. `StreamWriter` operations are unaffected (the writer half
+  addresses the host-retained writable end across hops, per A5).
+  Retention-by-choice is unchanged: a host that returns a *different*
+  stream while quietly keeping the original's end is genuine retention,
+  and the embedder-negligence hang class remains.
 - **u8 chunks are `Uint8Array` in both directions** (amendment A5, the
   write-side mirror of `Chunk<u8>`): `StreamWriter.write`/`writeAll` take
   `Chunk<T>`, and a `Uint8Array` chunk is treated as already-lowered bytes

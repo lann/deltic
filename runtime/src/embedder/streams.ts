@@ -239,6 +239,22 @@ export class Stream<T> {
           "or use the writer, which parks until then",
       );
     }
+    // Post-transfer refusal (#162, embedder-api amendment A15). Lifting
+    // removes the handle from the source table and lowering installs it in
+    // the destination's (definitions.py `lift_async_value` line 1530,
+    // `lower_stream` line 1828): once this handle's shared object has been
+    // passed to a guest, the guest owns the readable end and a host read here
+    // would operate a phantom duplicate of it. Refuse loudly instead.
+    // `StreamWriter` is deliberately unaffected — the host retains the
+    // writable end, and writing after the pass is the normal A5 pattern —
+    // and `drop()`/`cancelRead()` stay permissive.
+    if (this.#consumed) {
+      throw new TypeError(
+        "this Stream handle has already been passed to a guest; the guest " +
+          "owns its readable end, so it can no longer be read from the host " +
+          "(issue #162)",
+      );
+    }
     return this.#host;
   }
 
@@ -306,11 +322,12 @@ export class Stream<T> {
    * DROPPED event into the trapping instance's waitables, and a later
    * driving loop asserted on the corpse).
    *
-   * Known asymmetry (review advisory, non-blocking): unlike
-   * `readable.drop()`, this path does not close the wrapper's HostActivity
-   * arm when nothing was parked, so the arm can outlive the stream on an
-   * already-faulted store — at worst misreporting a later genuine deadlock
-   * as the documented hang, on a store that has already trapped.
+   * The arm is released on this path too (#162, amendment A15): the wrapper's
+   * `HostActivity` now closes through the shared object's drop observers,
+   * which `dropSharedForTeardown` fires unconditionally — so a teardown with
+   * nothing parked no longer leaves the arm outliving the stream. (This
+   * paragraph previously recorded that asymmetry as a known, non-blocking
+   * review advisory.)
    */
   dropForTeardown(): void {
     if (this.#dropped) return;
@@ -523,6 +540,21 @@ export class Future<T> implements PromiseLike<T> {
   }
 
   #read(): Promise<T> {
+    // Post-transfer refusal (#162, amendment A15), the `Stream.read` mirror:
+    // once this handle was passed to a guest, the guest owns the readable end
+    // and a host read would operate a phantom duplicate. A read MEMOIZED
+    // before the transfer keeps resolving — it genuinely happened while the
+    // host still owned the end. Rejected rather than thrown: this runs under
+    // `then()`, where a synchronous throw escapes the promise chain.
+    if (this.#consumed && this.#settled === null) {
+      return Promise.reject(
+        new TypeError(
+          "this Future handle has already been passed to a guest; the guest " +
+            "owns its readable end, so it can no longer be read from the " +
+            "host (issue #162)",
+        ),
+      );
+    }
     this.#settled ??= (async () => {
       const host = await this.#hostP;
       const { value, result } = await host.readResult();

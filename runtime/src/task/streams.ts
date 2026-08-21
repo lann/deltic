@@ -215,6 +215,15 @@ export class SharedStreamImpl implements SharedBase {
    */
   onLowered: ((inst: { store: unknown }) => void) | null = null;
   /**
+   * Optional hook fired by `liftAsyncValue` whenever this object is lifted
+   * OUT of a guest table. The receiver — the host, or the destination of a
+   * guest-to-guest hop, in which case the immediately following lower fires
+   * `onLowered` — may now act on the transferred end. Host wrappers use it to
+   * re-arm their activity (#162, embedder-api amendment A15). Guest-owned
+   * objects leave it unset.
+   */
+  onLifted: ((inst: { store: unknown }) => void) | null = null;
+  /**
    * The `Store` driving the component this object has been handed to, set the
    * first time it is lifted or lowered. Host ends need it to pump the guest
    * between export calls (see exec/host_streams.ts `HostActivity.pump`); a
@@ -398,6 +407,15 @@ export class SharedFutureImpl implements SharedBase {
    */
   onLowered: ((inst: { store: unknown }) => void) | null = null;
   /**
+   * Optional hook fired by `liftAsyncValue` whenever this object is lifted
+   * OUT of a guest table. The receiver — the host, or the destination of a
+   * guest-to-guest hop, in which case the immediately following lower fires
+   * `onLowered` — may now act on the transferred end. Host wrappers use it to
+   * re-arm their activity (#162, embedder-api amendment A15). Guest-owned
+   * objects leave it unset.
+   */
+  onLifted: ((inst: { store: unknown }) => void) | null = null;
+  /**
    * The `Store` driving the component this object has been handed to, set the
    * first time it is lifted or lowered. Host ends need it to pump the guest
    * between export calls (see exec/host_streams.ts `HostActivity.pump`); a
@@ -433,6 +451,41 @@ export class SharedFutureImpl implements SharedBase {
   pendingBuffer: GuestBuffer | null = null;
   pendingOnCopyDone: OnCopyDone | null = null;
 
+  /**
+   * Observers fired once, when this future becomes dropped — by EITHER side,
+   * including the A7 teardown walk (`dropSharedForTeardown`). Streams grew
+   * this for A13 producer cancellation; futures need it as the release hook
+   * for a host wrapper's activity arm (#162, amendment A15): a guest dropping
+   * its end with no host operation parked, and the `readResult()`
+   * already-dropped fast path, both bypass every other close site. `null` =
+   * already fired.
+   */
+  #onDropped: (() => void)[] | null = [];
+
+  /** Register `fn` for the drop notification (fires now if already dropped). */
+  whenDropped(fn: () => void): void {
+    if (this.#onDropped === null) {
+      fn();
+      return;
+    }
+    this.#onDropped.push(fn);
+  }
+
+  /** @internal — fire the drop observers (idempotent; never throws). */
+  notifyDropped(): void {
+    const fns = this.#onDropped;
+    if (fns === null) return;
+    this.#onDropped = null;
+    for (const fn of fns) {
+      try {
+        fn();
+      } catch {
+        // An observer bug must not derail the drop path; the observer's
+        // own machinery is responsible for surfacing its failures.
+      }
+    }
+  }
+
   constructor(readonly t: ValType | null) {}
 
   resetPending(): void {
@@ -464,6 +517,7 @@ export class SharedFutureImpl implements SharedBase {
     if (!this.dropped) {
       this.dropped = true;
       if (this.pendingBuffer) this.resetAndNotifyPending(CopyResult.DROPPED);
+      this.notifyDropped();
     }
   }
 
@@ -753,10 +807,12 @@ export function dropSharedForTeardown(
     if (parkedInDeadGuest) shared.resetPending();
     else shared.resetAndNotifyPending(CopyResult.DROPPED);
   }
-  // The A13 cancellation companion also fires on the teardown path: a
-  // producer parked behind a trap-poisoned reader must be cancelled the
-  // same as behind a cleanly-dropped one.
-  if (shared instanceof SharedStreamImpl) shared.notifyDropped();
+  // The drop observers also fire on the teardown path: a stream producer
+  // parked behind a trap-poisoned reader must be cancelled the same as behind
+  // a cleanly-dropped one (A13), and a host wrapper's activity arm must be
+  // released the same way (#162, amendment A15). Both classes carry the
+  // observer machinery, so this is unconditional.
+  shared.notifyDropped();
 }
 
 /**
