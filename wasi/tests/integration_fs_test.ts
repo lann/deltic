@@ -15,8 +15,8 @@
 // Skip-if-absent on the shim + fixture corpus, like the other gates.
 
 import { assertEq, assertTrue } from "./asserts.ts";
-import { Translator } from "@deltic/runtime/shim";
-import { instantiate } from "@deltic/runtime/embedder";
+import { Translator } from "@polyengine/runtime/shim";
+import { instantiate } from "@polyengine/runtime/embedder";
 import { wasi } from "../src/mod.ts";
 import { filesystemNode } from "../src/filesystem_node.ts";
 
@@ -45,7 +45,7 @@ Deno.test({
   name: "integration: std::fs battery over the node backend (callback mode)",
   ignore: !ready,
   async fn() {
-    const dir = await Deno.makeTempDir({ prefix: "deltic-fs-probe-" });
+    const dir = await Deno.makeTempDir({ prefix: "polyengine-fs-probe-" });
     try {
       const translator = await Translator.create(shimWasm!);
       const { plan, adapters } = translator.translate(componentBytes!);

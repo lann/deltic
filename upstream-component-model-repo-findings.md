@@ -191,13 +191,13 @@ In `cancel_copy`, when the pending event is a stream `COMPLETED`, deliver
 
 **Status:** ADJUDICATED (operator, 2026-08-10) — upstream **test defect**,
 not a reference-semantics issue. **Filing kit READY** (2026-08-11, closes
-[deltic#43](https://github.com/lann/deltic/issues/43)):
+[polyengine#43](https://github.com/polymorph-components/polyengine/issues/43)):
 `upstream-issue-sync-streams-schedule-overfit.md` (ready-to-file draft) +
 `upstream-sync-streams-schedule-agnostic.patch` (applies at the spec repo
 root, verified against 73b7ad5; both arms exercised green through the
-deltic pipeline, FIFO + seeds — see the kit PR for the recipe). Filing
+polyengine pipeline, FIFO + seeds — see the kit PR for the recipe). Filing
 itself tracked by
-[deltic#15](https://github.com/lann/deltic/issues/15).
+[polyengine#15](https://github.com/polymorph-components/polyengine/issues/15).
 Archived evidence tree (mechanism docs, both experiment patches, trace,
 verify script): `4f3351f:exams/wasmtime-exclusivity/`.
 **Found:** 2026-08-08 (JSPI flip, M2 exit). **Mechanism corrected:**
@@ -228,12 +228,12 @@ drain-to-quiescence entry decision, PR #45.
   `test_callback_interleaving` all need **no change**; both previously
   sketched amendments (release-at-resolution; deferred-entry
   normativization) are withdrawn.
-- deltic disposition: hold-lifetime gate = spec conformance;
+- polyengine disposition: hold-lifetime gate = spec conformance;
   drain-to-quiescence entry decision (`Store.hasRunnableWork`, sole
   consumer `createAsyncStartCall`, pinned by
   `runtime/tests/entry_deferral_test.ts`) = deliberate **non-normative
   scheduler policy** — satisfies the suite as written and is order-robust
-  under `DELTIC_SCHED_SEED` shuffles, unlike wasmtime's FIFO-dependent
+  under `POLYENGINE_SCHED_SEED` shuffles, unlike wasmtime's FIFO-dependent
   formulation. Legal under any upstream adjudication of the test; no
   flip-back trigger.
 
@@ -261,7 +261,7 @@ pins for such fixtures (we did).
 
 **Status:** DRAFT — candidate upstream issue against `definitions.py`
 **Found:** 2026-08-10, adversarial conformance review of the stream/future
-territory (deltic#84/#98)
+territory (polyengine#84/#98)
 
 ### Evidence
 
@@ -293,9 +293,9 @@ exactly what the assert rejects. Either the assert is inverted, or it
 documents an invariant whose enforcing traps make the guarded branch dead;
 in both readings it does not describe reachable states.
 
-### deltic disposition
+### polyengine disposition
 
-deltic's port omits the assert (`runtime/src/task/streams.ts`,
+polyengine's port omits the assert (`runtime/src/task/streams.ts`,
 `SharedFutureImpl.drop`) — its teardown extension (#66/#84) *deliberately*
 creates the writer-died-unwritten state for trap-poisoned instances and
 resolves it with a reader-side trap, which the assert would spuriously kill.

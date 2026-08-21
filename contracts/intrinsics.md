@@ -120,7 +120,7 @@ core" is a feature, not a crash.
    restore `may_leave` on all component instances — FACT clears it around
    lift/lower and a trap skips its restore; without both unwinds the
    instance is unusable for post-trap re-entry, which this runtime
-   deliberately supports. **Scope clarification (2026-08-10, deltic#91):
+   deliberately supports. **Scope clarification (2026-08-10, polyengine#91):
    the obligation covers every window that registers lenders, including
    the prepare/start protocol** — `sync-start-call`'s inline lender scope
    and `async-start-call`'s subtask-attached lenders release on every
@@ -215,11 +215,11 @@ ending at resolution-plus-block rather than activation end" — was a
 mischaracterization of wasmtime corrected on 2026-08-10 (wasmtime holds
 the gate for the whole invocation and defers the entry *decision*; see
 upstream-component-model-repo-findings.md CM-4 and
-[deltic#43](https://github.com/lann/deltic/issues/43), where the
+[polyengine#43](https://github.com/polymorph-components/polyengine/issues/43), where the
 evidence is distilled — exam kit archived at
-`4f3351f:exams/wasmtime-exclusivity/`). deltic's
+`4f3351f:exams/wasmtime-exclusivity/`). polyengine's
 release-at-resolution rule was **removed the same day**
-([#43](https://github.com/lann/deltic/issues/43)): the runtime now
+([#43](https://github.com/polymorph-components/polyengine/issues/43)): the runtime now
 implements the hold rule (gate lifetime = the core invocation, pristine
 definitions.py shape) plus the deferred entry decision — an async-lowered
 call reports STARTING only if the callee is still unstarted after the

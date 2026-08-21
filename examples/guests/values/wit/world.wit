@@ -1,4 +1,4 @@
-package deltic:values;
+package polyengine:values;
 
 /// Lift/lower exerciser: one echo function per WIT type shape.
 /// Every export returns its input unchanged, so the host can assert

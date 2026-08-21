@@ -37,7 +37,7 @@ type _ConstructorIsSync = Expect<
 
 export async function useResources(instance: EmbedderInstance) {
   const exports: ResourcesExports = bind(instance);
-  const counters = exports["deltic:resources/counters"];
+  const counters = exports["polyengine:resources/counters"];
 
   const c: Counter = new counters.Counter(0n);
   const bumped: bigint = await c.increment();

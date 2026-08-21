@@ -22,7 +22,7 @@
 // `ComponentValue` can hold beyond plain data, which the descriptor-IR
 // contract's "host-shaped component values" wording did not anticipate.
 
-import { copyCensus, ERROR_CONTEXT, hasBrand } from "@deltic/protocol";
+import { copyCensus, ERROR_CONTEXT, hasBrand } from "@polyengine/protocol";
 import { assert_, trapIf } from "./trap.ts";
 import type { LiftLowerContext } from "./context.ts";
 import type { BorrowType, OwnType, ValType } from "./types.ts";
@@ -49,14 +49,14 @@ import {
  * to diagnose — if a path ever does get here, it says what happened.
  *
  * This layer is below `embedder/`, so it composes the census from
- * `@deltic/protocol` directly rather than importing `embedder/copy.ts`.
+ * `@polyengine/protocol` directly rather than importing `embedder/copy.ts`.
  */
 export function errorContextTrapMessage(where: string, e: unknown): string {
   if (!hasBrand(e, ERROR_CONTEXT)) {
     return `${where}: handle is not an error-context`;
   }
   const census = copyCensus();
-  return `${where}: this error-context was minted by a DIFFERENT deltic ` +
+  return `${where}: this error-context was minted by a DIFFERENT polyengine ` +
     `runtime copy and cannot be used through this one` +
     `${census === "" ? "" : ` (${census})`} ` +
     `(contracts/embedder-api.md amendment A9, issue #83)`;

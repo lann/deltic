@@ -1,5 +1,5 @@
 /target/
-# @deltic/translator packaged asset (copied by `just shim`)
+# @polyengine/translator packaged asset (copied by `just shim`)
 translator/translator_shim.wasm
 harness/generated/
 examples/guests/build/
@@ -15,9 +15,9 @@ dist/
 ports/webcrypto/conformance/results-*.jsonl
 
 # bench/boundary: local artifacts (the recipe rebuilds them)
-bench/boundary/deltic-embedder.local.mjs
+bench/boundary/polyengine-embedder.local.mjs
 bench/boundary/generated/
 bench/boundary/node_modules/
 bench/boundary/guest/target/
-# @deltic/translator packaged asset (copied by `just shim`)
+# @polyengine/translator packaged asset (copied by `just shim`)
 translator/translator_shim.wasm

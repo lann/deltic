@@ -1,5 +1,5 @@
 // The process-global brand vocabulary (contracts/embedder-api.md
-// §"Module identity and @deltic/protocol", amendment A9; issue #83).
+// §"Module identity and @polyengine/protocol", amendment A9; issue #83).
 //
 // Every brand is a `Symbol.for` REGISTRY symbol, so N copies of this package
 // (or of the runtime) agree on every brand by construction — no module
@@ -11,7 +11,10 @@
 // Keys are generation-suffixed (`/1`). Bumping a generation is a BREAKING
 // vocabulary change — an ecosystem migration event, the moral equivalent of a
 // semver major — which is why protocol/tests/brands_test.ts pins every key
-// string literally.
+// string literally. The A18 rename (`deltic.*/1` -> `polyengine.*/1`) did NOT
+// bump the generation: a spelling change already yields a disjoint symbol
+// set, so there is no key under which an old and a new copy could meet and
+// disagree about shape.
 //
 // Brands are contract markers, NOT a security boundary: a hand-rolled object
 // carrying the right symbol is a legal value (this is what makes zero-import
@@ -20,42 +23,44 @@
 /**
  * `ComponentException` — a WIT `result<T, E>` err value.
  *
- * The key string keeps its pre-A10 name (`witError`) deliberately: it is an
+ * The key's LEAF keeps its pre-A10 name (`witError`) deliberately: it is an
  * opaque wire constant, CEWD-style (same precedent as bindgen's CEWD name),
- * so pre-A10 copies and hand-rolled brands keep interoperating. Only the
- * exported TS identifier renamed with the class (contracts/embedder-api.md
- * amendment A10).
+ * so only the exported TS identifier renamed with the class
+ * (contracts/embedder-api.md amendment A10). The `polyengine.` PREFIX is new
+ * in A18, which renamed the project and every key with it — pre-A18 copies
+ * and hand-rolled `deltic.*` brands do NOT interoperate with these, by
+ * design and without a diagnostic (see A18).
  */
 export const COMPONENT_EXCEPTION: unique symbol = Symbol.for(
-  "deltic.witError/1",
+  "polyengine.witError/1",
 );
 /** `Trap` — component-fatal, never a value. */
-export const TRAP: unique symbol = Symbol.for("deltic.trap/1");
+export const TRAP: unique symbol = Symbol.for("polyengine.trap/1");
 /** `DroppedError` — a dropped-future rejection. */
-export const DROPPED: unique symbol = Symbol.for("deltic.dropped/1");
+export const DROPPED: unique symbol = Symbol.for("polyengine.dropped/1");
 /** `PeerTrappedError` — a peer-fault rejection (amendment A7). */
 export const PEER_TRAPPED: unique symbol = Symbol.for(
-  "deltic.peerTrapped/1",
+  "polyengine.peerTrapped/1",
 );
 /** `InvalidHandleError` — resource-wrapper misuse. */
 export const INVALID_HANDLE: unique symbol = Symbol.for(
-  "deltic.invalidHandle/1",
+  "polyengine.invalidHandle/1",
 );
 /** `StreamProducerError` — a producer-side failure. */
 export const STREAM_PRODUCER: unique symbol = Symbol.for(
-  "deltic.streamProducer/1",
+  "polyengine.streamProducer/1",
 );
 /** The per-declaration suspendability mark (amendments A1/A2). */
 export const SUSPENDING: unique symbol = Symbol.for(
-  "deltic.suspending/1",
+  "polyengine.suspending/1",
 );
 /** `Stream.prototype` — embedder stream handles (stateful: foreign = refused). */
-export const STREAM: unique symbol = Symbol.for("deltic.stream/1");
+export const STREAM: unique symbol = Symbol.for("polyengine.stream/1");
 /** `Future.prototype` — embedder future handles (stateful: foreign = refused). */
-export const FUTURE: unique symbol = Symbol.for("deltic.future/1");
+export const FUTURE: unique symbol = Symbol.for("polyengine.future/1");
 /** Lifted error-contexts (stateful: foreign = refused). */
 export const ERROR_CONTEXT: unique symbol = Symbol.for(
-  "deltic.errorContext/1",
+  "polyengine.errorContext/1",
 );
 /**
  * Guest-resource wrappers: the KEY for the wrapper's internal state. Only the
@@ -63,17 +68,17 @@ export const ERROR_CONTEXT: unique symbol = Symbol.for(
  * a foreign copy can *recognize* a wrapper but never read its state.
  */
 export const RESOURCE_STATE: unique symbol = Symbol.for(
-  "deltic.resourceState/1",
+  "polyengine.resourceState/1",
 );
 /** `Pollable.prototype` (wasi). */
-export const POLLABLE: unique symbol = Symbol.for("deltic.pollable/1");
+export const POLLABLE: unique symbol = Symbol.for("polyengine.pollable/1");
 /** `ExitError.prototype` (wasi) — wasi exit unwinds. */
 export const WASI_EXIT: unique symbol = Symbol.for(
-  "deltic.wasiExit/1",
+  "polyengine.wasiExit/1",
 );
 /** The copy registry array, on `globalThis`. */
 export const RUNTIME_COPIES: unique symbol = Symbol.for(
-  "deltic.runtimeCopies/1",
+  "polyengine.runtimeCopies/1",
 );
 
 /**

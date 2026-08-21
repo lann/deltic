@@ -1,10 +1,10 @@
-# deltic
+# polyengine
 
 A WebAssembly **Component Model host** for JavaScript engines — async-native
 (Component Model 0.3 concurrency), built on wasmtime's translation frontend
 compiled to wasm, running on Deno and in browsers.
 
-Instead of ahead-of-time transpilation, deltic is a **runtime linker**: it
+Instead of ahead-of-time transpilation, polyengine is a **runtime linker**: it
 takes a `.wasm` component binary, translates it in-process (wasmtime-environ +
 FACT fused adapters, running as a wasm32 module), and executes the
 instantiation plan on the stock `WebAssembly` JS API. Cross-component calls
@@ -39,7 +39,7 @@ Pre-1.0, but densely gated:
 | `runtime/` | TS core: plan executor, canonical ABI, 0.3 task scheduler, JSPI bridge, embedder API (`runtime/src/embedder`) |
 | `crates/bindgen` | WIT → TypeScript types for the embedder conventions |
 | `examples/` | **start here to embed**: hello-world + kitchen-sink (WIT + Rust guest + TS host, self-checking), plus the guest fixture corpus |
-| `translator/` | `@deltic/translator`: the packaged translator asset + `defaultTranslator()` per-platform loader (build-time alternative: `tools/translate`) |
+| `translator/` | `@polyengine/translator`: the packaged translator asset + `defaultTranslator()` per-platform loader (build-time alternative: `tools/translate`) |
 | `wasi/` | minimal WASI providers (p2 baseline + p3 clocks), one per semver track |
 | `ct-runner/` | conformance-suite runner for the polymorph-test L1 contract |
 | `harness/` + `tools/browser` | official-suite harness; Deno lane + Chromium/Firefox/WebKit lanes |
@@ -48,8 +48,8 @@ Pre-1.0, but densely gated:
 ## Quick start
 
 ```sh
-git clone --recursive https://github.com/lann/deltic
-cd deltic
+git clone --recursive https://github.com/polymorph-components/polyengine
+cd polyengine
 just test-runtime    # runtime suite (builds the shim + fixtures + corpus first)
 just conformance     # official CM suite on Deno
 just browsers-install && just browser-lane chromium   # same corpus, real browser
@@ -66,34 +66,41 @@ modules). Three ways to get one:
 | method | production ships | choose when |
 |---|---|---|
 | **build-time** — [`tools/translate`](tools/translate/) emits a single-file *envelope*; the host reconstitutes it with `artifactsFromEnvelope(envelope, componentBytes)` | component + envelope + runtime — **no translator** | you know your components at build time (most apps; the browser default — saves ~0.5 MB gzip and a compile per visitor). The envelope embeds the component's sha-256, so a stale pair fails loudly at instantiation |
-| **runtime, packaged** — `defaultTranslator()` from [`@deltic/translator`](translator/), passed to `instantiate({ componentBytes, translator })` | your host + the translator asset (~1.85 MB raw, 520 KB gzip) | components arrive dynamically (plugin systems), or dev/server contexts where the asset size is irrelevant. Pair with the artifact cache (`@deltic/runtime/cache`) so each component translates once per client, not once per load |
-| **runtime, explicit** — `Translator.create(bytes)` / `Translator.fromExports(ns)` from `@deltic/runtime/shim` | same, minus the packaged loader | you source the translator wasm yourself: custom delivery, one shared instance across many components, or cache keying via `buildHash` |
+| **runtime, packaged** — `defaultTranslator()` from [`@polyengine/translator`](translator/), passed to `instantiate({ componentBytes, translator })` | your host + the translator asset (~1.85 MB raw, 520 KB gzip) | components arrive dynamically (plugin systems), or dev/server contexts where the asset size is irrelevant. Pair with the artifact cache (`@polyengine/runtime/cache`) so each component translates once per client, not once per load |
+| **runtime, explicit** — `Translator.create(bytes)` / `Translator.fromExports(ns)` from `@polyengine/runtime/shim` | same, minus the packaged loader | you source the translator wasm yourself: custom delivery, one shared instance across many components, or cache keying via `buildHash` |
 
 Translation itself is sub-millisecond warm in all three; the methods differ
 only in *when* it runs and *what you deploy*. Worked code: the
 [examples](examples/) use the packaged form, [`tools/translate`'s
 README](tools/translate/README.md) shows the build-time deploy recipe, and
 the full decision record is the design note on
-[#16](https://github.com/lann/deltic/issues/16).
+[#16](https://github.com/polymorph-components/polyengine/issues/16).
 
 ## Consuming
 
-Everything here is **unstable** (0.x, [#16](https://github.com/lann/deltic/issues/16)):
+Everything here is **unstable** (0.x, [#16](https://github.com/polymorph-components/polyengine/issues/16)):
 no compatibility promise across minor lines. But releases are
 **caret-honest**: within a minor line they stay backward-compatible, and
 anything breaking bumps the minor — so caret constraints are the intended
 way to consume:
 
 ```ts
-import { instantiate } from "jsr:@deltic/runtime@^0.3.0/embedder";
-import { defaultTranslator } from "jsr:@deltic/translator@^0.3.0";
+import { instantiate } from "jsr:@polyengine/runtime@^0.1.0/embedder";
+import { defaultTranslator } from "jsr:@polyengine/translator@^0.1.0";
 ```
 
-`@deltic/{runtime,translator,wasi,ct-runner}` release in lockstep — one
+`@polyengine/{runtime,translator,wasi,ct-runner}` release in lockstep — one
 version, cut from one green commit, matching the `vX.Y.Z`
-[GitHub release](https://github.com/lann/deltic/releases) that carries the
-same commit's artifacts. (`@deltic/protocol` versions independently; the
+[GitHub release](https://github.com/polymorph-components/polyengine/releases) that carries the
+same commit's artifacts. (`@polyengine/protocol` versions independently; the
 others depend on it by caret.)
+
+This project was previously named **deltic** and published under the
+`@deltic` JSR scope, which stops at `0.2.1`. The rename is a clean break,
+not an alias: `@polyengine/*` starts a fresh `0.1.0` line, the
+`Symbol.for("polyengine.*/1")` cross-copy brands do not match the old
+`deltic.*` ones, and the `POLYENGINE_*` environment variables replace their
+`DELTIC_*` spellings. Nothing bridges the two — port in one step.
 
 Between releases, every green `main` commit still publishes
 `<next>-pre.g<shorthash>` prereleases to JSR — the same short hash as the
@@ -109,7 +116,7 @@ while keeping the gate for the rest of your graph, exempt the scope
 
 ```jsonc
 // deno.json
-{ "minimumDependencyAge": { "age": "P1D", "exclude": ["jsr:@deltic/*"] } }
+{ "minimumDependencyAge": { "age": "P1D", "exclude": ["jsr:@polyengine/*"] } }
 ```
 
 (or `--minimum-dependency-age=0` for a one-off run).
@@ -125,7 +132,7 @@ while keeping the gate for the rest of your graph, exempt the scope
 | [`docs/references.md`](docs/references.md) | canonical upstream links (spec, JSPI, wasmtime internals, toolchain pins) |
 | [`contracts/`](contracts/) | versioned interface contracts — [plan format](contracts/plan-format.md), [descriptor IR](contracts/descriptor-ir.md), [intrinsics](contracts/intrinsics.md), [digest](contracts/digest.md), [embedder API](contracts/embedder-api.md) |
 | [`AGENTS.md`](AGENTS.md) | development protocol and the full gate list |
-| [issue tracker](https://github.com/lann/deltic/issues) | open and deferred work |
+| [issue tracker](https://github.com/polymorph-components/polyengine/issues) | open and deferred work |
 
 [polymorph]: https://github.com/polymorph-components
 

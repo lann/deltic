@@ -4,7 +4,7 @@
 # `wasm-tools component new` -> validate -> run host.ts under Deno.
 #
 # Prerequisites: the translator shim (`just shim` from the repo root; a
-# published consumer gets a prebuilt Translator instead — deltic#16).
+# published consumer gets a prebuilt Translator instead — polyengine#16).
 set -euo pipefail
 cd "$(dirname "$0")"
 

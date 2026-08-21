@@ -33,7 +33,7 @@ import {
   isStreamProducerError,
   STREAM,
   StreamProducerError,
-} from "@deltic/protocol";
+} from "@polyengine/protocol";
 import { describeCrossCopy } from "./copy.ts";
 import { DroppedError, PeerTrappedError } from "./errors.ts";
 
@@ -57,11 +57,11 @@ export interface ElemCodec<T> {
   readonly where?: string;
 }
 
-// `StreamProducerError`'s canonical definition moved to `@deltic/protocol`
+// `StreamProducerError`'s canonical definition moved to `@polyengine/protocol`
 // with amendment A9 (it is an embedder-contract value: recognition must
 // survive multiple runtime copies, issue #83). Re-exported here so every
 // existing import path is unchanged.
-export { StreamProducerError } from "@deltic/protocol";
+export { StreamProducerError } from "@polyengine/protocol";
 
 /**
  * Failures recorded against a shared stream object whose driving store could
@@ -729,7 +729,7 @@ function packChunk<T>(
 }
 
 /** Race sentinel: the reader's end dropped while the producer was parked. */
-const READER_GONE: unique symbol = Symbol("deltic reader gone");
+const READER_GONE: unique symbol = Symbol("polyengine reader gone");
 
 async function pump<T>(
   src: Exclude<StreamSource<T>, Stream<T>>,

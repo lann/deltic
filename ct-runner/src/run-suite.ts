@@ -16,7 +16,7 @@ import {
   instantiate,
   Trap,
   ComponentException,
-} from "@deltic/runtime/embedder";
+} from "@polyengine/runtime/embedder";
 import { Context, testContextImportRecord } from "./context.ts";
 import { analyzeImports, requireImportsResolved } from "./import-analysis.ts";
 import {
@@ -344,7 +344,7 @@ export async function runSuite(
           provenance: "returned",
           "duration-ms": durationMs,
           // The case returned normally, so its diagnostics sideband is
-          // complete (upstream emits this on every returned row; deltic's
+          // complete (upstream emits this on every returned row; polyengine's
           // trap/timeout rows already carry `false`).
           "diagnostics-complete": true,
         };

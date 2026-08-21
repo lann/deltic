@@ -16,7 +16,7 @@
 // Canonical since amendment A9: this module used to be
 // `runtime/src/jspi/suspending.ts` (which now re-exports it). The brand moved
 // from a module-local `Symbol(...)` to the process-global registry symbol
-// `deltic.suspending/1` — the old "local symbol by repo convention (bundle
+// `polyengine.suspending/1` — the old "local symbol by repo convention (bundle
 // and source runtimes are never mixed in one process)" rule is REPEALED by
 // A9, because consumer graphs demonstrably do mix copies (issue #83) and a
 // module-local symbol made a copy-B `suspending()` mark invisible to copy A's

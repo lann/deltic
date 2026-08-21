@@ -32,7 +32,7 @@
 //     every path it reads is a fixed repo-relative location and the driver
 //     sets the shell's CWD to the repo root.
 //   - `print()` is the stdout sink; unprefixed shell diagnostics (module
-//     load warnings etc.) show up on stdout too, hence the `@deltic:`
+//     load warnings etc.) show up on stdout too, hence the `@polyengine:`
 //     sentinel prefix in the protocol instead of assuming every line is
 //     one of ours.
 //   - Job-queue draining (`drainJobQueue()`) is present but not needed for

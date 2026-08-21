@@ -516,7 +516,7 @@ function createTrampolineBody(
         // would additionally trap host-mediated reentrance (host -> A.f ->
         // C.g -> host import -> host invokes C.g).
         //
-        // ADJUDICATED 2026-08-20 (deltic#165; named divergence in
+        // ADJUDICATED 2026-08-20 (polyengine#165; named divergence in
         // docs/architecture.md section 6): accepted — the bracket stays
         // omitted. Three grounds: wasmtime parity (`enter_guest_sync_call`
         // checks nothing); taking the bracket would create a guest-to-guest
@@ -526,7 +526,7 @@ function createTrampolineBody(
         // flag/trap") makes previously-trapping reentrance valid, so this
         // divergence is a trailing indicator of the removal and
         // self-resolves at the submodule pin advance (migration map:
-        // deltic#173). Until that pin advance the reference's checks deltic
+        // polyengine#173). Until that pin advance the reference's checks polyengine
         // DOES enforce stay in force.
         if (
           typeof callerInstance === "number" &&
@@ -534,7 +534,7 @@ function createTrampolineBody(
         ) {
           const callerInst = ctx.componentInstance(callerInstance >>> 0);
           const calleeInst = ctx.componentInstance(calleeInstance >>> 0);
-          // A poisoned callee's refusal names the original trap (deltic#145).
+          // A poisoned callee's refusal names the original trap (polyengine#145).
           if (!calleeInst.mayEnterFrom(callerInst)) {
             trap(withPoisonCause(
               calleeInst,
@@ -633,7 +633,7 @@ function createTrampolineBody(
         to64: boolean;
       };
       if (d.from64 || d.to64) {
-        // 64-bit linear memories are out of scope (https://github.com/lann/deltic/issues/12); refusing at
+        // 64-bit linear memories are out of scope (https://github.com/polymorph-components/polyengine/issues/12); refusing at
         // instantiate time keeps "instantiate-time, never call-time".
         throw new UnsupportedFeatureError(
           "M2",
@@ -784,7 +784,7 @@ function createTrampolineBody(
         // section. Before v3 this went through `resourceTableInstance` — a
         // different index space, which mis-routed silently whenever a
         // concrete resource table happened to exist at the colliding slot
-        // (deltic#89).
+        // (polyengine#89).
         (t) => ctx.errorContextTableInstance(t),
       );
 

@@ -21,10 +21,10 @@ wit_bindgen::generate!({
     // bodies.
 });
 
-use exports::deltic::kitchen_sink::api::{
+use exports::polyengine::kitchen_sink::api::{
     Guest, GuestCounter, Level, Perms, Point, Shape,
 };
-use deltic::kitchen_sink::notify;
+use polyengine::kitchen_sink::notify;
 use wit_bindgen::rt::async_support::{FutureReader, StreamReader, StreamResult};
 
 struct Component;

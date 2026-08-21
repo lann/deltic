@@ -1,6 +1,6 @@
 // Trap and assertion machinery (definitions.py `Trap`, `trap`, `trap_if`).
 //
-// `Trap`'s canonical definition lives in `@deltic/protocol` since amendment
+// `Trap`'s canonical definition lives in `@polyengine/protocol` since amendment
 // A9 (it is an embedder-contract value and must be recognizable across
 // runtime copies, issue #83); it is re-exported here so every existing
 // `from "../cabi/trap.ts"` import path is unchanged. The protocol package is
@@ -11,9 +11,9 @@
 // invariants that callers are supposed to make unviolable. Tests treat only
 // `Trap` as an expected outcome.
 
-import { Trap } from "@deltic/protocol";
+import { Trap } from "@polyengine/protocol";
 
-export { isTrap, Trap } from "@deltic/protocol";
+export { isTrap, Trap } from "@polyengine/protocol";
 
 export function trap(message?: string): never {
   throw new Trap(message);

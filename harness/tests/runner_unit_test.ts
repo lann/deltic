@@ -222,7 +222,7 @@ Deno.test("trapMatches: core `unreachable` trap — all three engine spellings m
       "guest trapped: Unreachable code should not be executed",
     ),
     true,
-    "JSC (capitalized, so the substring fast path misses; covered by the short-form equivalents row — the wording residual observed on webkit-2342, deltic#11)",
+    "JSC (capitalized, so the substring fast path misses; covered by the short-form equivalents row — the wording residual observed on webkit-2342, polyengine#11)",
   );
 });
 

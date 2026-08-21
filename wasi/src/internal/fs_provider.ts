@@ -41,7 +41,7 @@
 // pre-existing escaping symlinks alike are refused with `not-permitted`;
 // OPFS has no symlinks, so the web backend is immune by construction.
 
-import { ComponentException, Stream, suspending } from "@deltic/runtime/embedder";
+import { ComponentException, Stream, suspending } from "@polyengine/runtime/embedder";
 import { FedInputStream, IoError, OutputStream, Pollable, SinkOutputStream } from "../io.ts";
 
 /** `wasi:filesystem/types.error-code` labels. 0.2 (enum): all of these,

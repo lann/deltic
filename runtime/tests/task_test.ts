@@ -217,7 +217,7 @@ Deno.test("reentrance: the entering set excludes the caller's own ancestry", () 
 });
 
 // ---------------------------------------------------------------------------
-// Synthetic per-instantiation root (plan v3 amendment 4 / deltic#101)
+// Synthetic per-instantiation root (plan v3 amendment 4 / polyengine#101)
 // ---------------------------------------------------------------------------
 
 Deno.test("root: a host entry locks the whole instantiation, not just the leaf", () => {
@@ -494,7 +494,7 @@ Deno.test("root: trap poisoning stays per-instance (documented divergence)", () 
   const a = new ComponentInstanceState(0, store);
   const b = new ComponentInstanceState(1, store);
   // A host entry into A that traps never reaches `leaveTo`: A stays poisoned
-  // forever. deltic deliberately keeps sibling instances usable (exec/
+  // forever. polyengine deliberately keeps sibling instances usable (exec/
   // boundary.ts `poison`), so the shared root is released explicitly.
   a.enterFrom(null);
   a.releaseSyntheticRootOnPoison();
@@ -815,7 +815,7 @@ Deno.test("tick: a trap under tick records the poison marker", async () => {
   // A trap escaping `thread.resume()` under `Store.tick` breaks the
   // enter/leave bracket (definitions.py `Store.tick`, line 597) — and must
   // also record the poison MARKER, which `Thread.resumeWith`'s quiet-retire
-  // and `dispatchableTail` read (deltic#145, #156).
+  // and `dispatchableTail` read (polyengine#145, #156).
   const store = new Store();
   const b = new ComponentInstanceState(0, store);
 
@@ -961,7 +961,7 @@ Deno.test("task: finishing all threads without resolving traps", () => {
 // ---------------------------------------------------------------------------
 
 Deno.test("scheduler: the default policy is deterministic FIFO", () => {
-  // Pin the policy rather than reading whatever DELTIC_SCHED_SEED happens to be:
+  // Pin the policy rather than reading whatever POLYENGINE_SCHED_SEED happens to be:
   // this test is about what FIFO *means*, and the suite is also run under
   // seeds to explore alternative schedules.
   schedulerSeedForTesting(null);

@@ -1,22 +1,22 @@
 // This runtime copy's identity (contracts/embedder-api.md §"Module identity
-// and @deltic/protocol", amendment A9; issue #83).
+// and @polyengine/protocol", amendment A9; issue #83).
 //
 // One module owns the copy's URL so every diagnostic composes the same
 // message, and so lowering sites deep in the value adapters can name the copy
 // without threading it through their signatures.
 //
 // `import.meta.url` is the identity: it is what distinguishes the source
-// checkout from a bundled `deltic-embedder.mjs`, and two bundles from each
+// checkout from a bundled `polyengine-embedder.mjs`, and two bundles from each
 // other. It is stable per module instance and needs no permissions (unlike
 // reading deno.json, which embedder paths must never do — no fs perms).
 
-import { copyCensus } from "@deltic/protocol";
+import { copyCensus } from "@polyengine/protocol";
 
 /** The URL of this copy of the runtime. Identity of the copy. */
 export const COPY_URL: string = import.meta.url;
 
 /**
- * The `@deltic/runtime` version this copy was built from, recorded in the copy
+ * The `@polyengine/runtime` version this copy was built from, recorded in the copy
  * registry alongside the URL.
  *
  * Hardcoded on purpose: embedder code paths run without filesystem
@@ -26,7 +26,7 @@ export const COPY_URL: string = import.meta.url;
  * INVARIANT: keep in sync with `version` in runtime/deno.json — pinned by
  * runtime/tests/embedder/cross_copy_test.ts.
  */
-export const RUNTIME_VERSION = "0.3.0";
+export const RUNTIME_VERSION = "0.1.0";
 
 /**
  * Compose a cross-copy diagnostic: what was foreign, which copy is speaking,
@@ -39,7 +39,7 @@ export const RUNTIME_VERSION = "0.3.0";
  */
 export function describeCrossCopy(what: string, remedy?: string): string {
   const census = copyCensus();
-  return `${what} was minted by a DIFFERENT deltic runtime copy and cannot ` +
+  return `${what} was minted by a DIFFERENT polyengine runtime copy and cannot ` +
     `be used through this one (this copy: ${COPY_URL}${
       census === "" ? "" : `; ${census}`
     }). Handles are stateful — their machinery lives in the copy that minted ` +

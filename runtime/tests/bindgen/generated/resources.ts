@@ -29,7 +29,7 @@ import type {
 type _EnsureEmbedderTypesUsed = [Stream<unknown>, Future<unknown>, StreamSource<unknown>, FutureSource<unknown>, ErrorContext, ComponentException, Trap];
 
 /** Canonical structural digest (docs/architecture.md §9). */
-export const WORLD_DIGEST = "sha256:c2444a79c689cb3d11a78206e1dfa9df58d06723535738941a65c3aaa67c994d";
+export const WORLD_DIGEST = "sha256:d72d1754bca4332fb3a5e21526872d28c0914f54253979e3bc8ab8e1e083b4d4";
 
 /** Verify a loaded plan against this world's expected digest before
 * trusting the typed facade below. Call at instantiate time, before
@@ -58,7 +58,7 @@ export declare class Counter {
 }
 
 export interface ResourcesExports {
-  "deltic:resources/counters": {
+  "polyengine:resources/counters": {
     Counter: typeof Counter;
     makeCounter(initial: bigint): Promise<Counter>;
     sumBoth(a: Counter, b: Counter): Promise<bigint>;

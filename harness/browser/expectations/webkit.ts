@@ -39,7 +39,7 @@
 //    defect: the same components run on V8 and SpiderMonkey. 111 further
 //    commands are CASCADE entries from those failed instantiations ("no
 //    current instance").
-//    RESOLVED UPSTREAM (measured 2026-08-09, deltic#11): webkit-2342
+//    RESOLVED UPSTREAM (measured 2026-08-09, polyengine#11): webkit-2342
 //    (playwright 1.63 alpha roll) ships multi-memory ENABLED BY DEFAULT —
 //    the lane reaches 1248/0 against it and 173 of this file's 175 deltas
 //    collapse, leaving only the two wording entries of finding 3. This
@@ -47,7 +47,7 @@
 //    the env route works — `JSC_useWasm=0` kills wasm — but the flag
 //    changes nothing). When the playwright pin reaches a webkit-2342+ roll,
 //    collapse this overlay to EMPTY; the stale-delta detector
-//    will insist. Details: https://github.com/lann/deltic/issues/11
+//    will insist. Details: https://github.com/polymorph-components/polyengine/issues/11
 // 3. Trap wording (JSC vs. V8) is no longer a lane delta. JSC says
 //    "Unreachable code should not be executed" for the core `unreachable`
 //    trap where the suite expects the wasmtime/V8 wording

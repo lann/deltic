@@ -4,7 +4,7 @@
 // alongside the poll-shaped `@0.2` track (sockets_02.ts). Vocabulary
 // (codec, validation, error mapping, WIT types): sockets_shared.ts.
 
-import { ComponentException, Stream, suspending } from "@deltic/runtime/embedder";
+import { ComponentException, Stream, suspending } from "@polyengine/runtime/embedder";
 import {
   type DatagramConn,
   dnsLookup,
@@ -631,7 +631,7 @@ export function sockets03(onCall: (call: string) => void): {
      * and a failed bind is a branded err with its real code
      * (address-in-use, …). Guests that link `listen` auto-select jspi
      * mode on JSPI engines; engines without JSPI would raise `NeedsJspi`
-     * here — currently moot everywhere deltic guests run (JSC lacks
+     * here — currently moot everywhere polyengine guests run (JSC lacks
      * multi-memory, and browsers have no sockets).
      *
      * The stream only ends on fatal errors — the listener dying — while

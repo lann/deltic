@@ -52,7 +52,7 @@ use wasmtime_environ::{EntityIndex, ModuleInternedTypeIndex, PrimaryMap, WasmVal
 /// direction (`task_return_type`, a `TypeTupleIndex` with no mapping into
 /// `plan.types`) was still open at v2 — see below.
 ///
-/// v3 (2026-08-10, contracts/plan-format.md "v3 amendments", deltic#89):
+/// v3 (2026-08-10, contracts/plan-format.md "v3 amendments", polyengine#89):
 /// closes both v2 gaps.
 ///   * `errorContextTables` — the `error-context-transfer` trampoline's table
 ///     arguments live in the `TypeComponentLocalErrorContextTableIndex` space
@@ -66,7 +66,7 @@ use wasmtime_environ::{EntityIndex, ModuleInternedTypeIndex, PrimaryMap, WasmVal
 /// and consumer in the same commit and bumping `formatVersion`") the bump is
 /// unconditional even though the change is additive.
 ///
-/// v4 (2026-08-17, deltic#13): additive — `exports[]` gained the `"module"`
+/// v4 (2026-08-17, polyengine#13): additive — `exports[]` gained the `"module"`
 /// kind (`Export::ModuleStatic`, a component exporting one of its own
 /// embedded core modules; previously a hard `unsupported` rejection).
 /// `Export::ModuleImport` remains rejected, now with a precise message.

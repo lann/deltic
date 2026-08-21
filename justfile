@@ -101,7 +101,7 @@ test-sockets-node:
 test-ct-runner: shim fixtures
     cd ct-runner && deno task test
 
-# The embedder-bundle release-asset gate (deltic-embedder.mjs:
+# The embedder-bundle release-asset gate (polyengine-embedder.mjs:
 # build + shape checks for tools/release-bundle/entry.ts).
 # `dual_copy_test.ts` rides here because the bundle IS the second runtime copy
 # (amendment A9 / issue #83): it is the only way to get two genuinely distinct
@@ -113,7 +113,7 @@ test-bundle: shim
 # The JSR publish checks (public-API type check, slow types, export and
 # import analyzability, config validation) — `deno task check` covers
 # none of them, so they only fired at publish time on main before this
-# gate. Needs the shim: @deltic/translator ships translator_shim.wasm
+# gate. Needs the shim: @polyengine/translator ships translator_shim.wasm
 # (statically imported by shim_asset_deno.ts). Registry-side failures
 # (scope auth, version conflicts) still only manifest on a real publish.
 # --allow-dirty because this is a PRE-commit gate (the dirty check
@@ -128,12 +128,12 @@ conformance:
     cd harness && deno task conformance
 
 # Scheduler-order sensitivity (docs/architecture.md §6) — spec-allowed
-# nondeterminism; FIFO when DELTIC_SCHED_SEED is unset.
+# nondeterminism; FIFO when POLYENGINE_SCHED_SEED is unset.
 # The affected suites re-run under seeded-shuffle scheduling.
 sched-seeds: shim fixtures corpus
-    cd runtime && DELTIC_SCHED_SEED=1 deno task test
-    cd runtime && DELTIC_SCHED_SEED=4242 deno task test
-    cd harness && DELTIC_SCHED_SEED=1 deno task conformance
+    cd runtime && POLYENGINE_SCHED_SEED=1 deno task test
+    cd runtime && POLYENGINE_SCHED_SEED=4242 deno task test
+    cd harness && POLYENGINE_SCHED_SEED=1 deno task conformance
 
 # ----- engine lanes -----------------------------------------------------------
 
@@ -204,7 +204,7 @@ smoke-opfs lane: shim fixtures
 # ----- consumer smokes + exams (polymorph checkouts; docs/consumers.md) -------
 
 # Translate all eight targets, then execute the suites.
-# polymorph-tls conformance under deltic (issue #18).
+# polymorph-tls conformance under polyengine (issue #18).
 # (--allow-env: tools/smoke-c0/common.ts reads POLYMORPH_ROOT at module
 # scope since the wosh rename; the leg tasks always had it via deno task.)
 smoke-tls: shim
@@ -224,17 +224,17 @@ bench-boundary *jco: shim
     #!/usr/bin/env bash
     set -euo pipefail
     (cd bench/boundary/guest && cargo build --release --target wasm32-wasip2)
-    deno run -A tools/release-bundle/build.ts --out bench/boundary/deltic-embedder.local.mjs
+    deno run -A tools/release-bundle/build.ts --out bench/boundary/polyengine-embedder.local.mjs
     if [ "{{jco}}" = "with-jco" ]; then
         cd bench/boundary
         [ -d node_modules ] || npm ci --no-audit --no-fund
         node jco-transpile.mjs transpile guest/target/wasm32-wasip2/release/boundary_bench_guest.wasm \
             --name bench -I async -o generated
         cd ../..
-        node bench/boundary/sweep.mjs deltic-embedder.local.mjs \
+        node bench/boundary/sweep.mjs polyengine-embedder.local.mjs \
             ../../target/wasm32-unknown-unknown/release/translator_shim.wasm --with-jco
     else
-        node bench/boundary/sweep.mjs deltic-embedder.local.mjs \
+        node bench/boundary/sweep.mjs polyengine-embedder.local.mjs \
             ../../target/wasm32-unknown-unknown/release/translator_shim.wasm
     fi
 
@@ -252,6 +252,6 @@ bench-boundary *jco: shim
 # the artifact every suite runs against, and the former separate "min"
 # variant is redundant — one shim, tested and shipped identically.
 release-artifacts: shim
-    cp target/wasm32-unknown-unknown/release/translator_shim.wasm deltic-translator-shim.wasm
-    deno run -A tools/release-bundle/build.ts --out deltic-embedder.mjs
-    sha256sum deltic-translator-shim.wasm deltic-embedder.mjs > SHA256SUMS
+    cp target/wasm32-unknown-unknown/release/translator_shim.wasm polyengine-translator-shim.wasm
+    deno run -A tools/release-bundle/build.ts --out polyengine-embedder.mjs
+    sha256sum polyengine-translator-shim.wasm polyengine-embedder.mjs > SHA256SUMS

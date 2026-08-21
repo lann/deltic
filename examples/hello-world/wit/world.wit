@@ -1,4 +1,4 @@
-package deltic:hello-example;
+package polyengine:hello-example;
 
 /// The smallest useful world: one exported function, no imports.
 /// `greet` takes and returns a string, which already exercises the

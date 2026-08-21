@@ -44,7 +44,7 @@ const componentWasm = await readIfPresent(
 // which is exactly our default FIFO policy; `Store.tick` (line 603) otherwise
 // picks with `random.choice`.
 //
-// `DELTIC_SCHED_SEED` deliberately explores schedules BEYOND that profile, so under
+// `POLYENGINE_SCHED_SEED` deliberately explores schedules BEYOND that profile, so under
 // a seed this guest can legitimately observe subtask 5 taking counter 4 and
 // execute its own `unreachable`. That is the component's profile-dependent
 // assumption failing, not an engine fault -- so these pins are scoped to the
@@ -53,14 +53,14 @@ const componentWasm = await readIfPresent(
 // under seeds.)
 const seeded = (() => {
   try {
-    return (Deno.env.get("DELTIC_SCHED_SEED") ?? "") !== "";
+    return (Deno.env.get("POLYENGINE_SCHED_SEED") ?? "") !== "";
   } catch {
     return false;
   }
 })();
 if (seeded) {
   console.warn(
-    "SKIP jspi handshake: DELTIC_SCHED_SEED explores schedules beyond the " +
+    "SKIP jspi handshake: POLYENGINE_SCHED_SEED explores schedules beyond the " +
       "deterministic profile this component's guest assumes",
   );
 }

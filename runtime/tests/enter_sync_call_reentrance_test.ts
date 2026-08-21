@@ -83,7 +83,7 @@ Deno.test("enter-sync-call: sibling cycle A -> C -> A traps", () => {
     true,
     `expected the reentrance trap, got: ${msg || "<no trap>"}`,
   );
-  // deltic#145: a TRANSIENT reentrance refusal (live-call overlap, nothing
+  // polyengine#145: a TRANSIENT reentrance refusal (live-call overlap, nothing
   // poisoned) must stay byte-identical — the poison-cause suffix is what
   // distinguishes the corpse from the crowd.
   assertEq(

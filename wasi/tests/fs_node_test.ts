@@ -10,7 +10,7 @@
 //   * ERROR SHAPES: 0.2 err payloads are BARE enum strings ("no-entry");
 //     0.3 payloads are variant records ({ kind: "no-entry" }).
 
-import { ComponentException } from "@deltic/runtime/embedder";
+import { ComponentException } from "@polyengine/runtime/embedder";
 import { filesystemNode } from "../src/filesystem_node.ts";
 import { FsIoError } from "../src/internal/fs_provider.ts";
 import { assertEq, assertThrows, assertTrue } from "./asserts.ts";
@@ -91,7 +91,7 @@ const NOFOLLOW: Flags = {};
 const RW: Flags = { read: true, write: true };
 
 function setup(): { root02: D02; root03: D03; dir: string } {
-  const dir = Deno.makeTempDirSync({ dir: "/tmp", prefix: "deltic-fs-node-" });
+  const dir = Deno.makeTempDirSync({ dir: "/tmp", prefix: "polyengine-fs-node-" });
   const { imports } = filesystemNode({ preopens: { "/": dir } });
   const p02 = imports["wasi:filesystem/preopens@0.2"] as {
     getDirectories(): [D02, string][];
@@ -270,7 +270,7 @@ Deno.test("fs-node 0.3: stream tuples and variant error shapes", async () => {
 
 Deno.test("fs-node: filesystem-error-code downcasts our stream errors only", () => {
   const { imports } = filesystemNode({
-    preopens: { "/": Deno.makeTempDirSync({ dir: "/tmp", prefix: "deltic-fs-node-" }) },
+    preopens: { "/": Deno.makeTempDirSync({ dir: "/tmp", prefix: "polyengine-fs-node-" }) },
   });
   const types = imports["wasi:filesystem/types@0.2"] as {
     filesystemErrorCode(err: unknown): string | undefined;
@@ -304,7 +304,7 @@ Deno.test("fs-node: rejects opening through a guest-created absolute symlink", (
 
 Deno.test("fs-node: rejects writes and creation through an escaping symlink", () => {
   const { root02, dir } = setup();
-  const outside = Deno.makeTempDirSync({ dir: "/tmp", prefix: "deltic-fs-outside-" });
+  const outside = Deno.makeTempDirSync({ dir: "/tmp", prefix: "polyengine-fs-outside-" });
   root02.symlinkAt(outside, "out");
   assertEq(
     errPayload(() => root02.openAt(FOLLOW, "out/new.txt", { create: true }, RW)),
@@ -347,7 +347,7 @@ Deno.test("fs-node: confines but permits symlinks resolving inside the sandbox",
 
 Deno.test("fs-node: rejects opening or descending an escaping directory symlink", () => {
   const { root02 } = setup();
-  const outside = Deno.makeTempDirSync({ dir: "/tmp", prefix: "deltic-fs-outside-" });
+  const outside = Deno.makeTempDirSync({ dir: "/tmp", prefix: "polyengine-fs-outside-" });
   Deno.writeTextFileSync(`${outside}/secret.txt`, "secret");
   root02.symlinkAt(outside, "outdir");
   // Directory opens return a path handle before openSync — they get the
@@ -399,7 +399,7 @@ Deno.test("fs-node 0.3: rejects escaping symlink resolution with the variant sha
 
 Deno.test("fs-node: rejects a '..' chain laundered through an escaping symlink", () => {
   const { root02 } = setup();
-  const outside = Deno.makeTempDirSync({ dir: "/tmp", prefix: "deltic-fs-outside-" });
+  const outside = Deno.makeTempDirSync({ dir: "/tmp", prefix: "polyengine-fs-outside-" });
   Deno.mkdirSync(`${outside}/inner`);
   Deno.writeTextFileSync(`${outside}/secret.txt`, "secret payload");
   root02.symlinkAt(`${outside}/inner`, "esc"); // creation stays permissive
@@ -441,7 +441,7 @@ Deno.test("fs-node: rejects a '..' chain laundered through an escaping symlink",
 
 Deno.test("fs-node: rejects creating through a dangling '..'-laundered symlink", () => {
   const { root02 } = setup();
-  const outside = Deno.makeTempDirSync({ dir: "/tmp", prefix: "deltic-fs-outside-" });
+  const outside = Deno.makeTempDirSync({ dir: "/tmp", prefix: "polyengine-fs-outside-" });
   Deno.mkdirSync(`${outside}/inner`);
   root02.symlinkAt(`${outside}/inner`, "esc");
   root02.symlinkAt("esc/../planted.txt", "D"); // dangles, outside
@@ -471,7 +471,7 @@ Deno.test("fs-node: confines but permits an in-sandbox '..' link target", () => 
 
 Deno.test("fs-node: rejects listing and descending a laundered escaping directory link", () => {
   const { root02 } = setup();
-  const outside = Deno.makeTempDirSync({ dir: "/tmp", prefix: "deltic-fs-outside-" });
+  const outside = Deno.makeTempDirSync({ dir: "/tmp", prefix: "polyengine-fs-outside-" });
   Deno.mkdirSync(`${outside}/target`);
   Deno.writeTextFileSync(`${outside}/target/f.txt`, "x");
   root02.symlinkAt(`${outside}/target`, "esc");
@@ -489,7 +489,7 @@ Deno.test("fs-node: rejects listing and descending a laundered escaping director
 
 Deno.test("fs-node: confines symlink targets that are bare '..' components", () => {
   const { root02 } = setup();
-  const outside = Deno.makeTempDirSync({ dir: "/tmp", prefix: "deltic-fs-outside-" });
+  const outside = Deno.makeTempDirSync({ dir: "/tmp", prefix: "polyengine-fs-outside-" });
   Deno.mkdirSync(`${outside}/inner`);
   root02.createDirectoryAt("sub");
   root02.symlinkAt(`${outside}/inner`, "esc");

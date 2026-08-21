@@ -23,7 +23,7 @@ export const XFAIL: XfailEntry[] = [
   // these from "translator-shim gaps" to pin-blocked: the rejecting decoder
   // is wasmparser 0.252 inside wasmtime-environ 47.0.3, not shim code —
   // the error strings below do not occur in crates/translator-shim).
-  // Tracked by https://github.com/lann/deltic/issues/152. The former
+  // Tracked by https://github.com/polymorph-components/polyengine/issues/152. The former
   // binary.json:1421 entry (module exports) is GONE: plan v4 carries
   // core-module exports (#13). ---
   {
@@ -33,8 +33,8 @@ export const XFAIL: XfailEntry[] = [
       "translator error [validation]: invalid boolean value — wasmparser " +
       "0.252 misparses the 🧵 thread built-in encodings re-aritied in the " +
       "0.253-0.255 window; dual-classed with deferred threads " +
-      "(https://github.com/lann/deltic/issues/12), pin exit tracked by " +
-      "https://github.com/lann/deltic/issues/152 " +
+      "(https://github.com/polymorph-components/polyengine/issues/12), pin exit tracked by " +
+      "https://github.com/polymorph-components/polyengine/issues/152 " +
       "(pending-capability: wasmparser/wast pin alignment)",
   },
   {
@@ -45,7 +45,7 @@ export const XFAIL: XfailEntry[] = [
       "option — the 0x2 name option is the 🔗 canonical-interface-names " +
       "encoding (canonversion/versionsuffix), which postdates wasmparser " +
       "0.252 (contracts/embedder-api.md forward note); pin exit tracked by " +
-      "https://github.com/lann/deltic/issues/152 " +
+      "https://github.com/polymorph-components/polyengine/issues/152 " +
       "(pending-capability: wasmparser/wast pin alignment)",
   },
   // --- validation/attributes.json: same 0x2 name-option pin drift as
@@ -56,7 +56,7 @@ export const XFAIL: XfailEntry[] = [
     reason:
       "translator error [validation]: invalid leading byte (0x2) for name " +
       "option — same 🔗 canonical-names pin-drift class as " +
-      "binary/binary.json:1194, https://github.com/lann/deltic/issues/152 " +
+      "binary/binary.json:1194, https://github.com/polymorph-components/polyengine/issues/152 " +
       "(pending-capability: wasmparser/wast pin alignment)",
   },
   {
@@ -69,7 +69,7 @@ export const XFAIL: XfailEntry[] = [
   // subtask.*, stream.*, future.*) to assert they trap from a post-return
   // function. The M2 task core shipped; the SURVIVING refusal is
   // 'thread-index' — the 🧵 shared-everything-threads class, deferred by
-  // https://github.com/lann/deltic/issues/12 — so the component still declines at instantiation and all 28
+  // https://github.com/polymorph-components/polyengine/issues/12 — so the component still declines at instantiation and all 28
   // assert_traps cascade off 'no current instance'. (Reason strings
   // rewritten post-M2-exit-review: they previously named the shipped task
   // core, which would misdirect triage.)
@@ -79,143 +79,143 @@ export const XFAIL: XfailEntry[] = [
     reason:
       "UnsupportedFeatureError: component requires host trampoline " +
       "'thread-index' — post-return.wast:4 declares the full async built-in " +
-      "surface incl. 🧵 thread.* built-ins; deferred-threads class, https://github.com/lann/deltic/issues/12 " +
+      "surface incl. 🧵 thread.* built-ins; deferred-threads class, https://github.com/polymorph-components/polyengine/issues/12 " +
       "(pending-capability: shared-everything threads)",
   },
   {
     file: "values/post-return.json",
     line: 204,
-    reason: "same 🧵 thread-index (deferred threads, https://github.com/lann/deltic/issues/12) dependency as line 202",
+    reason: "same 🧵 thread-index (deferred threads, https://github.com/polymorph-components/polyengine/issues/12) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 206,
-    reason: "same 🧵 thread-index (deferred threads, https://github.com/lann/deltic/issues/12) dependency as line 202",
+    reason: "same 🧵 thread-index (deferred threads, https://github.com/polymorph-components/polyengine/issues/12) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 208,
-    reason: "same 🧵 thread-index (deferred threads, https://github.com/lann/deltic/issues/12) dependency as line 202",
+    reason: "same 🧵 thread-index (deferred threads, https://github.com/polymorph-components/polyengine/issues/12) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 210,
-    reason: "same 🧵 thread-index (deferred threads, https://github.com/lann/deltic/issues/12) dependency as line 202",
+    reason: "same 🧵 thread-index (deferred threads, https://github.com/polymorph-components/polyengine/issues/12) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 212,
-    reason: "same 🧵 thread-index (deferred threads, https://github.com/lann/deltic/issues/12) dependency as line 202",
+    reason: "same 🧵 thread-index (deferred threads, https://github.com/polymorph-components/polyengine/issues/12) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 214,
-    reason: "same 🧵 thread-index (deferred threads, https://github.com/lann/deltic/issues/12) dependency as line 202",
+    reason: "same 🧵 thread-index (deferred threads, https://github.com/polymorph-components/polyengine/issues/12) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 216,
-    reason: "same 🧵 thread-index (deferred threads, https://github.com/lann/deltic/issues/12) dependency as line 202",
+    reason: "same 🧵 thread-index (deferred threads, https://github.com/polymorph-components/polyengine/issues/12) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 218,
-    reason: "same 🧵 thread-index (deferred threads, https://github.com/lann/deltic/issues/12) dependency as line 202",
+    reason: "same 🧵 thread-index (deferred threads, https://github.com/polymorph-components/polyengine/issues/12) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 220,
-    reason: "same 🧵 thread-index (deferred threads, https://github.com/lann/deltic/issues/12) dependency as line 202",
+    reason: "same 🧵 thread-index (deferred threads, https://github.com/polymorph-components/polyengine/issues/12) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 222,
-    reason: "same 🧵 thread-index (deferred threads, https://github.com/lann/deltic/issues/12) dependency as line 202",
+    reason: "same 🧵 thread-index (deferred threads, https://github.com/polymorph-components/polyengine/issues/12) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 224,
-    reason: "same 🧵 thread-index (deferred threads, https://github.com/lann/deltic/issues/12) dependency as line 202",
+    reason: "same 🧵 thread-index (deferred threads, https://github.com/polymorph-components/polyengine/issues/12) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 226,
-    reason: "same 🧵 thread-index (deferred threads, https://github.com/lann/deltic/issues/12) dependency as line 202",
+    reason: "same 🧵 thread-index (deferred threads, https://github.com/polymorph-components/polyengine/issues/12) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 228,
-    reason: "same 🧵 thread-index (deferred threads, https://github.com/lann/deltic/issues/12) dependency as line 202",
+    reason: "same 🧵 thread-index (deferred threads, https://github.com/polymorph-components/polyengine/issues/12) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 230,
-    reason: "same 🧵 thread-index (deferred threads, https://github.com/lann/deltic/issues/12) dependency as line 202",
+    reason: "same 🧵 thread-index (deferred threads, https://github.com/polymorph-components/polyengine/issues/12) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 232,
-    reason: "same 🧵 thread-index (deferred threads, https://github.com/lann/deltic/issues/12) dependency as line 202",
+    reason: "same 🧵 thread-index (deferred threads, https://github.com/polymorph-components/polyengine/issues/12) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 234,
-    reason: "same 🧵 thread-index (deferred threads, https://github.com/lann/deltic/issues/12) dependency as line 202",
+    reason: "same 🧵 thread-index (deferred threads, https://github.com/polymorph-components/polyengine/issues/12) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 236,
-    reason: "same 🧵 thread-index (deferred threads, https://github.com/lann/deltic/issues/12) dependency as line 202",
+    reason: "same 🧵 thread-index (deferred threads, https://github.com/polymorph-components/polyengine/issues/12) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 238,
-    reason: "same 🧵 thread-index (deferred threads, https://github.com/lann/deltic/issues/12) dependency as line 202",
+    reason: "same 🧵 thread-index (deferred threads, https://github.com/polymorph-components/polyengine/issues/12) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 240,
-    reason: "same 🧵 thread-index (deferred threads, https://github.com/lann/deltic/issues/12) dependency as line 202",
+    reason: "same 🧵 thread-index (deferred threads, https://github.com/polymorph-components/polyengine/issues/12) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 242,
-    reason: "same 🧵 thread-index (deferred threads, https://github.com/lann/deltic/issues/12) dependency as line 202",
+    reason: "same 🧵 thread-index (deferred threads, https://github.com/polymorph-components/polyengine/issues/12) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 244,
-    reason: "same 🧵 thread-index (deferred threads, https://github.com/lann/deltic/issues/12) dependency as line 202",
+    reason: "same 🧵 thread-index (deferred threads, https://github.com/polymorph-components/polyengine/issues/12) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 246,
-    reason: "same 🧵 thread-index (deferred threads, https://github.com/lann/deltic/issues/12) dependency as line 202",
+    reason: "same 🧵 thread-index (deferred threads, https://github.com/polymorph-components/polyengine/issues/12) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 248,
-    reason: "same 🧵 thread-index (deferred threads, https://github.com/lann/deltic/issues/12) dependency as line 202",
+    reason: "same 🧵 thread-index (deferred threads, https://github.com/polymorph-components/polyengine/issues/12) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 250,
-    reason: "same 🧵 thread-index (deferred threads, https://github.com/lann/deltic/issues/12) dependency as line 202",
+    reason: "same 🧵 thread-index (deferred threads, https://github.com/polymorph-components/polyengine/issues/12) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 252,
-    reason: "same 🧵 thread-index (deferred threads, https://github.com/lann/deltic/issues/12) dependency as line 202",
+    reason: "same 🧵 thread-index (deferred threads, https://github.com/polymorph-components/polyengine/issues/12) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 254,
-    reason: "same 🧵 thread-index (deferred threads, https://github.com/lann/deltic/issues/12) dependency as line 202",
+    reason: "same 🧵 thread-index (deferred threads, https://github.com/polymorph-components/polyengine/issues/12) dependency as line 202",
   },
   {
     file: "values/post-return.json",
     line: 256,
-    reason: "same 🧵 thread-index (deferred threads, https://github.com/lann/deltic/issues/12) dependency as line 202",
+    reason: "same 🧵 thread-index (deferred threads, https://github.com/polymorph-components/polyengine/issues/12) dependency as line 202",
   },
   // post-return.wast:260 uses `context.get`/`context.set`, which wasmtime
   // lowers to `CoreDef::UnsafeIntrinsic` — a shape plan v0 has no wire form
@@ -296,7 +296,7 @@ export const XFAIL: XfailEntry[] = [
   // pin 🧵 sync-call-blocking semantics and are built entirely from thread
   // built-ins (thread.new-indirect / resume-later / suspend-then-resume /
   // suspend) — the deferred-threads class,
-  // https://github.com/lann/deltic/issues/12 — and their components fail
+  // https://github.com/polymorph-components/polyengine/issues/12 — and their components fail
   // TRANSLATION first, in the wasmparser-pin-drift class documented at
   // trap-if-block-and-sync.json:5: wasmparser 0.252 predates the
   // 0.253-0.255 re-arity of the thread built-in opcodes (0x28
@@ -312,7 +312,7 @@ export const XFAIL: XfailEntry[] = [
       "json:5): the $Tester definition's canonical section uses 🧵 " +
       "thread.new-indirect/resume-later/suspend-then-resume encodings that " +
       "wasmparser 0.252 misparses; deferred-threads anyway, " +
-      "https://github.com/lann/deltic/issues/12 " +
+      "https://github.com/polymorph-components/polyengine/issues/12 " +
       "(pending-capability: wasmparser/wast pin alignment)",
   },
   {
@@ -353,7 +353,7 @@ export const XFAIL: XfailEntry[] = [
       "(class of trap-if-block-and-sync.json:5): 0x28 is 🧵 " +
       "thread.resume-later in the wast-255 encoding but has no production " +
       "in wasmparser 0.252; deferred-threads anyway, " +
-      "https://github.com/lann/deltic/issues/12 " +
+      "https://github.com/polymorph-components/polyengine/issues/12 " +
       "(pending-capability: wasmparser/wast pin alignment)",
   },
   {
@@ -389,7 +389,7 @@ export const XFAIL: XfailEntry[] = [
     reason:
       "cascade of the line-124 component declining at instantiation " +
       "(🧵 host trampoline, deferred-threads " +
-      "https://github.com/lann/deltic/issues/12, classified " +
+      "https://github.com/polymorph-components/polyengine/issues/12, classified " +
       "pending-runtime, the values/post-return.json precedent): no current " +
       "instance exists for this command",
   },
@@ -405,7 +405,7 @@ export const XFAIL: XfailEntry[] = [
       "translator error [validation]: invalid leading byte (0x28) for " +
       "canonical function lift (at offset 0x30c) — same wasmparser " +
       "pin-drift class as during-sync-call-no-exclusive-resume.json:8; " +
-      "deferred-threads anyway, https://github.com/lann/deltic/issues/12 " +
+      "deferred-threads anyway, https://github.com/polymorph-components/polyengine/issues/12 " +
       "(pending-capability: wasmparser/wast pin alignment)",
   },
   {
@@ -428,7 +428,7 @@ export const XFAIL: XfailEntry[] = [
       "0x291) — same wasmparser pin-drift class: 0.252 reads no cancel? " +
       "byte for 🧵 thread.suspend (0x29), walks the canonical section out " +
       "of alignment and off the end; deferred-threads anyway, " +
-      "https://github.com/lann/deltic/issues/12 " +
+      "https://github.com/polymorph-components/polyengine/issues/12 " +
       "(pending-capability: wasmparser/wast pin alignment)",
   },
   {
@@ -454,7 +454,7 @@ export const XFAIL: XfailEntry[] = [
   // --- async/same-component-stream-future.json: root cause: STREAMS ---
   // --- async/sync-barges-in.json: GREEN under jspi auto-detection (M2
   // flip); entry pruned. ---
-  // --- async/sync-streams.json: GREEN. Since #43 deltic implements
+  // --- async/sync-streams.json: GREEN. Since #43 polyengine implements
   // wasmtime's model: the entry gate is HELD for the whole core invocation
   // (a resolved producer blocked mid-sync-write keeps gating), and the
   // async-lowered call's initial status is decided only after the callee
@@ -463,7 +463,7 @@ export const XFAIL: XfailEntry[] = [
   // 2026-08-10 (issue #43): the test's hard STARTED assertion is
   // schedule-dependent — an upstream test defect overfitting wasmtime's
   // deferred-entry policy (pristine definitions.py answers STARTING) —
-  // and deltic's drain policy satisfies it as written under any seed. The
+  // and polyengine's drain policy satisfies it as written under any seed. The
   // former release-at-BLOCK divergence is gone. (Before the M2 jspi flip
   // this file was xfailed outright.)
   // entry pruned. ---
@@ -488,7 +488,7 @@ export const XFAIL: XfailEntry[] = [
       "downgrading testgen to `wast` 252 is NOT a fix (verified: it fails " +
       "to parse 44 of the 59 suite files, which use the newer " +
       "`(memory (core memory ...))` text syntax). Note the file's canonical " +
-      "functions are all deferred thread built-ins anyway (https://github.com/lann/deltic/issues/12) " +
+      "functions are all deferred thread built-ins anyway (https://github.com/polymorph-components/polyengine/issues/12) " +
       "(pending-capability: wasmparser/wast pin alignment)",
   },
   {

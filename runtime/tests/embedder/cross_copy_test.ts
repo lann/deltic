@@ -1,5 +1,5 @@
 // Cross-copy identity: the fast unit half of amendment A9's pin
-// (contracts/embedder-api.md §"Module identity and @deltic/protocol"; issue
+// (contracts/embedder-api.md §"Module identity and @polyengine/protocol"; issue
 // #83). The end-to-end half — two REAL runtime copies, source + bundle — is
 // tools/release-bundle/dual_copy_test.ts, which needs a bundle build; this
 // file keeps the semantics covered inside `just test-runtime`.
@@ -68,35 +68,35 @@ Deno.test("A9: RUNTIME_VERSION matches runtime/deno.json (no fs read at runtime)
 Deno.test("A9: a foreign Stream is refused at lowering, not pumped as an iterable", () => {
   // The silent path A9 bans: without the brand check this object would fall
   // through to producer adaptation.
-  const src = foreign("deltic.stream/1", {
+  const src = foreign("polyengine.stream/1", {
     [Symbol.asyncIterator]: () => ({ next: () => Promise.resolve({ done: true }) }),
   });
   const e = caught(() => lowerStreamSource(src as never, CODEC as never));
   assertTrue(e instanceof TypeError, `TypeError, got ${e}`);
   const m = String((e as Error).message);
-  assertTrue(m.includes("DIFFERENT deltic runtime copy"), m);
+  assertTrue(m.includes("DIFFERENT polyengine runtime copy"), m);
   assertTrue(m.includes(COPY_URL), "names this copy");
   assertTrue(m.includes("src.readable()"), "names the by-value remediation");
 });
 
 Deno.test("A9: a foreign Future is refused, not silently adopted as a thenable", () => {
-  const src = foreign("deltic.future/1", {
+  const src = foreign("polyengine.future/1", {
     then: (ok: (v: number) => void) => ok(1),
   });
   const e = caught(() => lowerFutureSource(src as never, CODEC as never));
   assertTrue(e instanceof TypeError, `TypeError, got ${e}`);
   const m = String((e as Error).message);
-  assertTrue(m.includes("DIFFERENT deltic runtime copy"), m);
+  assertTrue(m.includes("DIFFERENT polyengine runtime copy"), m);
   assertTrue(m.includes("Promise.resolve(f)"), "names the by-value remediation");
 });
 
 Deno.test("A9: a foreign error-context is named cross-copy, not 'expected an ErrorContext'", () => {
-  const v = foreign("deltic.errorContext/1", { message: "boom" });
+  const v = foreign("polyengine.errorContext/1", { message: "boom" });
   const e = caught(() =>
     fromHost(v, { kind: "error-context" } as never, { where: "export 'f'" } as never)
   );
   const m = String((e as Error).message);
-  assertTrue(m.includes("DIFFERENT deltic runtime copy"), m);
+  assertTrue(m.includes("DIFFERENT polyengine runtime copy"), m);
   assertTrue(!m.includes("expected an ErrorContext"), m);
 });
 
@@ -111,7 +111,7 @@ Deno.test("A9: a foreign resource wrapper is named cross-copy, not 'not a resour
   // Same brand KEY, a foreign copy's state object (whose SHAPE we must never
   // read — the A9 table pins only the key).
   const w = new GuestResource();
-  (w as unknown as Record<symbol, unknown>)[Symbol.for("deltic.resourceState/1")] = {
+  (w as unknown as Record<symbol, unknown>)[Symbol.for("polyengine.resourceState/1")] = {
     copyUrl: "file:///some/other/copy/mod.ts",
     rep: 7,
     valid: true,
@@ -121,7 +121,7 @@ Deno.test("A9: a foreign resource wrapper is named cross-copy, not 'not a resour
   const e = caught(() => takeRep(w, false, "export 'f'"));
   const m = String((e as Error).message);
   assertEq((e as Error).name, "InvalidHandleError");
-  assertTrue(m.includes("DIFFERENT deltic runtime copy"), m);
+  assertTrue(m.includes("DIFFERENT polyengine runtime copy"), m);
   assertTrue(!m.includes("not a resource handle"), m);
   assertTrue(!m.includes("no longer valid"), m);
 });
@@ -156,17 +156,17 @@ Deno.test("A9: the census is empty for a single-copy graph and names both when n
   });
   try {
     const c = copyCensus();
-    assertTrue(c.startsWith("2 deltic copies loaded: "), c);
+    assertTrue(c.startsWith("2 polyengine copies loaded: "), c);
     assertTrue(c.includes(COPY_URL) && c.includes("file:///fake/second/copy.mjs"), c);
     // And the cross-copy messages pick it up.
     const e = caught(() =>
-      lowerStreamSource(foreign("deltic.stream/1") as never, CODEC as never)
+      lowerStreamSource(foreign("polyengine.stream/1") as never, CODEC as never)
     );
     assertTrue(String((e as Error).message).includes("file:///fake/second/copy.mjs"));
   } finally {
     // Leave the census clean for the rest of the suite.
     const copies = (globalThis as unknown as Record<symbol, unknown[]>)[
-      Symbol.for("deltic.runtimeCopies/1")
+      Symbol.for("polyengine.runtimeCopies/1")
     ];
     copies.length = copies.findIndex((c) =>
       (c as { url: string }).url === "file:///fake/second/copy.mjs"

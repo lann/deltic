@@ -12,7 +12,7 @@
 //
 // The reference's `resume()` drives a chain of `switch_to` handoffs
 // (`suspend_then_resume` and friends, lines 408-437). Those are the 🧵
-// shared-everything-threads built-ins, which https://github.com/lann/deltic/issues/12 defers along with
+// shared-everything-threads built-ins, which https://github.com/polymorph-components/polyengine/issues/12 defers along with
 // memory64; `resume()` here therefore handles a single thread, and the
 // switch-to variants are absent rather than approximated.
 

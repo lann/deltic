@@ -320,7 +320,7 @@ async function main(): Promise<void> {
     const nodeOs = (globalThis as unknown as {
       process: { getBuiltinModule: (n: string) => unknown };
     }).process.getBuiltinModule("node:os") as { tmpdir(): string };
-    const dir = nodeFs.mkdtempSync(`${nodeOs.tmpdir()}/deltic-fs-smoke-`);
+    const dir = nodeFs.mkdtempSync(`${nodeOs.tmpdir()}/polyengine-fs-smoke-`);
     try {
       const { imports } = filesystemNode({ preopens: { "/": dir } });
       const [[root]] = (imports["wasi:filesystem/preopens@0.2"] as {

@@ -1,5 +1,5 @@
 // THE dual-copy pin (contracts/embedder-api.md §"Module identity and
-// @deltic/protocol", amendment A9; issue #83).
+// @polyengine/protocol", amendment A9; issue #83).
 //
 // Two GENUINELY distinct runtime copies in one process:
 //
@@ -91,7 +91,7 @@ Deno.test({
     // registry symbol), which is the mechanism the whole amendment rests on.
     assertEq(B.runtimeCopies().length, copies.length, "one shared registry");
     const census = copyCensus();
-    assert(census.startsWith(`${copies.length} deltic copies loaded: `), census);
+    assert(census.startsWith(`${copies.length} polyengine copies loaded: `), census);
 
     // ---- 2. copy B's ComponentException is a ComponentException to copy A ------------------
     const translator = await Translator.create(await Deno.readFile(TRANSLATOR));
@@ -139,15 +139,15 @@ Deno.test({
     }
     assert(refusal instanceof TypeError, `expected a TypeError, got ${refusal}`);
     const m = String((refusal as Error).message);
-    assert(m.includes("DIFFERENT deltic runtime copy"), m);
+    assert(m.includes("DIFFERENT polyengine runtime copy"), m);
     assert(m.includes("src.readable()"), `names the by-value remedy: ${m}`);
     for (const u of urls) assert(m.includes(u), `census names ${u}: ${m}`);
 
     // ---- 5. a hand-rolled brand is a ComponentException to copy A ----------------
-    // The zero-import host-module path: no deltic import anywhere.
+    // The zero-import host-module path: no polyengine import anywhere.
     const viaHandRolled = await withImport(() => {
       throw Object.assign(new Error("x"), {
-        [Symbol.for("deltic.witError/1")]: true,
+        [Symbol.for("polyengine.witError/1")]: true,
         payload: "hand-rolled",
       });
     });
@@ -169,7 +169,7 @@ Deno.test({
     }
     const tm = String((trapped as Error)?.message);
     assert(tm.includes("unbranded throw"), tm);
-    assert(tm.includes("deltic copies loaded"), `census hint present: ${tm}`);
+    assert(tm.includes("polyengine copies loaded"), `census hint present: ${tm}`);
     assert(tm.includes("issue #83"), tm);
   },
 });

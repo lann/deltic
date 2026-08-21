@@ -1,12 +1,12 @@
 // Builds the consumer-facing embedder bundle (see ./entry.ts) — the
-// `deltic-embedder.mjs` release asset. Same emission mechanism as the
+// `polyengine-embedder.mjs` release asset. Same emission mechanism as the
 // browser lanes (tools/browser/bundle.ts): `deno bundle --platform browser`,
-// which resolves the workspace's `@deltic/*` bare specifiers natively and
+// which resolves the workspace's `@polyengine/*` bare specifiers natively and
 // fails on `node:` residues (the runtime is platform-neutral by contract,
 // docs/architecture.md §4.3).
 //
 // Usage: deno run -A tools/release-bundle/build.ts [--out <path>]
-//        (default: tools/release-bundle/dist/deltic-embedder.mjs, gitignored)
+//        (default: tools/release-bundle/dist/polyengine-embedder.mjs, gitignored)
 
 import { dirname, fromFileUrl, join, normalize } from "jsr:@std/path@1";
 
@@ -16,7 +16,7 @@ const repoRoot = normalize(
 
 export async function buildBundle(out?: string): Promise<string> {
   const outPath = out ??
-    join(repoRoot, "tools", "release-bundle", "dist", "deltic-embedder.mjs");
+    join(repoRoot, "tools", "release-bundle", "dist", "polyengine-embedder.mjs");
   await Deno.mkdir(dirname(outPath), { recursive: true });
   const cmd = new Deno.Command(Deno.execPath(), {
     args: [

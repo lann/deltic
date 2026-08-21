@@ -4,7 +4,7 @@
 // C0 finding D-2). This is the test the mission dispatch names explicitly.
 
 import { assertEq, assertTrue } from "./asserts.ts";
-import { ImportResolver } from "@deltic/runtime/embedder";
+import { ImportResolver } from "@polyengine/runtime/embedder";
 import { wasi } from "../src/mod.ts";
 
 Deno.test("D-2: the one wasi() @0.2 provider serves 0.2.6 / 0.2.9 / 0.2.12", () => {

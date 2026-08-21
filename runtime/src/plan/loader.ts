@@ -62,10 +62,10 @@ export class TranslateError extends Error {
 /**
  * The single formatVersion this executor understands.
  *
- * v4 (2026-08-17, deltic#13): `exports[]` gained the `"module"` kind — a
+ * v4 (2026-08-17, polyengine#13): `exports[]` gained the `"module"` kind — a
  * component exporting one of its own embedded core modules, surfaced as the
  * already-compiled `WebAssembly.Module`.
- * v3 (2026-08-10, deltic#89): `errorContextTables` — the index space the
+ * v3 (2026-08-10, polyengine#89): `errorContextTables` — the index space the
  * `error-context-transfer` trampoline actually uses (it was resolved through
  * the *resource*-table mapping before, a different space) — and
  * `task-return`'s `resultType` / raw `results` split, which lets a FACT

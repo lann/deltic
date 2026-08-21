@@ -24,8 +24,8 @@
 // embedder tests.
 
 import { assertEq, assertTrue } from "./asserts.ts";
-import { Translator } from "@deltic/runtime/shim";
-import { type Future, instantiate } from "@deltic/runtime/embedder";
+import { Translator } from "@polyengine/runtime/shim";
+import { type Future, instantiate } from "@polyengine/runtime/embedder";
 import { sockets } from "../src/sockets.ts";
 
 const FIXTURE = new URL(

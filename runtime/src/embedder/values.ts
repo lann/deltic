@@ -20,7 +20,7 @@
 
 import type { ComponentValue, ValType } from "../cabi/types.ts";
 import { despecialize } from "../cabi/types.ts";
-import { ERROR_CONTEXT, hasBrand } from "@deltic/protocol";
+import { ERROR_CONTEXT, hasBrand } from "@polyengine/protocol";
 import { describeCrossCopy } from "./copy.ts";
 import { ErrorContext as InternalErrorContext } from "../task/mod.ts";
 import { camelCase } from "./casing.ts";

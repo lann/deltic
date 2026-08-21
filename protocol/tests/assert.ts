@@ -1,4 +1,4 @@
-// Minimal assertions, local on purpose: `@deltic/protocol` is dependency-free
+// Minimal assertions, local on purpose: `@polyengine/protocol` is dependency-free
 // by contract (contracts/embedder-api.md §"Module identity"), and that is
 // worth keeping true of its test graph too — a jsr dependency here would show
 // up in the workspace lockfile for a package whose whole point is that it

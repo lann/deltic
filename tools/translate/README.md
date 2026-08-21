@@ -6,7 +6,7 @@ ships the translator (~0.5 MB gzip of wasm). The deploy set becomes:
 ```
 component.wasm          # unchanged
 component.plan.json     # the translation envelope: plan + FACT adapters
-your host + @deltic/runtime
+your host + @polyengine/runtime
 ```
 
 ## Translate
@@ -22,7 +22,7 @@ translator build other than the repo's.)
 ## Deploy host
 
 ```ts
-import { artifactsFromEnvelope, instantiate } from "@deltic/runtime/embedder";
+import { artifactsFromEnvelope, instantiate } from "@polyengine/runtime/embedder";
 
 const [envelope, componentBytes] = await Promise.all([
   fetch("/app.component.plan.json").then((r) => r.text()),
@@ -45,6 +45,6 @@ instantiation**, pinned by `translate_test.ts`.
 Components that arrive dynamically (plugin systems) can't pre-translate:
 use `instantiate({ componentBytes, translator }, …)` (embedder-api A3)
 with the translator asset, and let the runtime's artifact cache
-(`@deltic/runtime/cache`) amortize repeat visits. The full delivery
+(`@polyengine/runtime/cache`) amortize repeat visits. The full delivery
 decision tree is in the design note on
-[#16](https://github.com/lann/deltic/issues/16).
+[#16](https://github.com/polymorph-components/polyengine/issues/16).

@@ -1,6 +1,6 @@
 // Run the full boundary sweep and print the comparison table. Invoked by
 // `just bench-boundary [with-jco]` with the bundle + translator paths;
-// lanes: deltic on plain node (callback + jspi) and deno, plus jco under
+// lanes: polyengine on plain node (callback + jspi) and deno, plus jco under
 // node when the npm tree + transpile are present (with-jco).
 //
 //   node sweep.mjs <bundle.mjs> <translator.wasm> [--with-jco]
@@ -17,7 +17,7 @@ const rows = [];
 // move a payload once via the embedder's Stream rendezvous, so what's
 // measured is bytes/s. `chunks * size` is picked per size so a timed run
 // lands in the tens-of-ms range (calibrated on the dev box; see
-// README.md). deltic drivers only — jco's p3 stream support isn't under
+// README.md). polyengine drivers only — jco's p3 stream support isn't under
 // test here.
 const STREAM_SHAPES = ["stream-sink", "stream-source", "stream-pass"];
 const STREAM_CONFIGS = [
@@ -37,9 +37,9 @@ const jco = withJco === "--with-jco" && existsSync(new URL("./generated/bench.js
 for (const shape of SHAPES) {
   for (const mode of MODES) {
     for (const size of SIZES) {
-      rows.push(run("node", ["driver-deltic.mjs", bundle, translator, shape, mode, "50000", String(size), "5"]));
-      rows.push(run("node", ["--experimental-wasm-jspi", "driver-deltic.mjs", bundle, translator, shape, mode, "20000", String(size), "5", "jspi"]));
-      rows.push(run("deno", ["run", "-A", "driver-deltic.mjs", bundle, translator, shape, mode, "50000", String(size), "5"]));
+      rows.push(run("node", ["driver-polyengine.mjs", bundle, translator, shape, mode, "50000", String(size), "5"]));
+      rows.push(run("node", ["--experimental-wasm-jspi", "driver-polyengine.mjs", bundle, translator, shape, mode, "20000", String(size), "5", "jspi"]));
+      rows.push(run("deno", ["run", "-A", "driver-polyengine.mjs", bundle, translator, shape, mode, "50000", String(size), "5"]));
       if (jco) {
         const iters = shape === "send-sync" ? "50000" : "1500";
         rows.push(run("node", ["--experimental-wasm-jspi", "driver-jco.mjs", shape, mode, iters, String(size), "5"]));
@@ -50,9 +50,9 @@ for (const shape of SHAPES) {
 
 for (const shape of STREAM_SHAPES) {
   for (const { size, chunks } of STREAM_CONFIGS) {
-    streamRows.push(run("node", ["driver-deltic.mjs", bundle, translator, shape, "n/a", String(chunks), String(size), "5"]));
-    streamRows.push(run("node", ["--experimental-wasm-jspi", "driver-deltic.mjs", bundle, translator, shape, "n/a", String(chunks), String(size), "5", "jspi"]));
-    streamRows.push(run("deno", ["run", "-A", "driver-deltic.mjs", bundle, translator, shape, "n/a", String(chunks), String(size), "5"]));
+    streamRows.push(run("node", ["driver-polyengine.mjs", bundle, translator, shape, "n/a", String(chunks), String(size), "5"]));
+    streamRows.push(run("node", ["--experimental-wasm-jspi", "driver-polyengine.mjs", bundle, translator, shape, "n/a", String(chunks), String(size), "5", "jspi"]));
+    streamRows.push(run("deno", ["run", "-A", "driver-polyengine.mjs", bundle, translator, shape, "n/a", String(chunks), String(size), "5"]));
     // jco lane skipped: jco's p3 stream support is not under test here.
   }
 }

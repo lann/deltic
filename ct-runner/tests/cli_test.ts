@@ -1,9 +1,10 @@
 // CLI-level e2e: main.ts as a consumer runs it — a subprocess, with the
-// translator named EXPLICITLY (`--translator` / DELTIC_TRANSLATOR) rather
+// translator named EXPLICITLY (`--translator` / POLYENGINE_TRANSLATOR) rather
 // than found in the checkout. This is the remote-consumption contract
-// (docs/consumers.md; polymorph-test's deltic lane pins a release tag and
-// passes the release's translator asset), so the repo-relative fallback
-// must never be the only path that works.
+// (docs/consumers.md; polymorph-test's `deltic` lane — still spelled with
+// this project's former name, since the consumers migrate on their own
+// schedule — pins a release tag and passes the release's translator asset),
+// so the repo-relative fallback must never be the only path that works.
 
 import { assertEq } from "../../runtime/tests/support/asserts.ts";
 import { haveFixture, TEST_SUITE_WASM } from "./support.ts";
@@ -67,15 +68,15 @@ Deno.test({
     assertEq(lines !== null, true);
     assertEq(lines!.length, 1 + 6 + 1); // envelope + 6 cases + terminator
     const envelope = JSON.parse(lines![0]);
-    assertEq(envelope.target, "deltic/host");
+    assertEq(envelope.target, "polyengine/host");
   },
 });
 
 Deno.test({
-  name: "cli: DELTIC_TRANSLATOR env is honored",
+  name: "cli: POLYENGINE_TRANSLATOR env is honored",
   ignore: !ready,
   fn: async () => {
-    const { code, lines } = await runCli([], { DELTIC_TRANSLATOR: TRANSLATOR });
+    const { code, lines } = await runCli([], { POLYENGINE_TRANSLATOR: TRANSLATOR });
     assertEq(code, 1);
     assertEq(lines!.length, 1 + 6 + 1);
   },

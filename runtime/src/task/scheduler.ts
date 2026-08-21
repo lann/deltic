@@ -23,7 +23,7 @@
 // branch). Reproducible schedules are worth a great deal when debugging a
 // concurrency bug, and FIFO is also the fairest of the cheap policies.
 //
-// Setting `DELTIC_SCHED_SEED=<integer>` switches to a **seeded shuffle**: the same
+// Setting `POLYENGINE_SCHED_SEED=<integer>` switches to a **seeded shuffle**: the same
 // choice points become pseudo-random but reproducible from the seed, which is
 // how we explore the schedule space that the FIFO default deliberately pins.
 // A test that passes under FIFO but fails under some seed has found a real
@@ -148,14 +148,14 @@ export function notifyInstancePoisoned(
   // First cause wins: a poisoned instance can collect follow-on failures
   // (late settles retired against it, repeated bracket breaks), and the
   // original trap is the one worth reporting on later entry refusals
-  // (deltic#145 ask 1).
+  // (polyengine#145 ask 1).
   if (!poisonedInstances.has(inst)) poisonedInstances.set(inst, cause);
   onInstancePoisoned?.(inst, cause);
 }
 
 /** Poisoned instances → poisoning cause, for late-settle retirement
  * (`Thread.resumeWith`) and entry-refusal diagnostics (`withPoisonCause`,
- * deltic#145). A WeakMap mirror of streams.ts's `retiredInstances`, kept
+ * polyengine#145). A WeakMap mirror of streams.ts's `retiredInstances`, kept
  * here because thread.ts cannot import streams.ts (the same
  * evaluation-order constraint that made `setOnInstancePoisoned` an
  * injection seam). */
@@ -184,7 +184,7 @@ export function dispatchableTail(t: any): boolean {
 
 /**
  * The recorded cause of an instance's poisoning: the original trap that
- * broke the enter/leave bracket (deltic#145). `undefined` when the instance
+ * broke the enter/leave bracket (polyengine#145). `undefined` when the instance
  * is not poisoned — and, degenerately, when the poisoning cause itself was
  * a thrown `undefined`; use `isInstancePoisoned` for the predicate.
  */
@@ -194,7 +194,7 @@ export function instancePoisonCause(inst: object): unknown {
 
 /**
  * Append the recorded poison cause to an entry-refusal trap message
- * (deltic#145 ask 1). "cannot enter component instance" covers two states
+ * (polyengine#145 ask 1). "cannot enter component instance" covers two states
  * that send an embedder down entirely different debugging paths — a
  * transient reentrance overlap (retry later, look for caller-side call
  * overlap) and a permanently poisoned instance (the corpse of an earlier
@@ -226,7 +226,7 @@ function describeCause(cause: unknown): string {
 function readSeed(): number | null {
   let raw: string | undefined;
   try {
-    raw = Deno.env.get("DELTIC_SCHED_SEED");
+    raw = Deno.env.get("POLYENGINE_SCHED_SEED");
   } catch {
     // No env permission: FIFO. Never fail to *run* because we could not read
     // a debugging knob.
@@ -917,11 +917,11 @@ export class Store {
    * `GuestCall(StartImplicit)` is popped, and if `is_ready` is false
    * (`do_not_enter || backpressure`) the caller is told STARTING
    * (concurrent.rs :1497-1522, :3040-3160). That formulation is FIFO-order
-   * dependent; deltic uses the order-robust restatement (issue #43): *the
+   * dependent; polyengine uses the order-robust restatement (issue #43): *the
    * call reports STARTING only if the callee is still unstarted after the
    * instance's runnable work has been exhausted* — drain to quiescence, not
    * pop-one. That is what keeps `sync-streams.wast` green under
-   * `DELTIC_SCHED_SEED` shuffles, which wasmtime's own rule would not be.
+   * `POLYENGINE_SCHED_SEED` shuffles, which wasmtime's own rule would not be.
    * Adjudicated 2026-08-10 (issue #43): entry-status timing is NOT
    * normative — this predicate implements a scheduler *policy*, picked so
    * the suite's schedule-overfitted STARTED assertion holds under any
@@ -1063,7 +1063,7 @@ export class Store {
         // `ComponentInstanceState.releaseSyntheticRootOnPoison`.
         //
         // Routed through `notifyInstancePoisoned` (not the raw hook) so the
-        // poison MARKER is recorded too (deltic#145): `Thread.resumeWith`'s
+        // poison MARKER is recorded too (polyengine#145): `Thread.resumeWith`'s
         // quiet-retire of late settled tails and `dispatchableTail`'s
         // dispatch-or-defer decision (#156) both read it, and without the
         // marker a settled tail of this instance would hit the backstop

@@ -1,4 +1,4 @@
-package deltic:resources;
+package polyengine:resources;
 
 /// Resource lifecycle exerciser. The host will drive this to test handle
 /// tables, own/borrow semantics, and destructor invocation.

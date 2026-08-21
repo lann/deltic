@@ -1,6 +1,6 @@
 /// <reference lib="dom" />
 // In-page OPFS smoke (the browser exercise of the REAL Origin Private
-// File System behind @deltic/wasi/filesystem-web — the unit suite runs
+// File System behind @polyengine/wasi/filesystem-web — the unit suite runs
 // against an in-memory fake because Deno has no `navigator.storage`;
 // THIS is where the real thing is pinned).
 //
@@ -26,8 +26,8 @@
 
 import { filesystemWeb, type OpfsDirectoryHandle } from "../../wasi/src/filesystem_web.ts";
 import { wasi } from "../../wasi/src/mod.ts";
-import { Translator } from "@deltic/runtime/shim";
-import { ComponentException, instantiate } from "@deltic/runtime/embedder";
+import { Translator } from "@polyengine/runtime/shim";
+import { ComponentException, instantiate } from "@polyengine/runtime/embedder";
 
 interface CheckResult {
   name: string;
@@ -132,7 +132,7 @@ async function smokeDir(name: string): Promise<OpfsDirectoryHandle> {
 // --- half 1: the direct battery ----------------------------------------------------
 
 async function runDirect(report: OpfsSmokeReport): Promise<void> {
-  const dir = await smokeDir("deltic-opfs-smoke-direct");
+  const dir = await smokeDir("polyengine-opfs-smoke-direct");
   // The rename-path probe belongs on a FILE handle: Chromium ships
   // `move()` there (not on directory handles); Firefox on neither.
   const probe = await dir.getFileHandle("rename-probe", { create: true });
@@ -271,7 +271,7 @@ async function runComposed(report: OpfsSmokeReport): Promise<void> {
       fetchBytes("/corpus/translator_shim.wasm"),
       fetchBytes("/fixtures/fs-probe.component.wasm"),
     ]);
-    const dir = await smokeDir("deltic-opfs-smoke-composed");
+    const dir = await smokeDir("polyengine-opfs-smoke-composed");
     const translator = await Translator.create(shimWasm);
     const { plan, adapters } = translator.translate(componentBytes);
     const c = await instantiate(

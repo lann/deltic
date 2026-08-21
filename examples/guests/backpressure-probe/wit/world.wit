@@ -1,4 +1,4 @@
-package deltic:backpressure-probe;
+package polyengine:backpressure-probe;
 
 /// Exercises the canonical `backpressure.inc`/`backpressure.dec` built-ins
 /// (docs/architecture.md §6: backpressure is a direct port of the reference structures)

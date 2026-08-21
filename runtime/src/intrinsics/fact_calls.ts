@@ -657,7 +657,7 @@ export function createSyncStartCall(
 
     // Reference `Store.lift`: the reentrance gate, with the *caller* as the
     // entering context (definitions.py `entering_set(caller)`).
-    // A poisoned callee's refusal names the original trap (deltic#145).
+    // A poisoned callee's refusal names the original trap (polyengine#145).
     if (!prepared.calleeInst.mayEnterFrom(prepared.callerInst)) {
       trap(withPoisonCause(
         prepared.calleeInst,
@@ -901,7 +901,7 @@ export function createAsyncStartCall(
     subtask.onCancel = (callerInst) => task.requestCancellation(callerInst);
     subtask.calleeTask = task;
 
-    // A poisoned callee's refusal names the original trap (deltic#145).
+    // A poisoned callee's refusal names the original trap (polyengine#145).
     if (!prepared.calleeInst.mayEnterFrom(prepared.callerInst)) {
       trap(withPoisonCause(
         prepared.calleeInst,
@@ -995,7 +995,7 @@ export function createAsyncStartCall(
     // (concurrent.rs :3040-3160); the executor first drains the work queued
     // ahead of it, so a ready gate holder runs to invocation exit and
     // releases `do_not_enter` BEFORE the new call's readiness is evaluated
-    // (:1497-1522). deltic's callee thread is likewise already spawned and
+    // (:1497-1522). polyengine's callee thread is likewise already spawned and
     // parked at `enter_implicit_thread`'s gate wait at this point; what
     // changes here is only WHEN the caller reads `subtask.state`.
     //

@@ -12,7 +12,7 @@
 // `--allow-net --unstable-net`; without `--unstable-net` the provider
 // (correctly) answers `not-supported` and everything past `create` fails.
 
-import { ComponentException } from "@deltic/runtime/embedder";
+import { ComponentException } from "@polyengine/runtime/embedder";
 import {
   ipHostname,
   type IpSocketAddress,

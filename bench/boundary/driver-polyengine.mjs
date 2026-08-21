@@ -1,7 +1,7 @@
-// The deltic lane of the boundary microbench: runs under BOTH plain
+// The polyengine lane of the boundary microbench: runs under BOTH plain
 // `node` (callback ABI, no engine flag) and `deno run -A`.
 //
-//   node driver-deltic.mjs <bundle.mjs> <translator.wasm> <shape> <mode> \
+//   node driver-polyengine.mjs <bundle.mjs> <translator.wasm> <shape> <mode> \
 //       <iters> <size> [reps] [jspi]
 //
 // The bundle is the embedder surface — the LOCAL tree's
@@ -32,25 +32,25 @@ const [bundlePath, translatorPath, shape, mode, itersS, sizeS, repsS, jspiFlag] 
 const iters = Number(itersS), size = Number(sizeS), reps = Number(repsS ?? 5);
 
 const cwd = isDeno ? Deno.cwd() : process.cwd();
-const deltic = await import(new URL(bundlePath, `file://${cwd}/`).href);
-const translator = await deltic.Translator.create(await readFile(translatorPath));
+const polyengine = await import(new URL(bundlePath, `file://${cwd}/`).href);
+const translator = await polyengine.Translator.create(await readFile(translatorPath));
 const componentBytes = await readFile(
   new URL("./guest/target/wasm32-wasip2/release/boundary_bench_guest.wasm", import.meta.url).pathname,
 );
 const { plan, adapters } = translator.translate(componentBytes);
 
 const imports = {
-  ...deltic.wasi(),
+  ...polyengine.wasi(),
   "bench:boundary/host@0.1.0": makeHost(mode),
 };
-const inst = await deltic.instantiate(
+const inst = await polyengine.instantiate(
   { plan, componentBytes, adapters },
   imports,
   jspiFlag === "jspi" ? { jspi: true } : { jspi: false },
 );
 
 const engine = isDeno ? "deno" : "node";
-const lane = `deltic-${engine}-${jspiFlag === "jspi" ? "jspi" : "callback"}`;
+const lane = `polyengine-${engine}-${jspiFlag === "jspi" ? "jspi" : "callback"}`;
 
 if (shape.startsWith("stream-")) {
   // Bytes-moved timing for the stream-shaped lanes (issue #68): each
@@ -60,7 +60,7 @@ if (shape.startsWith("stream-")) {
   const payload = new Uint8Array(totalBytes).fill(0xa5);
 
   async function runStreamSink() {
-    const { stream, writer } = deltic.Stream.create();
+    const { stream, writer } = polyengine.Stream.create();
     const call = inst.exports.streamSink(stream);
     const feed = (async () => {
       for (let off = 0; off < totalBytes; off += chunkSize) {
@@ -85,7 +85,7 @@ if (shape.startsWith("stream-")) {
   }
 
   async function runStreamPass() {
-    const { stream, writer } = deltic.Stream.create();
+    const { stream, writer } = polyengine.Stream.create();
     const outP = inst.exports.streamPass(stream);
     const feed = (async () => {
       for (let off = 0; off < totalBytes; off += chunkSize) {

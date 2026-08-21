@@ -1,4 +1,4 @@
-// `@deltic/wasi/cli-stdio` — the HOST-STDIO impl of `wasi:cli` (both the
+// `@polyengine/wasi/cli-stdio` — the HOST-STDIO impl of `wasi:cli` (both the
 // `@0.2` and `@0.3` tracks), à la carte: it grants access to the host
 // process's stdin/stdout/stderr, environment, and arguments, so it never
 // rides the default `wasi()` merge (which carries the capture impl,
@@ -47,7 +47,7 @@
 //   * terminals: reported from the real streams' `isTTY` (injectable).
 //   * environment/arguments/cwd: the host process's, overridable.
 
-import { Stream } from "@deltic/runtime/embedder";
+import { Stream } from "@polyengine/runtime/embedder";
 import {
   type CliByteSource,
   type CliErrorCode,

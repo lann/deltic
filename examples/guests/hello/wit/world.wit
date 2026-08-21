@@ -1,4 +1,4 @@
-package deltic:hello;
+package polyengine:hello;
 
 /// Smallest possible guest: one exported function, string in, string out.
 /// First target for the host's lift/lower of strings (utf8, realloc path).

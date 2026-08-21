@@ -30,7 +30,7 @@ function collectCaseRows(
 ) {
   const rows: { line: string; caseIndex?: number }[] = [];
   return runSuite(artifacts, {
-    target: "wasmtime/deltic",
+    target: "wasmtime/polyengine",
     suiteName: "test-suite",
     shard,
     emit: (line, caseIndex) => rows.push({ line, caseIndex }),
@@ -119,7 +119,7 @@ Deno.test({
       let threw = false;
       try {
         await runSuite(artifacts, {
-          target: "wasmtime/deltic",
+          target: "wasmtime/polyengine",
           suiteName: "test-suite",
           shard,
           emit: () => {},
@@ -146,14 +146,14 @@ Deno.test({
     // order — the identity this pins is that summing every shard's
     // `only`-filtered output (in suite order) reproduces this exactly.
     const unshardedFiltered = await runSuite(artifacts, {
-      target: "wasmtime/deltic",
+      target: "wasmtime/polyengine",
       suiteName: "test-suite",
       only: "suite/",
       emit: () => {},
     }).then(async () => {
       const rows: { line: string; caseIndex?: number }[] = [];
       await runSuite(artifacts, {
-        target: "wasmtime/deltic",
+        target: "wasmtime/polyengine",
         suiteName: "test-suite",
         only: "suite/",
         emit: (line, caseIndex) => rows.push({ line, caseIndex }),
@@ -166,7 +166,7 @@ Deno.test({
     for (let index = 0; index < count; index++) {
       const rows: { line: string; caseIndex?: number }[] = [];
       await runSuite(artifacts, {
-        target: "wasmtime/deltic",
+        target: "wasmtime/polyengine",
         suiteName: "test-suite",
         only: "suite/",
         shard: { index, count },
@@ -195,7 +195,7 @@ Deno.test({
     const artifacts = await artifactsOf(TEST_SUITE_WASM);
     const lines: string[] = [];
     const counts = await runSuite(artifacts, {
-      target: "wasmtime/deltic",
+      target: "wasmtime/polyengine",
       suiteName: "test-suite",
       emit: (l) => lines.push(l),
     });

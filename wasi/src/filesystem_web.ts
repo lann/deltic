@@ -1,4 +1,4 @@
-// `@deltic/wasi/filesystem-web` — `wasi:filesystem@0.2` + `@0.3` over the
+// `@polyengine/wasi/filesystem-web` — `wasi:filesystem@0.2` + `@0.3` over the
 // Origin Private File System (the browser's `navigator.storage` file API;
 // any object implementing the structural handle interfaces below works,
 // including in-memory fakes for tests). Preopens are explicit handle

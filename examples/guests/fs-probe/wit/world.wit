@@ -1,4 +1,4 @@
-package deltic:fs-probe;
+package polyengine:fs-probe;
 
 /// The wasi:filesystem integration probe. The interesting imports are
 /// NOT declared here: building for wasm32-wasip2 links std::fs through

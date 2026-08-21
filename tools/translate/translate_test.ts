@@ -60,7 +60,7 @@ Deno.test({
   name: "translate CLI: envelope out, deploy host instantiates without a translator",
   ignore: !ready,
   fn: async () => {
-    const out = `/tmp/deltic-translate-test-${crypto.randomUUID()}.plan.json`;
+    const out = `/tmp/polyengine-translate-test-${crypto.randomUUID()}.plan.json`;
     try {
       const res = await runCli([imports.pathname, "-o", out]);
       assertEq(res.code, 0, `cli failed: ${res.stderr}`);
@@ -91,7 +91,7 @@ Deno.test({
   name: "translate CLI: a mismatched envelope/component pair refuses at instantiation",
   ignore: !ready || !(await exists(hello)),
   fn: async () => {
-    const out = `/tmp/deltic-translate-test-${crypto.randomUUID()}.plan.json`;
+    const out = `/tmp/polyengine-translate-test-${crypto.randomUUID()}.plan.json`;
     try {
       const res = await runCli([imports.pathname, "-o", out]);
       assertEq(res.code, 0, `cli failed: ${res.stderr}`);

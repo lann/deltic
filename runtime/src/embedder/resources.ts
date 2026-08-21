@@ -16,7 +16,7 @@
 // | host passes borrow<R>   | wrapper stays valid          | rep reused/allocated      |
 
 import type { ResourceTypeInfo, ValType } from "../cabi/types.ts";
-import { RESOURCE_STATE } from "@deltic/protocol";
+import { RESOURCE_STATE } from "@polyengine/protocol";
 import { hostDtorCall } from "../exec/boundary.ts";
 import { COPY_URL, describeCrossCopy } from "./copy.ts";
 import { InvalidHandleError } from "./errors.ts";
@@ -25,7 +25,7 @@ import { camelCase, pascalCase } from "./casing.ts";
 /**
  * Internal state of a guest-resource wrapper.
  *
- * The KEY is the process-global `deltic.resourceState/1` brand since amendment
+ * The KEY is the process-global `polyengine.resourceState/1` brand since amendment
  * A9 (it used to be a module-local `Symbol(...)`, on the now-repealed
  * assumption that bundle and source runtimes are never mixed in one process —
  * issue #83 showed they routinely are). The state SHAPE stays strictly

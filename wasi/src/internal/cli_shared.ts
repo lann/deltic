@@ -1,11 +1,11 @@
 // INTERNAL shared vocabulary of the `wasi:cli` impls (cli.ts capture,
 // cli_stdio.ts host-stdio) — not a package export; the public home of
-// these names is `@deltic/wasi/cli`. Extracting them here is what keeps
+// these names is `@polyengine/wasi/cli`. Extracting them here is what keeps
 // the two IMPLS independent of each other: an impl imports the
 // vocabulary, never its sibling.
 
-import { defineBrand, WASI_EXIT } from "@deltic/protocol";
-import { Stream } from "@deltic/runtime/embedder";
+import { defineBrand, WASI_EXIT } from "@polyengine/protocol";
+import { Stream } from "@polyengine/runtime/embedder";
 
 /** `wasi:cli/types@0.3`'s `error-code` ENUM: bare kebab-case strings (the
  * A10 value table — enums are data strings, not `{kind}` variants; this

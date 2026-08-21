@@ -1,8 +1,8 @@
 # Upstream issue draft: sync-streams.wast:145 asserts scheduler policy, not semantics
 
 Target repo: WebAssembly/component-model
-Status: not yet filed (filing tracked by deltic#15; adjudication record in
-deltic#43)
+Status: not yet filed (filing tracked by polyengine#15; adjudication record in
+polyengine#43)
 Companion artifact: `upstream-sync-streams-schedule-agnostic.patch` (applies
 at the spec repo root, verified against 73b7ad5)
 
@@ -90,7 +90,7 @@ runner policy) would give them a detector.
 
 Filing notes (not part of the issue body):
 
-- Adjudication record: deltic#43 (final operator comment, 2026-08-10);
+- Adjudication record: polyengine#43 (final operator comment, 2026-08-10);
   tracker entry CM-4 in `upstream-component-model-repo-findings.md`. Same
   class as NOTE-1 (tests assuming the deterministic profile), sharper
   instance.
@@ -100,7 +100,7 @@ Filing notes (not part of the issue body):
   pristine definitions.py): `4f3351f:exams/wasmtime-exclusivity/`.
 - Patch verification (2026-08-11, this repo at the 73b7ad5 submodule pin):
   pristine/patched/STARTING-variant legs all 2/2 through testgen +
-  RuntimeExecutor, FIFO and DELTIC_SCHED_SEED=1/4242; the variant
+  RuntimeExecutor, FIFO and POLYENGINE_SCHED_SEED=1/4242; the variant
   hard-asserts STARTING so its pass proves the new arm executed. Recipe: see
   the PR that added this file.
 - wasmtime-side check of the patched test needs a **dev** CLI (`wasmtime
@@ -108,5 +108,5 @@ Filing notes (not part of the issue body):
   test/async/sync-streams.wast`); 47-era release CLIs cannot parse the
   post-#655 suite syntax. By construction the patch only adds an arm
   wasmtime never takes, but running it pre-filing is a reasonable courtesy.
-- Keep the deltic-specific framing out of the filed text: the issue body
-  above names no deltic internals beyond "a Component Model runtime".
+- Keep the polyengine-specific framing out of the filed text: the issue body
+  above names no polyengine internals beyond "a Component Model runtime".

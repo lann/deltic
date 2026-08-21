@@ -1,8 +1,8 @@
 // The runtime-copy registry (contracts/embedder-api.md §"Module identity and
-// @deltic/protocol", amendment A9; issue #83).
+// @polyengine/protocol", amendment A9; issue #83).
 //
 // Each embedder module instance appends itself here when it is evaluated. The
-// array lives on `globalThis` under the registry symbol `deltic.runtimeCopies/1`,
+// array lives on `globalThis` under the registry symbol `polyengine.runtimeCopies/1`,
 // so copies that share no modules still share the census — that is the point.
 //
 // Multiple copies are DIAGNOSED, NEVER REFUSED: two isolated bundles on one
@@ -17,7 +17,7 @@ import { RUNTIME_COPIES } from "./brands.ts";
 export interface RuntimeCopy {
   /** The registering module's `import.meta.url`. Identity of the copy. */
   readonly url: string;
-  /** The `@deltic/runtime` version that copy was built from. */
+  /** The `@polyengine/runtime` version that copy was built from. */
   readonly runtimeVersion: string;
   /** The brand generation that copy speaks (`PROTOCOL_GENERATION`). */
   readonly protocolGeneration: number;
@@ -74,7 +74,7 @@ export function runtimeCopies(): readonly RuntimeCopy[] {
 export function copyCensus(): string {
   const copies = slot();
   if (copies.length <= 1) return "";
-  return `${copies.length} deltic copies loaded: ${
+  return `${copies.length} polyengine copies loaded: ${
     copies.map((c) => c.url).join(", ")
   }`;
 }

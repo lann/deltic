@@ -1,4 +1,4 @@
-// ct-runner: deltic's L3 execution runner for polymorph-test's L1
+// ct-runner: polyengine's L3 execution runner for polymorph-test's L1
 // suite contract (TRACK C2-D; docs/consumers.md, C2).
 //
 // "Execute an L1 suite component, emit canonical results JSONL (L4)" — an

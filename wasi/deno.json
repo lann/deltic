@@ -1,6 +1,6 @@
 {
-  "name": "@deltic/wasi",
-  "version": "0.3.0",
+  "name": "@polyengine/wasi",
+  "version": "0.1.0",
   "exports": {
     ".": "./src/mod.ts",
     "./cli": "./src/cli.ts",

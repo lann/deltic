@@ -7,11 +7,11 @@
 // real Node provides natively, Deno serves as STABLE node-compat (no
 // `--unstable-net` needed — that flag gates only the native API's shape,
 // not the capability), and Bun reaches through its compat (findings-only;
-// JSC lacks multi-memory, so deltic guests cannot run there regardless).
+// JSC lacks multi-memory, so polyengine guests cannot run there regardless).
 // Backend rationale, adapters, and measured costs: internal/sockets_platform.ts.
 //
 // À la carte (issue #4): this module is a separate export
-// (`@deltic/wasi/sockets`), never merged into `wasi()` — the
+// (`@polyengine/wasi/sockets`), never merged into `wasi()` — the
 // baseline package stays host-agnostic web-platform code, while this
 // fragment is server-JS-native by nature (browsers have no sockets;
 // wasmtime owns the native story). Consumers that want it spread it in:

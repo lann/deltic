@@ -145,13 +145,13 @@ for (const name of probes) {
 }
 const W = WebAssembly;
 const jspi = { suspending: typeof W.Suspending === "function", promising: typeof W.promising === "function" };
-console.log("@deltic-caps:" + JSON.stringify({ jspi, ...caps }));
+console.log("@polyengine-caps:" + JSON.stringify({ jspi, ...caps }));
 `,
   );
   const probeRes = await runCanary(bin, ["run", "-A", probeScript]);
-  const capLine = probeRes.stdout.split("\n").find((l) => l.startsWith("@deltic-caps:"));
+  const capLine = probeRes.stdout.split("\n").find((l) => l.startsWith("@polyengine-caps:"));
   console.log(`\ncapability matrix (canary):`);
-  console.log(capLine ? capLine.slice("@deltic-caps:".length) : `(none — ${probeRes.stderr.slice(0, 500)})`);
+  console.log(capLine ? capLine.slice("@polyengine-caps:".length) : `(none — ${probeRes.stderr.slice(0, 500)})`);
 
   // Full conformance run under the canary binary. `deno task conformance`
   // from harness/, but invoked as `<canary> task conformance` so every
@@ -169,7 +169,7 @@ console.log("@deltic-caps:" + JSON.stringify({ jspi, ...caps }));
           commit,
           canaryVersion: versionRes.stdout.trim(),
           pinnedVersion: pinnedVersionRes.stdout.trim(),
-          capabilities: capLine ? JSON.parse(capLine.slice("@deltic-caps:".length)) : null,
+          capabilities: capLine ? JSON.parse(capLine.slice("@polyengine-caps:".length)) : null,
           conformanceExitCode: confRes.code,
         },
         null,

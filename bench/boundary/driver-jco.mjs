@@ -5,7 +5,7 @@
 //
 //   node --experimental-wasm-jspi driver-jco.mjs <shape> <mode> <iters> <size> [reps]
 //
-// Emits the same JSON line shape as driver-deltic.mjs.
+// Emits the same JSON line shape as driver-polyengine.mjs.
 import { readFile } from "node:fs/promises";
 import { instantiate } from "./generated/bench.js";
 import { bindImports } from "@polymorph/component-test-js/imports";

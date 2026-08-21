@@ -1,5 +1,5 @@
 // Golden pin for the brand vocabulary (contracts/embedder-api.md §"Module
-// identity and @deltic/protocol", amendment A9; issue #83).
+// identity and @polyengine/protocol", amendment A9; issue #83).
 //
 // Every key string is pinned LITERALLY here on purpose: the brands are
 // process-global registry symbols shared with copies this repo never sees, so
@@ -11,20 +11,20 @@ import * as brands from "../src/brands.ts";
 import { PROTOCOL_GENERATION, ComponentException } from "../src/mod.ts";
 
 const EXPECTED: Record<string, symbol> = {
-  "deltic.witError/1": brands.COMPONENT_EXCEPTION,
-  "deltic.trap/1": brands.TRAP,
-  "deltic.dropped/1": brands.DROPPED,
-  "deltic.peerTrapped/1": brands.PEER_TRAPPED,
-  "deltic.invalidHandle/1": brands.INVALID_HANDLE,
-  "deltic.streamProducer/1": brands.STREAM_PRODUCER,
-  "deltic.suspending/1": brands.SUSPENDING,
-  "deltic.stream/1": brands.STREAM,
-  "deltic.future/1": brands.FUTURE,
-  "deltic.errorContext/1": brands.ERROR_CONTEXT,
-  "deltic.resourceState/1": brands.RESOURCE_STATE,
-  "deltic.pollable/1": brands.POLLABLE,
-  "deltic.wasiExit/1": brands.WASI_EXIT,
-  "deltic.runtimeCopies/1": brands.RUNTIME_COPIES,
+  "polyengine.witError/1": brands.COMPONENT_EXCEPTION,
+  "polyengine.trap/1": brands.TRAP,
+  "polyengine.dropped/1": brands.DROPPED,
+  "polyengine.peerTrapped/1": brands.PEER_TRAPPED,
+  "polyengine.invalidHandle/1": brands.INVALID_HANDLE,
+  "polyengine.streamProducer/1": brands.STREAM_PRODUCER,
+  "polyengine.suspending/1": brands.SUSPENDING,
+  "polyengine.stream/1": brands.STREAM,
+  "polyengine.future/1": brands.FUTURE,
+  "polyengine.errorContext/1": brands.ERROR_CONTEXT,
+  "polyengine.resourceState/1": brands.RESOURCE_STATE,
+  "polyengine.pollable/1": brands.POLLABLE,
+  "polyengine.wasiExit/1": brands.WASI_EXIT,
+  "polyengine.runtimeCopies/1": brands.RUNTIME_COPIES,
 };
 
 Deno.test("A9: every brand key is exactly the contract's table entry", () => {

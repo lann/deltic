@@ -1,4 +1,4 @@
-package deltic:http-fetch;
+package polyengine:http-fetch;
 
 /// End-to-end exerciser for the REAL `wasi:http@0.3.1`
 /// surface (wit/deps/wasi-http vendored from WebAssembly/WASI v0.3.1) against

@@ -1,4 +1,4 @@
-package deltic:future-import;
+package polyengine:future-import;
 
 /// Probes for host IMPORTS whose results carry `future`s — the
 /// `wasi:sockets@0.3` TCP shapes (`send: func(stream<u8>) -> future<…>`,

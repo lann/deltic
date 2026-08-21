@@ -10,7 +10,7 @@
 // paths derived from `import.meta.url` (the repo root is three directories
 // above the bundle), because the shell's CWD is not trustworthy: JSC trunk
 // bundles chdir into their own directory (see `readBinary` below) — and
-// results are streamed as `@deltic:`-prefixed JSON lines on stdout via
+// results are streamed as `@polyengine:`-prefixed JSON lines on stdout via
 // `print()`, which both target shells provide. `tools/shell/run-lane.ts`
 // parses these lines and classifies with the exact same
 // `harness/src/xfail.ts` + `Summary` + per-lane-overlay machinery the
@@ -70,13 +70,13 @@ function readBinary(path: string): Uint8Array {
       // Installed by tools/shell/host-node.mjs (which keeps node: builtin
       // imports out of this browser-platform bundle). It copies out of
       // node's pooled Buffer — see the preamble for why that is load-bearing.
-      if (typeof g.__delticHostRead !== "function") {
+      if (typeof g.__polyengineHostRead !== "function") {
         throw new Error(
-          `readBinary: ${engine} detected but no __delticHostRead — run this ` +
+          `readBinary: ${engine} detected but no __polyengineHostRead — run this ` +
             `bundle via tools/shell/host-node.mjs, not directly`,
         );
       }
-      return g.__delticHostRead(abs);
+      return g.__polyengineHostRead(abs);
     default:
       throw new Error(
         `readBinary: unrecognized shell (no os.file.readFile, no readFile)`,
@@ -127,11 +127,11 @@ function drainJobs(): void {
 }
 
 // ---------------------------------------------------------------------------
-// Protocol: one line per event, `@deltic:` sentinel prefix + JSON. Shells
+// Protocol: one line per event, `@polyengine:` sentinel prefix + JSON. Shells
 // print warnings/diagnostics of their own to stdout; the driver ignores any
 // line without the prefix.
 // ---------------------------------------------------------------------------
-const SENTINEL = "@deltic:";
+const SENTINEL = "@polyengine:";
 
 function emit(kind: string, payload: Record<string, unknown>): void {
   print(SENTINEL + JSON.stringify({ kind, ...payload }));

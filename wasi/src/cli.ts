@@ -5,7 +5,7 @@
 // WebAssembly/WASI v0.3.1, proposals/cli/wit). This is the CAPTURE impl
 // (the batteries fragment `wasi()` merges): stdin from a caller-supplied
 // buffer, stdout/stderr into capture buffers, exit recorded. The
-// host-stdio impl is à la carte at `@deltic/wasi/cli-stdio` (cli_stdio.ts
+// host-stdio impl is à la carte at `@polyengine/wasi/cli-stdio` (cli_stdio.ts
 // — it grants terminal/process access, so it never rides the default).
 //
 // 0.3 reshapes stdio around streams: `stdin.read-via-stream: func() ->

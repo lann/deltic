@@ -39,7 +39,7 @@
 // validates USVs per element (`convertI32ToChar` traps), which is the cost.
 //
 // NAMED ASSUMPTION (issue #67): wasm linear memory is little-endian by spec;
-// JS TypedArrays follow the PLATFORM's endianness. Every engine deltic
+// JS TypedArrays follow the PLATFORM's endianness. Every engine polyengine
 // targets runs little-endian, but rather than bake that in silently, the
 // check below gates the fast paths — on a big-endian platform they decline
 // and the callers keep the (endianness-correct) DataView per-element loops.

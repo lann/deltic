@@ -1,4 +1,4 @@
-package deltic:resource-stream;
+package polyengine:resource-stream;
 
 /// Probes for streams whose ELEMENTS are owned host resources — the
 /// `wasi:sockets@0.3` TCP `listen` shape

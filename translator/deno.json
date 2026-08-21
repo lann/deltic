@@ -1,6 +1,6 @@
 {
-  "name": "@deltic/translator",
-  "version": "0.3.0",
+  "name": "@polyengine/translator",
+  "version": "0.1.0",
   "exports": {
     ".": "./mod.ts"
   },

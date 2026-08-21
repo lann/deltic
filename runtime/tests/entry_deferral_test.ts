@@ -20,18 +20,18 @@
 //     read the gate at the call instant. wasmtime queues the callee and
 //     suspends the caller until the first subtask status event, so the
 //     executor first drains the work queued ahead of the call
-//     (concurrent.rs :1497-1522, :3040-3160). deltic uses the order-robust
+//     (concurrent.rs :1497-1522, :3040-3160). polyengine uses the order-robust
 //     restatement (issue #43) — *the
 //     call reports STARTING only if the callee is still unstarted after the
 //     instance's runnable work has been drained to quiescence* — because
 //     wasmtime's own FIFO-dependent formulation would not survive
-//     `DELTIC_SCHED_SEED` shuffles. `Store.hasRunnableWork` is that drain
+//     `POLYENGINE_SCHED_SEED` shuffles. `Store.hasRunnableWork` is that drain
 //     predicate; `createAsyncStartCall` (intrinsics/fact_calls.ts) is its
 //     only consumer.
 //
 // Adjudicated 2026-08-10 (issue #43): entry-status *timing* is not
 // normative. The HOLD RULE is spec semantics; the deferred decision is
-// deltic's scheduler policy, which makes the suite's schedule-overfitted
+// polyengine's scheduler policy, which makes the suite's schedule-overfitted
 // `sync-streams.wast:145` STARTED assertion (an upstream test defect —
 // pristine definitions.py answers STARTING) hold under any seed.
 //
@@ -43,7 +43,7 @@
 // exits. Note this is deliberately the OPPOSITE of the exam's
 // `test_resolved_task_gates_entry` (cm4-run-tests.patch, archived at
 // 4f3351f:exams/wasmtime-exclusivity/), which encoded
-// deltic's since-removed release-at-resolution rule.
+// polyengine's since-removed release-at-resolution rule.
 //
 // The no-interleaving assertion uses the shared-state discipline of the
 // reference's own `test_callback_interleaving`: a flag the interloper sets,
@@ -170,7 +170,7 @@ Deno.test(
 
     // No same-instance execution during the parked span — the property the
     // hold rule exists to guarantee (Explainer.md Invariant #3, single shadow
-    // stack), and the one deltic's removed release rule gave up (the IROH-1
+    // stack), and the one polyengine's removed release rule gave up (the IROH-1
     // collision window).
     assertEq(store.tick(), false, "nothing in the instance is runnable");
     assertEq(pokeEntered, 0, "the interloper was NOT admitted while parked");
