@@ -8,7 +8,7 @@
 //! ```text
 //! for w in hello values resources async-probe stream-echo future-user; do
 //!   cargo run -p bindgen -- generate examples/guests/$w/wit --world $w \
-//!     --out runtime/tests/bindgen/generated/$w.ts
+//!     --out runtime/tests/bindgen/generated/$w.ts --import-base ../../../src
 //! done
 //! ```
 
@@ -25,7 +25,10 @@ fn check_snapshot(world_dir: &str, world: &str) {
     let root = repo_root();
     let wit = root.join("examples/guests").join(world_dir).join("wit");
     let (resolve, world_id) = resolve_world(&wit, Some(world)).unwrap();
-    let (_json, _digest, ts) = generate_with_digest(&resolve, world_id).unwrap();
+    // The in-repo fixtures use a relative import base (issue #201): the
+    // default JSR specifier would make `deno check` reach the network, and
+    // the manifest version is not published yet anyway.
+    let (_json, _digest, ts) = generate_with_digest(&resolve, world_id, "../../../src").unwrap();
     let checked_in_path = root
         .join("runtime/tests/bindgen/generated")
         .join(format!("{world}.ts"));

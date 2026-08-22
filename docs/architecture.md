@@ -532,6 +532,14 @@ Requirement: not critical now; must become fast **without rearchitecting**.
 - Output: TypeScript — typed world/interface APIs, `.d.ts`, resource classes
   (`using`-compatible), JSDoc from WIT doc comments, honoring
   `@since`/`@unstable` gates.
+- Generated bindings import the runtime through a configurable base
+  (`--import-base`), defaulting to the versioned JSR specifier
+  `jsr:@polyengine/runtime@^<runtime/deno.json version>` (derived at build
+  time, never hand-written). A path or URL base addresses files
+  (`{base}/{module}/mod.ts`); a bare or registry base addresses package
+  exports (`{base}/{module}`) — `--import-base --help` states the rule and
+  its scheme fallback in full. The in-repo fixtures use the relative base
+  `../../../src` so `deno check` stays offline and on this checkout's source.
 - Host-facing value conventions (error model, stream/future wrappers,
   variant/option/result shapes, resource classes, module-per-interface
   authoring) are governed by the embedder conventions contract
