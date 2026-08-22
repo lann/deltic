@@ -71,24 +71,22 @@ jobs:
         # Mirrors release.yml's scheme exactly, derived from the tag so the two
         # cannot drift: a cut release tags `v<version>`; a prerelease tags
         # `pre-<shorthash>` and takes <next> from the committed manifest, which
-        # release.yml stamps only in its own working tree.
+        # release.yml stamps only in its own working tree. This VERSION is the
+        # build stamp for the lockstep four (runtime, translator, wasi,
+        # ct-runner) only — build.ts passes it as `--version` and it does NOT
+        # affect @polyengine/protocol, which always emits at its own manifest
+        # version (A10). The dist-tag is no longer computed here: each
+        # package's actual built version decides its own tag in the publish
+        # step below (a hyphen means prerelease), since protocol's version can
+        # differ from the stamp.
         run: |
           TAG='${{ steps.rel.outputs.tag }}'
           case "$TAG" in
             v*)
               VERSION="${TAG#v}"
-              DIST_TAG=latest
               ;;
             pre-*)
               VERSION="$(jq -r '.version' runtime/deno.json)-pre.g${TAG#pre-}"
-              # Never move `latest` to a prerelease: these are exact-pin-only
-              # (README §Consuming) and semver ranges must not resolve to them.
-              # Note the one case this cannot control: npm points `latest` at a
-              # package's FIRST published version regardless of --tag, and
-              # refuses to remove the tag (403). The bootstrap publish that
-              # created these packages was a prerelease, so `latest` names it
-              # until the first cut release overwrites it below.
-              DIST_TAG=pre
               ;;
             *)
               echo "tag '$TAG' is neither v<version> nor pre-<shorthash>" >&2
@@ -96,8 +94,7 @@ jobs:
               ;;
           esac
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "dist_tag=$DIST_TAG" >> "$GITHUB_OUTPUT"
-          echo "publishing $VERSION under dist-tag $DIST_TAG"
+          echo "lockstep stamp: $VERSION"
 
       - name: fetch the released translator shim
         # @polyengine/translator carries the wasm as a packaged asset. Taking
@@ -119,22 +116,46 @@ jobs:
         run: deno run -A tools/npm-build/build.ts --version '${{ steps.ver.outputs.version }}'
 
       - name: publish
-        # Dependency order, and already-published versions are skipped rather
-        # than failed — same convergence property as the JSR step, so a re-run
-        # after a partial failure completes the set instead of stranding it.
+        # Dependency order — protocol first: it is not part of the lockstep
+        # (A10), so it publishes once per manifest bump, at its own version,
+        # and is skipped as already-published on every other run (JSR parity
+        # with release.yml's "compute tag and version" step). Publishing it
+        # before its dependents guarantees the version they reference (via a
+        # caret dependency — see build.ts) already exists on the registry the
+        # first time it is needed. Already-published versions are skipped
+        # rather than failed for every package — same convergence property as
+        # the JSR step, so a re-run after a partial failure completes the set
+        # instead of stranding it.
+        #
+        # Dist-tag is derived per package from its OWN built version, not the
+        # lockstep stamp: a hyphen (prerelease, e.g. 0.3.1-pre.gabc1234) means
+        # `--tag pre`; a bare version means `--tag latest`. Note the one case
+        # this cannot control: npm points `latest` at a package's FIRST
+        # published version regardless of --tag, and refuses to remove the tag
+        # (403) — the bootstrap publish that created these packages was a
+        # prerelease, so `latest` named it until the first cut release
+        # overwrote it. protocol's next publish (its manifest is 0.1.0) will
+        # move npm `latest` for @polyengine/protocol BACKWARD from whatever
+        # lockstep-stamped prerelease last got tagged `latest` there (e.g. an
+        # orphaned 0.3.0) — this is intended, not a bug: the orphan stays
+        # published and reachable, because runtime@0.3.0 (etc.) pins it
+        # exactly rather than through `latest`.
+        #
         # Provenance attestations are generated automatically for trusted
         # publishing from a public repository; no --provenance flag needed.
         run: |
           set -euo pipefail
           for p in protocol runtime translator wasi ct-runner; do
             name="@polyengine/$p"
-            if npm view "$name@$VERSION" version >/dev/null 2>&1; then
-              echo "$name@$VERSION already published — skipping"
+            V=$(jq -r '.version' "./npm/$p/package.json")
+            if npm view "$name@$V" version >/dev/null 2>&1; then
+              echo "$name@$V already published — skipping"
               continue
             fi
-            echo "publishing $name@$VERSION (dist-tag $DIST_TAG)"
-            npm publish --tag "$DIST_TAG" --workspaces=false ./npm/"$p"
+            case "$V" in
+              *-*) TAG=pre ;;
+              *) TAG=latest ;;
+            esac
+            echo "publishing $name@$V (dist-tag $TAG)"
+            npm publish --tag "$TAG" --workspaces=false ./npm/"$p"
           done
-        env:
-          VERSION: ${{ steps.ver.outputs.version }}
-          DIST_TAG: ${{ steps.ver.outputs.dist_tag }}

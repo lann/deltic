@@ -130,7 +130,8 @@ Standing rules:
   `@polyengine/protocol`
   versions independently; bumping its manifest publishes it for real on
   the next green run.
-- Two registries, one version. JSR is published inline by release.yml; npm
+- Two registries, one version (protocol rides its own manifest version on
+  both — A10). JSR is published inline by release.yml; npm
   is published by npm-publish.yml, triggered by the GitHub release, from
   packages built by `tools/npm-build/build.ts` (dnt). The npm side reads
   name/version/exports out of the same `deno.json` manifests, so adding an

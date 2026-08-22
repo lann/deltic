@@ -138,6 +138,15 @@ npm-build: shim
 test-npm: npm-build fixtures
     deno run -A tools/shell/fetch.ts node-pinned
     .shell-cache/node-pinned/bin/node tools/npm-build/smoke.mjs
+    # Stamp-path leg: a throwaway build with `--version` proves the
+    # prerelease stamp (release.yml's pre-<shorthash> path) hits the
+    # lockstep four exactly while leaving protocol on its own manifest
+    # version (A10). No packing/install — fast. Output goes under
+    # .shell-cache, never the repo's npm/ dir, and is removed after.
+    rm -rf .shell-cache/npm-stamp-check
+    deno run -A tools/npm-build/build.ts --version 9.9.9-pre.gtest --out .shell-cache/npm-stamp-check
+    deno run -A tools/npm-build/stamp_check.ts .shell-cache/npm-stamp-check 9.9.9-pre.gtest
+    rm -rf .shell-cache/npm-stamp-check
 
 # The harness task chains corpus generation and the shim check itself.
 # The official CM conformance suite, Deno lane.
