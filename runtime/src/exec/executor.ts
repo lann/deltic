@@ -257,8 +257,27 @@ class Executor {
    * another.
    */
   readonly store = new Store();
-  /** Memoized `unsafe-intrinsic` core functions, by symbol. */
+  /**
+   * Memoized `unsafe-intrinsic` core functions, by DECLARING COMPONENT
+   * INSTANCE and symbol.
+   *
+   * The instance is part of the key because `context.{get,set}` resolve their
+   * thread against it (`currentThreadForInstance`, task/scheduler.ts): the
+   * declaring instance is the one whose core frame is executing when the
+   * intrinsic is called, which is what keeps a JSPI continuation chunk's
+   * `context.set` out of a sibling task's slots. `null` keys the shared
+   * adapter/instance-less flavour (the plan records `instance: null` for FACT
+   * adapter modules).
+   */
   readonly unsafeIntrinsics = new Map<string, CoreFn>();
+
+  /**
+   * The component instance of the core module currently being instantiated
+   * (`instantiate-module`'s `instance` field; null for a FACT adapter). Read
+   * by `unsafeIntrinsic` while its import list is being resolved — the one
+   * place a core instance's owning component instance is stated by the plan.
+   */
+  #declaringInstance: ComponentInstanceState | null = null;
   /** The single in-flight FACT `prepare-call` state (intrinsics/fact_calls.ts). */
   readonly preparedCall: { current: PreparedCall | null } = { current: null };
   /**
@@ -566,6 +585,13 @@ class Executor {
           // suspension point; every function it exports is therefore
           // potentially-blocking, and everything else is not.
           this.sawBlockingImport = false;
+          // Which component instance this core module belongs to — the plan
+          // states it here and nowhere else (`instance: null` = FACT adapter,
+          // contracts/plan-format.md). `unsafeIntrinsic` reads it while the
+          // import list below is resolved.
+          this.#declaringInstance = init.instance === null
+            ? null
+            : this.componentInstance(init.instance);
           // ISSUE #88: core wasm permits two imports with the same
           // (module, field) pair (trusted wasmtime-environ 47.0.3 info.rs
           // :438-445 gives one flat positional CoreDef per import slot, but
@@ -607,6 +633,10 @@ class Executor {
               {} as WebAssembly.ModuleImports)[imp.name] =
                 value as WebAssembly.ImportValue;
           });
+          // Scoped strictly to the import list above: a CoreDef resolved by
+          // any other initializer (extract-*, resource dtors) names no core
+          // module, so it must not inherit this one's instance.
+          this.#declaringInstance = null;
           let instance: WebAssembly.Instance;
           try {
             instance = await WebAssembly.instantiate(module, importObject);
@@ -928,10 +958,12 @@ class Executor {
   }
 
   unsafeIntrinsic(symbol: string): CoreFn {
-    let fn = this.unsafeIntrinsics.get(symbol);
+    const inst = this.#declaringInstance;
+    const key = `${inst === null ? "-" : inst.index}\0${symbol}`;
+    let fn = this.unsafeIntrinsics.get(key);
     if (fn === undefined) {
-      fn = createUnsafeIntrinsic(symbol);
-      this.unsafeIntrinsics.set(symbol, fn);
+      fn = createUnsafeIntrinsic(symbol, inst);
+      this.unsafeIntrinsics.set(key, fn);
     }
     return fn;
   }

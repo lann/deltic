@@ -648,6 +648,79 @@ export function maybeCurrentThread(): CurrentThreadLike | undefined {
   return resolveAmbient();
 }
 
+/**
+ * THE ambient, NARROWED BY THE INSTANCE WHOSE CORE FRAME IS EXECUTING.
+ *
+ * For a built-in whose declaration names a component instance, "who is
+ * running" is not an open question about the whole store: the call arrived
+ * from a core frame OF THAT INSTANCE, so the running activation is one of
+ * that instance's. This narrows `resolveAmbient` accordingly — same tiers,
+ * same order, candidates filtered — and falls back to the unscoped answer
+ * when the instance has no candidate at all (the instantiation-time shape,
+ * and any built-in reached before its instance has a task).
+ *
+ * WHY IT IS NEEDED (polyengine#24's residue; polyvisor#49 trap 1,
+ * `runtime/tests/context_attribution_test.ts`). A JSPI continuation chunk —
+ * the tail of a suspended activation, e.g. wit-bindgen's callback epilogue
+ * restoring its task pointer with `context.set` (rt/async_support.rs:592) —
+ * runs with an EMPTY `threadStack` and, unlike a hop, has no re-anchoring
+ * edge of its own. Tier 2 then answers the newest claim, which is whichever
+ * SIBLING activation suspended most recently. The attribution sentinels
+ * (jspi/bridge.ts) plant that claim one microtask ahead of the chunk, which
+ * is exact when the engine queues the resumption while the settle reaction
+ * returns (measured so in Deno's V8) — and NOT exact in Chromium, where a
+ * wider gap lets a sibling's sentinel land in between. Measured there 3/3:
+ * one task's epilogue wrote its state pointer into another task's slots, and
+ * the starved task's next callback entry hit `assert!(!state.is_null())`
+ * (async_support.rs:578) -> unreachable.
+ *
+ * Ordering discipline cannot fix that class — engine chunk boundaries are not
+ * observable, so every microtask-ordering scheme is a hope. Instance identity
+ * is not a hope: it is static (the declaration), and it is decisive because
+ * ONE INSTANCE CAN ONLY HAVE ONE ACTIVATION MID-FRAME AT A TIME — a callback
+ * invocation holds `inst.exclusiveThread` for its whole extent, suspensions
+ * included (definitions.py line 2187 / `runCallbackLoop`), and a sync or
+ * stackful-async lift holds the entry gate. Two activations that can race for
+ * an unbracketed read are therefore necessarily of different instances, which
+ * is exactly what this discriminates.
+ *
+ * SPEC BASIS. `canon_context_get`/`canon_context_set` (definitions.py 2348 /
+ * 2358) read `current_thread().storage`, and in the reference a built-in is
+ * only ever reached from inside the activation that called it — the identity
+ * is exact by construction, never inferred. This runtime has to reconstruct
+ * it; narrowing the reconstruction to the declaring instance moves it TOWARD
+ * the reference (it can only ever remove candidates the reference would never
+ * have named), never away.
+ */
+// deno-lint-ignore no-explicit-any
+export function currentThreadForInstance<T = CurrentThreadLike>(
+  inst: unknown,
+): T {
+  const t = resolveAmbientForInstance(inst);
+  if (t !== undefined) return t as T;
+  // No candidate of this instance: the unscoped ladder, including its
+  // `PendingCapability` for the instantiation-time shape.
+  return currentThread<T>();
+}
+
+function resolveAmbientForInstance(
+  inst: unknown,
+): CurrentThreadLike | undefined {
+  if (inst === null || inst === undefined) return resolveAmbient();
+  const top = threadStack[threadStack.length - 1];
+  if (top !== undefined && instOf(top) === inst) return top;
+  for (let i = activationClaims.length - 1; i >= 0; i--) {
+    const c = activationClaims[i];
+    if (instOf(c) === inst) return c;
+  }
+  return undefined;
+}
+
+// deno-lint-ignore no-explicit-any
+function instOf(t: any): unknown {
+  return t?.task?.inst;
+}
+
 /** definitions.py `current_task()` (line 309). */
 // deno-lint-ignore no-explicit-any
 export function currentTask(): any {
