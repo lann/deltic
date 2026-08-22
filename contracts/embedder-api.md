@@ -885,10 +885,10 @@ functions and symbol-keyed properties, so a handle, resource wrapper,
 branded error, or suspending-marked function that crosses `postMessage`
 arrives as an inert plain object, recognized by nothing (not even as
 "recognized-but-foreign" — the cross-copy story above is same-realm only).
-Structured-clone-safe *representations* for crossing realms (WitError
-payloads, close-info, etc.) are a separate surface, deliberately not
-defined here; recipes for worker-hosted topologies live outside the
-runtime (#128). The complementary guarantee — that the runtime,
+Structured-clone-safe *representations* for crossing realms
+(ComponentException payloads, close-info, etc.) are a separate surface,
+deliberately not defined here; recipes for worker-hosted topologies live
+outside the runtime (#128). The complementary guarantee — that the runtime,
 translator, and embedder paths themselves carry no Window or
 main-thread-only dependencies, so a runtime placed IN a worker behaves
 identically — is tested, not assumed: the conformance realm rows (Deno
