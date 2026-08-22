@@ -521,6 +521,15 @@ export class SuspensionPoint<T = unknown> implements SchedulableThread {
       // like the value path. Missing it here is what `trap-if-done.wast:448`
       // and the `assert_trap` rows of `big-interleaving-test.wast` detect
       // ("exit-sync-call with an empty sync-call stack").
+      //
+      // Symmetry with the success arm below (issue #158): if the DRIVER's slot
+      // is live for the activation currently executing, that activation is the
+      // code delivering this resume (a running guest's `subtask.cancel`, whose
+      // `produce` computes a trap), so its claim window has closed — consume it
+      // rather than false-positive the one-claimant assert in
+      // `setResumingThread`. Without this the assert preempts `#fail(e)` and
+      // the parked guest receives an AssertionError in place of its trap.
+      consumeClaimIfRunning();
       if (maybeCurrentThread() === undefined) claimActivationAmbient(this.owner);
       setResumingThread(this.task?.implicitThread ?? null);
       this.#fail(e);
