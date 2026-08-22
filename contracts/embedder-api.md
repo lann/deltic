@@ -873,6 +873,29 @@ copies: import maps are an application concern; host-module packages must
 not carry `@polyengine/*` mappings in any config consumers resolve through
 (docs/consumers.md records the convention).
 
+**Identity is realm-local (issue #129).** Everything in this section is
+per-realm by construction: a JS realm has its own module graph, so "copies
+of the runtime" means copies *within one realm* — two realms (a window and
+its worker, two workers, two Deno workers) are two runtimes, always, and
+that is placement, not a defect the copy census diagnoses. No polyengine
+value carries identity across a realm boundary. Workers are separate JS
+agents, so even the `Symbol.for` registry — which spans same-agent realms —
+does not span them; and structured clone strips prototypes and refuses
+functions and symbol-keyed properties, so a handle, resource wrapper,
+branded error, or suspending-marked function that crosses `postMessage`
+arrives as an inert plain object, recognized by nothing (not even as
+"recognized-but-foreign" — the cross-copy story above is same-realm only).
+Structured-clone-safe *representations* for crossing realms (WitError
+payloads, close-info, etc.) are a separate surface, deliberately not
+defined here; recipes for worker-hosted topologies live outside the
+runtime (#128). The complementary guarantee — that the runtime,
+translator, and embedder paths themselves carry no Window or
+main-thread-only dependencies, so a runtime placed IN a worker behaves
+identically — is tested, not assumed: the conformance realm rows (Deno
+worker slice, browser dedicated/shared-worker rows, OPFS worker smokes)
+gate it in CI, and where a platform API differs by realm the runtime
+depends on the intersection rather than detecting and branching.
+
 ## Bindgen obligations (summary of what the above requires)
 
 Per world: `Imports`/`Exports` types; resource classes (both directions);
