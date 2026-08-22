@@ -1,37 +1,37 @@
-// Resume-time ambient-claim discipline (issue #158).
+// Resume-time claim/pending-resumption discipline (issue #158).
 //
-// The scheduler's `setResumingThread` asserts that at most one activation
-// claims the resumed ambient per turn. `SuspensionPoint.#resumeInner`
-// (jspi/bridge.ts) has two arms — `produce` returned a value, or `produce`
-// threw a resume-time trap — and BOTH hand control back to a wasm activation,
-// so both take the claim. The success arm has always called
-// `consumeClaimIfRunning()` first: when the code delivering the resume is a
-// RUNNING guest activation that itself holds the live claim (a
+// `SuspensionPoint.#resumeInner` (jspi/bridge.ts) has two arms — `produce`
+// returned a value, or `produce` threw a resume-time trap — and BOTH hand
+// control back to a wasm activation, so both record a pending resumption on
+// the store (`Store.addPendingResumption`). Both also call
+// `Store.consumePendingIfRunning()` first: when the code delivering the resume
+// is a RUNNING guest activation that itself has a pending entry (a
 // `subtask.cancel` settling a parked callee from inside its own frame), that
-// claim's window is closed. Mechanism A of #158 was the trap arm missing that
-// call, so the same delivery shape with a trapping `produce` tripped the
+// entry's window is closed. Mechanism A of #158 was the trap arm missing that
+// call; back then the gate was a single global slot with a one-claimant
+// assert, so the same delivery shape with a trapping `produce` tripped the
 // assert — and the assert preempted `#fail(e)`, so the parked guest received
 // an AssertionError instead of its trap. These tests pin the fixed symmetry.
 //
 // Mechanism B of #158 (a second engine-driven resumption in one turn, from an
-// activation that is NOT the claim holder — single-slot claim capacity) is
-// deliberately NOT fixed here; the last test pins its current asserting
-// behavior so a future fix flips it loudly.
+// activation that is NOT the entry holder) is RESOLVED, 2026-08-22: the gate
+// became the per-Store, multi-entry `Store.pendingResumptions` set and the
+// one-claimant assert is gone with the slot (the invariant it protected —
+// tier-3 ambient attribution unambiguity — no longer exists; see
+// `resolveAmbient`). The mechanism-B test below therefore pins the SUCCESS of
+// that shape, cross-store and same-store, where it used to pin the assert.
 //
-// Scaffolding follows park_state_settle_test.ts. NOTE: the ambient state
-// (resumingThread, activationClaims, threadStack) is MODULE-GLOBAL, so every
-// test cleans up in a `finally`.
+// Scaffolding follows park_state_settle_test.ts. NOTE: the AMBIENT state
+// (activationClaims, threadStack) is still MODULE-GLOBAL, so every test cleans
+// up in a `finally`; the pending-resumption sets live on the stores.
 
 import {
-  clearResumingThread,
   ComponentInstanceState,
-  hasResumingThread,
   instancePoisonCause,
   isInstancePoisoned,
   popCurrentThread,
   pushCurrentThread,
   releaseActivationAmbient,
-  setResumingThread,
   Store,
   Task,
   type TaskOptions,
@@ -97,8 +97,8 @@ function opts(
   };
 }
 
-function mkWorld() {
-  const store = new Store();
+function mkWorld(over: { store?: Store } = {}) {
+  const store = over.store ?? new Store();
   const inst = new ComponentInstanceState(0, store);
   const task = new Task(ASYNC_FT, CALLBACK_OPTS, inst, () => [], () => {});
   task.state = "started";
@@ -111,11 +111,14 @@ function mkWorld() {
     inst,
     task,
     thread,
+    /** THIS world's suspension point. Filtered by task, because worlds may
+     * share a `Store` (`mkWorld({ store })`) and therefore a waiting list. */
     point(): SuspensionPoint<unknown> | undefined {
       return store.waiting.find(
         (w) =>
           typeof (w as { resume?: unknown }).resume === "function" &&
-          typeof (w as { abandon?: unknown }).abandon === "function",
+          typeof (w as { abandon?: unknown }).abandon === "function" &&
+          (w as { task?: unknown }).task === task,
       ) as SuspensionPoint<unknown> | undefined;
     },
     run<T>(fn: () => T): T {
@@ -149,8 +152,10 @@ function parkOnWait(w: ReturnType<typeof mkWorld>, cancellable: boolean) {
 }
 
 function cleanupAmbient(...worlds: ReturnType<typeof mkWorld>[]) {
-  clearResumingThread();
-  for (const w of worlds) releaseActivationAmbient(w.thread);
+  for (const w of worlds) {
+    w.store.pendingResumptions.clear();
+    releaseActivationAmbient(w.thread);
+  }
 }
 
 /** Deno fails a file on unhandled rejections; the parked promises here are
@@ -163,36 +168,51 @@ function rejection(p: Promise<unknown>): Promise<Outcome> {
   );
 }
 
-Deno.test("resume success arm: delivery from the claim holder consumes the claim", () => {
-  const caller = mkWorld();
-  const callee = mkWorld();
+Deno.test("resume success arm: delivery from the pending-entry holder consumes it", () => {
+  // The delivering activation and its callee share a `Store` — necessarily so:
+  // a `subtask.cancel` delivery is intra-store (instances of one linked graph
+  // share a Store, and activations never cross stores). With the gate per
+  // store (#158 mechanism B), "the caller's entry" and "the callee's entry"
+  // are entries in that one store's set.
+  const store = new Store();
+  const caller = mkWorld({ store });
+  const callee = mkWorld({ store });
   try {
     const parked = parkOnWait(callee, true);
     rejection(parked.parked); // handled: this park is abandoned by the test
-    // The caller's activation was engine-resumed (claim live) and its wasm is
-    // now running under its wasm-entry bracket, where it synchronously
+    // The caller's activation was engine-resumed (entry pending) and its wasm
+    // is now running under its wasm-entry bracket, where it synchronously
     // delivers a cancellation whose `produce` SUCCEEDS (TASK_CANCELLED).
-    setResumingThread(caller.thread);
+    store.addPendingResumption(caller.thread);
     withActivation(caller.thread, () => parked.point.resume(true));
-    assert(hasResumingThread(), "the callee's claim replaced the caller's");
+    assert(
+      !store.pendingResumptions.has(caller.thread),
+      "the caller's entry was consumed: its window closed when it ran",
+    );
+    assert(
+      store.pendingResumptions.has(callee.thread),
+      "the callee's resumption is now pending",
+    );
   } finally {
     cleanupAmbient(caller, callee);
   }
 });
 
-Deno.test("resume trap arm: delivery from the claim holder consumes the claim too (#158 mechanism A)", async () => {
-  const caller = mkWorld();
-  const callee = mkWorld();
+Deno.test("resume trap arm: delivery from the pending-entry holder consumes it too (#158 mechanism A)", async () => {
+  const store = new Store();
+  const caller = mkWorld({ store });
+  const callee = mkWorld({ store });
   try {
     const parked = parkOnWait(callee, false);
     const outcome = rejection(parked.parked);
-    setResumingThread(caller.thread);
+    store.addPendingResumption(caller.thread);
     let threw: unknown = null;
     try {
       // Resume with no pending event: `produce` throws — the
-      // trap-at-resume-time arm of `#resumeInner`. Before the #158 fix this
-      // arm claimed the resumed ambient WITHOUT `consumeClaimIfRunning()`,
-      // so `setResumingThread` asserted and preempted `#fail(e)`.
+      // trap-at-resume-time arm of `#resumeInner`. Before the #158 mechanism-A
+      // fix this arm recorded the resumed ambient WITHOUT consuming the
+      // caller's, so the (then single-slot) gate asserted and preempted
+      // `#fail(e)`.
       withActivation(caller.thread, () => parked.point.resume(false));
     } catch (e) {
       threw = e;
@@ -210,29 +230,39 @@ Deno.test("resume trap arm: delivery from the claim holder consumes the claim to
       !msg.includes("two activations claim the resumed ambient"),
       `the guest must receive its own trap, not the #158 assertion: ${msg}`,
     );
-    assert(hasResumingThread(), "the callee's unwind claim is live");
+    assert(
+      !store.pendingResumptions.has(caller.thread),
+      "the caller's entry was consumed on the trap arm too",
+    );
+    assert(
+      store.pendingResumptions.has(callee.thread),
+      "the callee's unwind resumption is pending",
+    );
   } finally {
     cleanupAmbient(caller, callee);
   }
 });
 
 Deno.test("resume from an EMPTY bracket self-consumes via the claims-top fallback", () => {
-  const a = mkWorld();
-  const b = mkWorld();
+  // One store, two activations of it (the shape the fallback exists for).
+  const store = new Store();
+  const a = mkWorld({ store });
+  const b = mkWorld({ store });
   try {
     const parkedA = parkOnWait(a, true);
     const parkedB = parkOnWait(b, true);
     rejection(parkedA.parked), rejection(parkedB.parked); // handled
     // First resumption: B's cancellation delivered from outside any activation
-    // (a driver / another store's scheduler) — claims B, both the
-    // activation-ambient claim and the resuming slot.
+    // (a driver) — records B, both the activation-ambient claim and the
+    // store's pending entry.
     parkedB.point.resume(true);
-    assert(hasResumingThread(), "B's claim is live");
+    assert(store.pendingResumptions.has(b.thread), "B's entry is pending");
     // Second resumption in the same turn, again from an empty bracket:
     // `activationOf()` is the entryStack top ?? the activation-claims top, and
-    // after the first resume the claims top IS the resuming thread — so
-    // `consumeClaimIfRunning` self-consumes and no assert fires. (Attribution
-    // for B's pending chunk is lost, but that is a different hazard.)
+    // after the first resume the claims top IS B — so
+    // `consumePendingIfRunning` self-consumes B's entry and nothing asserts.
+    // (Attribution for B's pending chunk is lost, but that is a different
+    // hazard.)
     let threw: unknown = null;
     try {
       parkedA.point.resume(true);
@@ -240,41 +270,82 @@ Deno.test("resume from an EMPTY bracket self-consumes via the claims-top fallbac
       threw = e;
     }
     assert(threw === null, `expected no assert, got: ${String(threw)}`);
+    assert(
+      !store.pendingResumptions.has(b.thread),
+      "B's entry was self-consumed via the claims-top fallback",
+    );
+    assert(store.pendingResumptions.has(a.thread), "A's entry is pending");
   } finally {
     cleanupAmbient(a, b);
   }
 });
 
-Deno.test("resume from a DIFFERENT running activation while a claim is live still asserts (#158 mechanism B)", () => {
-  // PINS CURRENT BEHAVIOR ON PURPOSE. This is issue #158's mechanism B — the
-  // resumed-ambient claim has a single slot, so a resumption delivered by an
-  // activation that is NOT the claim holder cannot be reconciled by
-  // `consumeClaimIfRunning`. The design decision (claim capacity) is still
-  // pending on #158 and was deliberately NOT made by the mechanism-A fix.
-  // When mechanism B is addressed, this test flips loudly rather than
-  // silently absorbing the change.
+Deno.test("resume from a DIFFERENT running activation while a resumption is pending — cross-store (#158 mechanism B)", () => {
+  // FLIPPED 2026-08-22. This is issue #158's mechanism B. It used to assert:
+  // the resumed-ambient gate was a single global slot, so a resumption
+  // delivered by an activation that is NOT the entry holder could not be
+  // reconciled by `consumeClaimIfRunning` and tripped the one-claimant assert.
+  // The gate is now the per-Store, multi-entry `Store.pendingResumptions`;
+  // both resumptions are legitimately pending and nothing asserts.
   const x = mkWorld(); // the activation actually running (a dispatched tail's
   // guest chunk, under its own wasm-entry bracket)
-  const y = mkWorld(); // the claimed-but-not-yet-run activation
+  const y = mkWorld(); // the settled-but-not-yet-run activation
   const z = mkWorld(); // the parked activation X delivers to
   try {
     const parkedZ = parkOnWait(z, true);
     rejection(parkedZ.parked); // handled
-    // Y's suspension was settled (claim live), Y's engine chunk has not run.
-    setResumingThread(y.thread);
+    // Y's suspension was settled (entry pending), Y's engine chunk has not run.
+    y.store.addPendingResumption(y.thread);
     // X's guest chunk synchronously delivers a cancellation to Z — the SUCCESS
-    // arm, whose `consumeClaimIfRunning` compares activationOf() (= X) against
-    // the claim (= Y) and correctly declines to consume.
+    // arm, whose `consumePendingIfRunning` compares activationOf() (= X)
+    // against Z's store's set and correctly consumes nothing.
     let threw: unknown = null;
     try {
       withActivation(x.thread, () => parkedZ.point.resume(true));
     } catch (e) {
       threw = e;
     }
-    assert(threw !== null, "expected the mechanism-B throw");
+    assert(threw === null, `expected no throw, got: ${String(threw)}`);
+    assert(y.store.pendingResumptions.has(y.thread), "Y's entry survives");
+    assert(z.store.pendingResumptions.has(z.thread), "Z's entry was recorded");
+    // Cross-store: neither store's gate is affected by the other's entry
+    // (issue #210 — this is what de-serializes independent instantiations).
     assert(
-      String(threw).includes("two activations claim the resumed ambient"),
-      `expected the #158 assertion, got: ${String(threw)}`,
+      x.store.pendingResumptions.size === 0,
+      "X's own store carries no entry",
+    );
+  } finally {
+    cleanupAmbient(x, y, z);
+  }
+});
+
+Deno.test("resume from a DIFFERENT running activation while a resumption is pending — same store (#158 mechanism B)", () => {
+  // The same shape with all three activations in ONE store: the set holds both
+  // pending entries, and the store's gate refuses to schedule while either
+  // lives (strictly more conservative than the old slot, which crashed).
+  const store = new Store();
+  const x = mkWorld({ store });
+  const y = mkWorld({ store });
+  const z = mkWorld({ store });
+  try {
+    const parkedZ = parkOnWait(z, true);
+    rejection(parkedZ.parked); // handled
+    store.addPendingResumption(y.thread);
+    let threw: unknown = null;
+    try {
+      withActivation(x.thread, () => parkedZ.point.resume(true));
+    } catch (e) {
+      threw = e;
+    }
+    assert(threw === null, `expected no throw, got: ${String(threw)}`);
+    assert(
+      store.pendingResumptions.has(y.thread) &&
+        store.pendingResumptions.has(z.thread),
+      "both resumptions are pending in the shared store",
+    );
+    assert(
+      store.tick() === false,
+      "the gate refuses to schedule while entries pend",
     );
   } finally {
     cleanupAmbient(x, y, z);
@@ -287,8 +358,10 @@ Deno.test("guest-shaped: a trapping cancellation delivery while the canceller's 
   // parked in a cancellable built-in whose `produce` traps when handed
   // `cancelled`, and the canceller delivers it while still holding its own
   // engine-resume claim.
-  const callee = mkWorld();
-  const canceller = mkWorld();
+  // Intra-store, as a real cancellation delivery is.
+  const store = new Store();
+  const callee = mkWorld({ store });
+  const canceller = mkWorld({ store });
   try {
     const parked = callee.run(() =>
       blockCurrentActivation<number>({
@@ -306,7 +379,7 @@ Deno.test("guest-shaped: a trapping cancellation delivery while the canceller's 
     const point = callee.point();
     assert(point !== undefined, "the suspension point is waiting");
 
-    setResumingThread(canceller.thread);
+    store.addPendingResumption(canceller.thread);
     let threw: unknown = null;
     try {
       withActivation(

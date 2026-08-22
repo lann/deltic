@@ -337,7 +337,7 @@ export function withActivation<T>(t: any, fn: () => T): T {
  * async-context store held: the store was written by `withActivation` and by
  * nothing else, so a built-in reached under a scheduler `resume()` bracket
  * that had not (yet) entered wasm saw NO store, even though `threadStack`
- * named a thread. `consumeClaimIfRunning` — the driver-gate
+ * named a thread. `Store.consumePendingIfRunning` — the driver-gate
  * release whose scheduling effects the corpus pins precisely — asked exactly
  * that question, so it must keep asking exactly that question — measured:
  * routing it through the full `threadStack` instead moved 64 conformance
@@ -349,7 +349,8 @@ const entryStack: any[] = [];
 
 /**
  * "Whose wasm frame are we lexically inside, or running on behalf of?" — the
- * async-context store's replacement, used only by `consumeClaimIfRunning`.
+ * async-context store's replacement, used only by
+ * `Store.consumePendingIfRunning`.
  */
 // deno-lint-ignore no-explicit-any
 function activationOf(): any {
@@ -417,8 +418,9 @@ function activationOf(): any {
  * The opposite shape — A settles B's suspension so B runs AFTER A — is
  * deliberately NOT represented here: `SuspensionPoint.resume` pushes only when
  * nothing is currently running, so B never shadows A. B is picked up by its
- * own first `Suspending` call, or before that by the driver's `resumingThread`
- * slot at the bottom tier.
+ * own first `Suspending` call. (Until 2026-08-22 a third ambient tier — the
+ * driver's `resumingThread` slot — also named B here; it was retired with the
+ * slot, see `resolveAmbient` and `Store.pendingResumptions`.)
  *
  * An activation leaves this stack when it parks again
  * (`blockCurrentActivation`) or finishes (its `awaitValue` promise settles —
@@ -436,7 +438,7 @@ const activationClaims: any[] = [];
  * direct evidence that `t` is running RIGHT NOW (its Suspending import just
  * returned into its wasm). The previous early-return kept stale order: a
  * nested callee's claim whose release edge is a promise reaction
- * (`Store.noteAwaiting` -> `releaseClaimOf`) outlives the callee by a
+ * (`Store.noteAwaiting` -> `Store.releasePendingOf`) outlives the callee by a
  * microtask, and an outer activation's continuation chunk that resumed in
  * that window re-claimed itself as a NOOP — leaving the finished callee on
  * top, so every ambient read in the rest of the chunk (the next hop's
@@ -465,9 +467,8 @@ function traceAmbient(what: string, t: any): void {
   // Lazy import avoidance: reuse context.ts's ids via a local map.
   console.error(
     `[amb] ${what} ${dbgId(t)} | stack=[${threadStack.map(dbgId).join(",")}] ` +
-      `claims=[${activationClaims.map(dbgId).join(",")}] resuming=${
-        resumingThread === null ? "-" : dbgId(resumingThread)
-      }\n${(new Error().stack ?? "").split("\n").slice(2, 6).join("\n")}`,
+      `claims=[${activationClaims.map(dbgId).join(",")}]` +
+      `\n${(new Error().stack ?? "").split("\n").slice(2, 6).join("\n")}`,
   );
 }
 const dbgIds = new WeakMap<object, number>();
@@ -507,88 +508,17 @@ export function releaseActivationAmbient(t: any): void {
 }
 
 // ---------------------------------------------------------------------------
-// The driver's resume claim (a SEPARATE concern from the ambient above)
+// The resumed-but-not-yet-run gate (a SEPARATE concern from the ambient above)
 // ---------------------------------------------------------------------------
-
-/**
- * The activation whose suspension we have just resolved and which has not run
- * yet — the DRIVER's serialization gate, not an ambient.
- *
- * Keeping this distinct from `activationClaims` matters. This slot answers
- * "may I schedule something else right now?" (`Store.tick` and both driving
- * loops refuse while it is live, which is what forces a microtask yield so the
- * resumed activation actually runs). `activationClaims` answers "whose code is
- * this?". Conflating them — driving off the ambient queue — wedges the loops,
- * because an activation that merely hopped (case (ii) above) legitimately
- * holds an ambient while the scheduler is free to proceed.
- */
-// deno-lint-ignore no-explicit-any
-let resumingThread: any = null;
-
-/** Claim the ambient for `t` across an engine-driven resumption. */
-// deno-lint-ignore no-explicit-any
-export function setResumingThread(t: any): void {
-  if (AMBIENT_TRACE) traceAmbient("set-resuming", t);
-  assert_(
-    resumingThread === null || resumingThread === t,
-    "two activations claim the resumed ambient at once — the " +
-      "resolve-one-per-turn discipline was violated",
-  );
-  resumingThread = t;
-}
-
-/** Is a settled-but-not-yet-run activation holding the ambient? */
-export function hasResumingThread(): boolean {
-  return resumingThread !== null;
-}
-
-/** Release the claim; called once we are back in our own continuation. */
-export function clearResumingThread(): void {
-  resumingThread = null;
-}
-
-/**
- * Release the driver's claim iff its activation is demonstrably RUNNING —
- * i.e. the claim names the same thread the ACTIVATION AMBIENT names for the
- * code calling us. The claim exists to cover the window between settling a
- * suspension and the resumed activation running; once that activation's own
- * code is on the stack the window is closed, and holding the claim would
- * falsely trip the one-claimant assert when the running activation's built-in
- * settles ANOTHER activation's suspension — `subtask.cancel` delivering a
- * cancellation to a parked callee (cancellable.wast) is exactly that shape.
- * When the two disagree (or no ambient is present) the claim stays, and the
- * assert keeps guarding the genuine two-unrun-claimants bug it was built for.
- *
- * The comparison used to be against the async-context store; it is now
- * against `activationOf()`, which is the same statement made explicitly.
- */
-export function consumeClaimIfRunning(): void {
-  if (resumingThread !== null && activationOf() === resumingThread) {
-    resumingThread = null;
-  }
-}
-
-/**
- * Release the claim iff it names `t` — the settle-side half of the claim
- * discipline: a claim taken when `t`'s suspension was settled dies when `t`'s
- * activation finishes (its `awaitValue` promise settles; `Store.noteAwaiting`
- * calls this from the eager settle continuation) or parks again
- * (`blockCurrentActivation` consumes via `consumeClaimIfRunning`).
- *
- * `t` FINISHING also ends its activation ambient, so both are dropped here.
- */
-// deno-lint-ignore no-explicit-any
-export function releaseClaimOf(t: any): void {
-  releaseActivationAmbient(t);
-  if (
-    resumingThread !== null &&
-    (resumingThread === t ||
-      (t as { task?: { implicitThread?: unknown } })?.task?.implicitThread ===
-        resumingThread)
-  ) {
-    resumingThread = null;
-  }
-}
+//
+// This used to be a module-global single slot, `resumingThread`, doing two
+// jobs: (1) the DRIVER's scheduling gate ("a suspension was settled and its
+// activation has not run yet — do not schedule anything else"), and (2) tier 3
+// of ambient resolution. Job (2) was retired on 2026-08-22 (issue #158) after
+// measurement showed it never decided a read; job (1) is real, but it is
+// per-Store SET semantics, not a global identity slot — see
+// `Store.pendingResumptions` below, and `resolveAmbient` for the retirement
+// evidence.
 
 const AMBIENT_TRACE = (() => {
   try {
@@ -602,20 +532,22 @@ const AMBIENT_TRACE = (() => {
 export function ambientDebug(): {
   stack: unknown[];
   claims: unknown[];
-  resuming: unknown;
 } {
   return {
     stack: [...threadStack],
     claims: [...activationClaims],
-    resuming: resumingThread,
   };
 }
 
-/** Diagnostic: module-scope state that must NOT survive a completed call. */
+/**
+ * Diagnostic: module-scope AMBIENT state that must NOT survive a completed
+ * call. The scheduling gate is no longer module-scope — a store's
+ * `pendingResumptions` set is the per-Store analogue and is checked there.
+ */
 export function ambientResidue(): { stack: number; claim: boolean } {
   return {
     stack: threadStack.length,
-    claim: resumingThread !== null || activationClaims.length > 0,
+    claim: activationClaims.length > 0,
   };
 }
 
@@ -630,9 +562,9 @@ export function ambientResidue(): { stack: number; claim: boolean } {
  *      is running outside our frames (a `Suspending` hop or a resumption).
  *      LIFO, because activations nest: an outer activation's built-in can
  *      synchronously enter an inner one's wasm.
- *   3. `resumingThread` -- the driver's claim. Last resort: it names whichever
- *      activation the driver settled or claimed across an await, which is
- *      right for that one and wrong for every other in-flight activation.
+ *   (There is no tier 3. A third tier — `resumingThread`, the driver's
+ *      settle-time claim — existed from M3A-1 until 2026-08-22 and was
+ *      RETIRED, see below.)
  *
  * Tier 2 replaced an async-context store (M3A-1). The store held
  * precisely "the innermost wasm activation currently executing, across the
@@ -652,11 +584,30 @@ export function ambientResidue(): { stack: number; claim: boolean } {
  * one reader measured as "no change" because the failing sites used the other.
  * Do not add a third reader; extend this one. (`activationOf` above is not a
  * second reader -- it answers a different question, "whose wasm frame are we
- * running on behalf of", and is used only by `consumeClaimIfRunning`.)
+ * running on behalf of", and is used only by
+ * `Store.consumePendingIfRunning`.)
+ *
+ * TIER 3 RETIRED, 2026-08-22 (issue #158). The bottom tier used to be
+ * `resumingThread`, the driver's settle-time claim -- a last resort that named
+ * whichever activation was settled or claimed across an await, right for that
+ * one and wrong for every other in-flight activation. It was removed on the
+ * strength of a re-run of the M3A-1 differential methodology: an instrumented
+ * build counted every read where tiers 1-2 were empty and the slot was live,
+ * and measured ZERO deciding reads across the conformance corpus (FIFO,
+ * 1257/0), both seeded shuffles (`POLYENGINE_SCHED_SEED` 1 and 4242),
+ * test-runtime (all jspi pins), and the smoke-tls three-async-component #24
+ * corpus. A removal build then ran green on every engine lane we have:
+ * test-runtime, test-protocol, conformance (1257/0, no expectation changes),
+ * sched-seeds, the shells (sm + node + jsc + bun, all "OK, matches
+ * expectation"), the browsers (chromium + firefox), smoke-tls and smoke-c0.
+ * The reading: post-#24 the sentinel discipline (tier 2's claim/release edges)
+ * always answers first, so the slot's attribution role was vestigial. Its
+ * other, live role -- the scheduling gate -- survives as the per-Store
+ * `Store.pendingResumptions` set.
  */
 function resolveAmbient(): CurrentThreadLike | undefined {
   return threadStack[threadStack.length - 1] ??
-    activationClaims[activationClaims.length - 1] ?? resumingThread ??
+    activationClaims[activationClaims.length - 1] ??
     undefined;
 }
 
@@ -664,8 +615,7 @@ export function currentThread<T = CurrentThreadLike>(): T {
   if (AMBIENT_TRACE && threadStack.length === 0) {
     console.error(
       `[ambient] bracket empty; claims=${activationClaims.length} ` +
-        `head=${activationClaims[0]?.constructor?.name ?? "none"} ` +
-        `resuming=${resumingThread?.constructor?.name ?? "none"}`,
+        `head=${activationClaims[0]?.constructor?.name ?? "none"}`,
     );
   }
   const t = resolveAmbient();
@@ -761,6 +711,111 @@ export class Store {
    */
   hostFailure: unknown = undefined;
 
+  /**
+   * Resumed-but-not-yet-run activations of THIS store — the driver's
+   * scheduling gate, not an ambient.
+   *
+   * Keeping this distinct from `activationClaims` matters. This set answers
+   * "may I schedule something else right now?" (`Store.tick` and both driving
+   * loops refuse while it is non-empty, which is what forces a microtask yield
+   * so the resumed activation actually runs). `activationClaims` answers
+   * "whose code is this?". Conflating them — driving off the ambient queue —
+   * wedges the loops, because an activation that merely hopped legitimately
+   * holds an ambient while the scheduler is free to proceed.
+   *
+   * PER-STORE and MULTI-ENTRY since 2026-08-22 (issues #158 mechanism B,
+   * #210). It was one module-global slot with a one-claimant assert, which
+   * (a) could not represent two legitimately-pending engine resumptions — a
+   * running activation X delivering a resume to Z while Y's resumption was
+   * still pending crashed on the assert — and (b) made every driver on every
+   * store yield while ANY store held a claim, so an idle store's
+   * `driveStoreAsync` died at the 10,000-hop assert (~311ms) while another
+   * store merely dwelt on a slow host import. The assert's invariant was
+   * tier-3 attribution unambiguity, which no longer exists (see
+   * `resolveAmbient`), so it is gone with the slot; the entries and their
+   * release edges are otherwise unchanged, per entry.
+   *
+   * Cross-store de-serialization is safe by disjointness: an activation
+   * belongs to exactly one store. Same-store it is strictly more conservative
+   * than the old slot — the gate keeps refusing until EVERY pending entry has
+   * died, rather than crashing on the second.
+   *
+   * Release edges, per entry: the activation PARKS again
+   * (`blockCurrentActivation` -> `consumePendingIfRunning`), it FINISHES (its
+   * `awaitValue` promise settles -> `noteAwaiting` -> `releasePendingOf`), or
+   * the driver drops its own speculative entry (`removePendingResumption`).
+   */
+  readonly pendingResumptions: Set<unknown> = new Set<unknown>();
+
+  /**
+   * Record that a suspension of this store has been settled and its
+   * activation has not run yet. Idempotent; a null/undefined activation is
+   * "no entry" (the instantiation-time shape that has no thread at all).
+   *
+   * No one-claimant assert: two entries are legitimate (see
+   * `pendingResumptions`). Two SuspensionPoints of ONE task cannot be pending
+   * simultaneously — a task's single activation suspends at one point at a
+   * time — so collapsing entries by identity loses nothing.
+   */
+  addPendingResumption(t: unknown): void {
+    if (t === null || t === undefined) return;
+    if (AMBIENT_TRACE) traceAmbient("pending+", t);
+    this.pendingResumptions.add(t);
+  }
+
+  /** Is some settled-but-not-yet-run activation of this store pending? */
+  hasPendingResumptions(): boolean {
+    return this.pendingResumptions.size > 0;
+  }
+
+  /** Drop exactly `t` (the driver's own speculative entry). */
+  removePendingResumption(t: unknown): void {
+    if (AMBIENT_TRACE) traceAmbient("pending-", t);
+    this.pendingResumptions.delete(t);
+  }
+
+  /**
+   * Drop the pending entry iff its activation is demonstrably RUNNING — i.e.
+   * the entry names the same thread the ACTIVATION AMBIENT names for the code
+   * calling us. An entry exists to cover the window between settling a
+   * suspension and the resumed activation running; once that activation's own
+   * code is on the stack the window is closed, and holding the entry would
+   * gate the store on an activation that has already had its turn — while a
+   * running activation's built-in settles ANOTHER activation's suspension
+   * (`subtask.cancel` delivering a cancellation to a parked callee,
+   * cancellable.wast) that other entry must legitimately stay.
+   *
+   * The comparison is against `activationOf()` — the wasm-ENTRY brackets,
+   * deliberately not the full `threadStack` (see `entryStack`: routing it
+   * through the full stack moved 64 conformance commands).
+   */
+  consumePendingIfRunning(): void {
+    const a = activationOf();
+    if (a !== null && a !== undefined) this.pendingResumptions.delete(a);
+  }
+
+  /**
+   * Drop the pending entry naming `t` — the settle-side half: an entry taken
+   * when `t`'s suspension was settled dies when `t`'s activation finishes (its
+   * `awaitValue` promise settles; `noteAwaiting` calls this from the eager
+   * settle continuation) or parks again (`blockCurrentActivation` consumes via
+   * `consumePendingIfRunning`).
+   *
+   * The `task.implicitThread` indirection covers entries taken against a
+   * task's implicit thread. `t` FINISHING also ends its activation ambient,
+   * so both are dropped here.
+   */
+  // deno-lint-ignore no-explicit-any
+  releasePendingOf(t: any): void {
+    releaseActivationAmbient(t);
+    this.pendingResumptions.delete(t);
+    const implicit = (t as { task?: { implicitThread?: unknown } })?.task
+      ?.implicitThread;
+    if (implicit !== undefined && implicit !== null) {
+      this.pendingResumptions.delete(implicit);
+    }
+  }
+
   startWaiting(t: SchedulableThread): void {
     assert_(!this.waiting.includes(t), "thread already in the waiting list");
     this.waiting.push(t);
@@ -816,7 +871,7 @@ export class Store {
    * another activation's suspension — `subtask.cancel` delivering a
    * cancellation): the claim taken at settle time must survive until the
    * resumed activation parks again or finishes, and "finished" is exactly
-   * this continuation firing. See `releaseClaimOf`.
+   * this continuation firing. See `releasePendingOf`.
    */
   // deno-lint-ignore no-explicit-any
   noteAwaiting(t: any, promise: Promise<unknown>): void {
@@ -824,11 +879,11 @@ export class Store {
     promise.then(
       (value) => {
         this.settled.push({ t, value, failure: undefined });
-        releaseClaimOf(t);
+        this.releasePendingOf(t);
       },
       (e) => {
         this.settled.push({ t, value: undefined, failure: { error: e } });
-        releaseClaimOf(t);
+        this.releasePendingOf(t);
       },
     );
   }
@@ -988,14 +1043,17 @@ export class Store {
     //
     // Settling a suspension hands control to wasm in a *microtask*, not
     // synchronously — so `tick` returns with the resumed activation not yet
-    // run and its ambient claim still outstanding. Resolving a second one
-    // before that happens would overwrite the claim, and the first
-    // activation's built-ins would then attribute themselves to the wrong
-    // task (observed as `exit-sync-call` popping another task's bracket).
-    // Refusing to make progress while a claim is live forces the caller to
-    // yield to the microtask queue first, which is exactly what `driveAsync`
-    // does.
-    if (resumingThread !== null) return false;
+    // run and its pending entry still outstanding. Resolving a second one
+    // before that happens would let the first activation's built-ins
+    // attribute themselves to the wrong task (observed as `exit-sync-call`
+    // popping another task's bracket). Refusing to make progress while an
+    // entry is pending forces the caller to yield to the microtask queue
+    // first, which is exactly what `driveAsync` does.
+    //
+    // THIS STORE's entries only (issue #210): activations never cross stores,
+    // so another store's pending resumption says nothing about what this one
+    // may schedule.
+    if (this.pendingResumptions.size > 0) return false;
     // Same discipline, other edge: a settled-but-unserviced activation tail
     // (see `settled`) is mid-"atomic resume" from the reference's point of
     // view; scheduling anything before servicing it acts on phantom state.

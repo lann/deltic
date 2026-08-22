@@ -31,16 +31,13 @@ import {
   type Cancelled,
   ComponentInstanceState,
   driveSyncLift,
-  clearResumingThread,
   EventCode,
   withActivation,
   hasRealHostCall,
-  hasResumingThread,
   dispatchableTail,
   type EventTuple,
   NeedsJspi,
   needsJspi,
-  setResumingThread,
   packSubtaskResult,
   PendingCapability,
   notifyInstancePoisoned,
@@ -433,7 +430,7 @@ function traceDrive(loop: string, store: Store, done: () => boolean, branch: str
       `waiting=${store.waiting.length}{${waiters}} ` +
       `awaiting=${store.awaiting.size} ` +
       `hostCalls=${store.pendingHostCalls.size} ` +
-      `awaiters={${awaiters}} claim=${hasResumingThread()} done=${doneVerdict}`,
+      `awaiters={${awaiters}} pending=${store.pendingResumptions.size} done=${doneVerdict}`,
   );
 }
 
@@ -473,10 +470,10 @@ function drive(
     }
     // A thread parked on a Promise (jspi) can only progress after a microtask
     // turn, exactly like an outstanding host call. So can an outstanding
-    // ambient claim: a suspension has been settled and its activation has not
-    // run yet (see `Store.tick`).
-    if (store.awaiting.size > 0 || hasResumingThread()) {
-      traceDrive("drive", store, done, "->async(awaiting/claim)");
+    // pending resumption of THIS store: a suspension has been settled and its
+    // activation has not run yet (see `Store.tick`).
+    if (store.awaiting.size > 0 || store.hasPendingResumptions()) {
+      traceDrive("drive", store, done, "->async(awaiting/pending)");
       return driveAsync(store, done, what);
     }
     if (store.pendingHostCalls.size === 0) {
@@ -582,9 +579,15 @@ export async function driveStoreAsync(
  *       racing the same parked thread await the *same* tag object and see one
  *       settlement, not two independent ones. This is what makes (a)'s
  *       "queued at tag settlement" premise hold across loops.
- *   (c) The ambient resume claim (`setResumingThread`) serializes the claim
- *       path: a second claimant while one is live is asserted against, and
- *       every loop yields at its top while `hasResumingThread()`.
+ *   (c) The store's pending-resumption set (`Store.pendingResumptions`)
+ *       serializes the resumption path WITHIN a store: every loop driving
+ *       that store yields at its top while `store.hasPendingResumptions()`,
+ *       so a settled activation runs before anything else is scheduled.
+ *       (Until 2026-08-22 this was a module-global single slot with a
+ *       one-claimant assert; per-store multi-entry replaced it — issues #158
+ *       mechanism B and #210. Overlapping loops in the sense meant here are
+ *       loops on the SAME store, which is exactly what (c) still covers;
+ *       loops on different stores never shared a settlement to race for.)
  *
  * (a) is the guarantee; (b) and (c) are what make (a) apply across loops
  * rather than only within one. The one corner (a) does NOT cover — a thread
@@ -795,22 +798,29 @@ async function driveAsync(
     // then reported STARTING for an entry the reference admits.
     store.serviceSettled();
     if (store.hostFailure !== undefined) throw takeHostFailure(store);
-    // A live claim is an engine-driven resumption in flight: its activation
-    // has not yet parked again or finished. It will die on its own — parking
-    // consumes it (`blockCurrentActivation`), finishing releases it
-    // (`Store.noteAwaiting`'s settle continuation) — so yield microtasks
-    // until it does. The driver must NOT blanket-clear here: the claim may
-    // have been taken by a guest built-in settling another activation's
-    // suspension (`subtask.cancel` delivering a cancellation), and clearing
-    // it before that activation runs re-opens the mis-attribution window the
-    // claim exists to close.
-    if (hasResumingThread()) {
-      traceDrive("driveAsync", store, done, "yield-claim");
-      // Bounded: a claim that never dies is an internal bug (every path out
-      // of a resumed activation releases it — park, finish, trap), and a
-      // pure-microtask wait would otherwise starve the event loop and every
-      // stall timer with it. Interleave macrotask hops so timers stay alive,
-      // and fail loudly rather than spin forever.
+    // A pending resumption of THIS store is an engine-driven resumption in
+    // flight: its activation has not yet parked again or finished. It will
+    // die on its own — parking consumes it (`blockCurrentActivation`),
+    // finishing releases it (`Store.noteAwaiting`'s settle continuation) — so
+    // yield microtasks until it does. The driver must NOT blanket-clear here:
+    // an entry may have been taken by a guest built-in settling another
+    // activation's suspension (`subtask.cancel` delivering a cancellation),
+    // and clearing it before that activation runs re-opens the
+    // mis-attribution window the entry exists to close.
+    //
+    // PER-STORE (issue #210): this gate used to read a module-global slot, so
+    // an idle store's driver spun here — and died at the hop bound below in
+    // ~311ms — merely because ANOTHER store's guest was dwelling on a slow
+    // host import. Activations never cross stores; another store's pending
+    // resumption is none of this loop's business.
+    if (store.hasPendingResumptions()) {
+      traceDrive("driveAsync", store, done, "yield-pending");
+      // Bounded: a pending entry that never dies is an internal bug (every
+      // path out of a resumed activation releases it — park, finish, trap),
+      // and a pure-microtask wait would otherwise starve the event loop and
+      // every stall timer with it. Interleave macrotask hops so timers stay
+      // alive, and fail loudly rather than spin forever. Scoped per store,
+      // this is again the internal-bug detector it was meant to be.
       claimHops++;
       assert_(
         claimHops < 10_000,
@@ -847,7 +857,7 @@ async function driveAsync(
     // Only a SERVICEABLE tail is a reason to loop again: a queue holding
     // only tails DEFERRED on a non-enterable instance (issue #156) would
     // spin this loop hot — nothing in the cycle awaits.
-    if (store.hasServiceableSettled() || hasResumingThread()) {
+    if (store.hasServiceableSettled() || store.hasPendingResumptions()) {
       continue;
     }
     // Service promise-parked threads (jspi).
@@ -884,7 +894,7 @@ async function driveAsync(
       // without this check it presents as a silent stall instead -- which is
       // exactly what `tests/jspi/deadlock_test.ts` caught the moment site 2
       // was lit.
-      if (store.pendingHostCalls.size === 0 && !hasResumingThread()) {
+      if (store.pendingHostCalls.size === 0 && !store.hasPendingResumptions()) {
         traceDrive("driveAsync", store, done, "deadlock-probe");
         // Exclude threads whose settle is already QUEUED in `store.settled`
         // (issue #156): their promise has settled, so racing them wins
@@ -950,7 +960,7 @@ async function driveAsync(
           // probe's precondition); keeping it loud is what makes it an
           // internal-wedge detector rather than dead code.
           if (
-            store.pendingHostCalls.size > 0 || hasResumingThread() ||
+            store.pendingHostCalls.size > 0 || store.hasPendingResumptions() ||
             store.hasServiceableSettled()
           ) {
             continue;
@@ -1039,24 +1049,30 @@ async function driveAsync(
       for (const h of store.pendingHostCalls) {
         others.push(h.then(() => null, () => null));
       }
-      // A SPECULATIVE claim: the chosen thread is a promising-wrapped
+      // A SPECULATIVE entry: the chosen thread is a promising-wrapped
       // activation, and the engine may run its wasm during this await (pin
-      // (i)). It is released unconditionally on the way out — if the
-      // activation is genuinely mid-resumption its own exact claim (minted by
-      // `SuspensionPoint.resume`) is what carries it, and releasing a claim
-      // that names a thread already gone from the queue is a no-op.
-      setResumingThread(chosen);
+      // (i)). It is dropped on the way out — if the activation is genuinely
+      // mid-resumption its own exact entry (minted by
+      // `SuspensionPoint.resume`) is what carries it, and dropping an entry
+      // that names a thread already gone from the set is a no-op.
+      //
+      // ONLY ITS OWN ENTRY (issue #158): the `finally` used to blanket-clear
+      // the single global slot, so a guest-synchronous delivery during the
+      // await — which takes a fresh entry of its own — had that entry
+      // clobbered early, re-opening the window it exists to close. With a set
+      // we can name exactly what we added.
+      store.addPendingResumption(chosen);
       let winner: AwaitWinner | null;
       try {
         winner = await Promise.race([chosenTag, ...others]);
       } finally {
-        clearResumingThread();
+        store.removePendingResumption(chosen);
       }
       // Resume whichever thread actually settled -- not necessarily the one we
       // claimed. Resuming only the claimed thread would spin: its promise may
       // never settle, the same thread would be chosen again next turn, and the
       // already-settled tags would win the race instantly forever (observed as
-      // an OOM, not a hang). The claim is cleared above before any resumption,
+      // an OOM, not a hang). Our own entry is dropped above before any resumption,
       // exactly as on the original single-promise path, so this does not widen
       // the ambient window; it only ensures the loop always makes progress.
       // Membership is not enough: the corner it misses is a thread the OTHER

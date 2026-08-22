@@ -32,7 +32,6 @@ import {
 } from "../../src/jspi/mod.ts";
 import {
   ambientResidue,
-  clearResumingThread,
   type CurrentThreadLike,
   maybeCurrentThread,
   releaseActivationAmbient,
@@ -143,13 +142,16 @@ Deno.test({
     assertEquals(seen.length, 1);
     assertEquals(seen[0], thread);
 
-    // In production the driver's resume claim is retired by
-    // `consumeClaimIfRunning` (the activation parks again) or by
+    // In production the store's pending-resumption entry is retired by
+    // `Store.consumePendingIfRunning` (the activation parks again) or by
     // `Store.noteAwaiting` (it finishes); this bare fixture has neither, so
-    // wind both down by hand and confirm nothing else leaked.
+    // wind both down by hand and confirm nothing else leaked — the ambient
+    // globals AND this store's gate (the residue check lost its claim
+    // component when the gate moved onto `Store`, #158).
     releaseActivationAmbient(thread);
-    clearResumingThread();
+    store.removePendingResumption(thread);
     assertEquals(ambientResidue().stack, 0);
     assertEquals(ambientResidue().claim, false);
+    assertEquals(store.pendingResumptions.size, 0);
   },
 });

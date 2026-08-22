@@ -47,10 +47,8 @@ import {
   withActivation,
   claimActivationAmbient,
   dbgId,
-  consumeClaimIfRunning,
   maybeCurrentThread,
   releaseActivationAmbient,
-  setResumingThread,
 } from "../task/mod.ts";
 import type { Cancelled, SchedulableThread, Store } from "../task/mod.ts";
 
@@ -522,16 +520,18 @@ export class SuspensionPoint<T = unknown> implements SchedulableThread {
       // and the `assert_trap` rows of `big-interleaving-test.wast` detect
       // ("exit-sync-call with an empty sync-call stack").
       //
-      // Symmetry with the success arm below (issue #158): if the DRIVER's slot
-      // is live for the activation currently executing, that activation is the
-      // code delivering this resume (a running guest's `subtask.cancel`, whose
-      // `produce` computes a trap), so its claim window has closed — consume it
-      // rather than false-positive the one-claimant assert in
-      // `setResumingThread`. Without this the assert preempts `#fail(e)` and
-      // the parked guest receives an AssertionError in place of its trap.
-      consumeClaimIfRunning();
+      // Symmetry with the success arm below (issue #158): if a pending
+      // resumption of this store names the activation currently executing,
+      // that activation is the code delivering this resume (a running guest's
+      // `subtask.cancel`, whose `produce` computes a trap), so its window has
+      // closed — retire that entry here. Historically this also avoided a
+      // false-positive one-claimant assert that preempted `#fail(e)`, handing
+      // the parked guest an AssertionError in place of its trap; the assert is
+      // gone with the single-slot claim (#158 mechanism B), but the entry must
+      // still be retired here or the store stays gated on a finished window.
+      this.#store.consumePendingIfRunning();
       if (maybeCurrentThread() === undefined) claimActivationAmbient(this.owner);
-      setResumingThread(this.task?.implicitThread ?? null);
+      this.#store.addPendingResumption(this.task?.implicitThread ?? null);
       this.#fail(e);
       return;
     }
@@ -539,24 +539,24 @@ export class SuspensionPoint<T = unknown> implements SchedulableThread {
     // settling the import's Promise hands control to wasm, which will call
     // built-ins with an empty bracket stack. The claim names `owner` — the
     // activation captured when this point was minted — not a guess derived
-    // now; see `owner` and `setResumingThread`.
+    // now; see `owner` and `Store.pendingResumptions`.
     //
-    // If the DRIVER's slot is live for the activation currently executing (it
-    // is the code that called us — a running guest's `subtask.cancel`
-    // delivering a cancellation settles the callee's suspension from inside
-    // its own frame), that claim has served its purpose; consume it rather
-    // than false-positive the one-claimant assert.
-    consumeClaimIfRunning();
+    // If a pending resumption of this store names the activation currently
+    // executing (it is the code that called us — a running guest's
+    // `subtask.cancel` delivering a cancellation settles the callee's
+    // suspension from inside its own frame), that entry has served its
+    // purpose; retire it.
+    this.#store.consumePendingIfRunning();
     // The activation-ambient claim (site (i) in scheduler.ts). Taken only when
     // NOBODY is running right now: if a guest activation is executing, `owner`
     // does not run until that activation yields, and pushing onto a
     // LAST-IN-FIRST-OUT stack now would make `owner` the ambient for the
-    // caller's remaining frame. In that shape `owner` is picked up either by
-    // its own first `Suspending` call (site (ii)) or, before that, by the
-    // driver's `resumingThread` slot at the bottom tier — exactly as it always
-    // was.
+    // caller's remaining frame. In that shape `owner` is picked up by its own
+    // first `Suspending` call (site (ii)); the retired tier-3 slot used to
+    // cover the window before that, and the measurement behind its retirement
+    // (#158, see `resolveAmbient`) says nothing ever read it there.
     if (maybeCurrentThread() === undefined) claimActivationAmbient(this.owner);
-    setResumingThread(this.task?.implicitThread ?? null);
+    this.#store.addPendingResumption(this.task?.implicitThread ?? null);
     this.#settle(value);
   }
 
@@ -634,11 +634,11 @@ export function blockCurrentActivation<T>(input: {
   // and strands the point with no owner (measured: `cancellable.wast:322`
   // then reported `pending-capability: instantiation-time task context`).
   const owner = maybeCurrentThread() ?? input.task?.implicitThread ?? null;
-  // The activation is parking: if it still carried the resumed-ambient claim
-  // from the settle that resumed it, that claim's window closes here (the
-  // other closing edge — the activation FINISHING — is handled by
+  // The activation is parking: if it still carried the pending-resumption
+  // entry from the settle that resumed it, that entry's window closes here
+  // (the other closing edge — the activation FINISHING — is handled by
   // `Store.noteAwaiting`'s settle continuation).
-  consumeClaimIfRunning();
+  input.store.consumePendingIfRunning();
   releaseActivationAmbient(owner);
   const point = new SuspensionPoint<T>(
     input.store,
