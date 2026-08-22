@@ -11,7 +11,7 @@
 // in a JS host and are refused at instantiate time.
 
 import { assert_, trapIf } from "../cabi/trap.ts";
-import { currentThread } from "../task/mod.ts";
+import { currentThreadForInstance } from "../task/mod.ts";
 import { ambientDebug, dbgId } from "../task/scheduler.ts";
 import type { CurrentThreadLike } from "../task/mod.ts";
 import type { CoreFn } from "../exec/boundary.ts";
@@ -33,8 +33,8 @@ export const NUM_CONTEXT_SLOTS = 2;
  * in slot 0, which is why this intrinsic is the entry blocker for async
  * guests.
  */
-export function canonContextGet(i: number): number {
-  const thread = currentThread<CurrentThreadLike>();
+export function canonContextGet(i: number, inst?: unknown): number {
+  const thread = currentThreadForInstance<CurrentThreadLike>(inst);
   assert_(i < NUM_CONTEXT_SLOTS, `context.get slot ${i} out of range`);
   const result = thread.storage[i];
   assert_(result < 2 ** 32, "context.get value out of i32 range");
@@ -65,8 +65,8 @@ function trace(msg: string, thread: unknown): void {
 }
 
 /** definitions.py `canon_context_set` (line 2358). */
-export function canonContextSet(i: number, v: number): void {
-  const thread = currentThread<CurrentThreadLike>();
+export function canonContextSet(i: number, v: number, inst?: unknown): void {
+  const thread = currentThreadForInstance<CurrentThreadLike>(inst);
   assert_(i < NUM_CONTEXT_SLOTS, `context.set slot ${i} out of range`);
   if (CTX_TRACE) trace(`set[${i}] = ${v >>> 0}`, thread);
   thread.storage[i] = v >>> 0;
@@ -79,7 +79,19 @@ export function canonContextSet(i: number, v: number): void {
  * unimplementable symbol fails instantiation rather than the first call
  * (contracts/plan-format.md "Executor obligations").
  */
-export function createUnsafeIntrinsic(symbol: string): CoreFn {
+export function createUnsafeIntrinsic(
+  symbol: string,
+  /**
+   * The component instance whose core module declares this import — the
+   * instance whose frame is, by construction, the one executing when it is
+   * called. `undefined`/`null` (a FACT adapter module, which the plan records
+   * with `instance: null`) falls back to the unscoped ambient. See
+   * `currentThreadForInstance` (task/scheduler.ts) for why this discriminator
+   * is what makes a JSPI continuation chunk's `context.set` land in its own
+   * thread's slots.
+   */
+  inst?: unknown,
+): CoreFn {
   const match = /^context-(get|set)-i32-(\d+)$/.exec(symbol);
   if (match === null) {
     throw new UnsupportedFeatureError(
@@ -97,8 +109,8 @@ export function createUnsafeIntrinsic(symbol: string): CoreFn {
     `unsafe intrinsic '${symbol}' addresses context slot ${slot}, but a ` +
       `thread has ${NUM_CONTEXT_SLOTS}`,
   );
-  if (match[1] === "get") return () => canonContextGet(slot);
+  if (match[1] === "get") return () => canonContextGet(slot, inst);
   return (v?: number) => {
-    canonContextSet(slot, (v ?? 0) >>> 0);
+    canonContextSet(slot, (v ?? 0) >>> 0, inst);
   };
 }
