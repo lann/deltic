@@ -61,7 +61,7 @@ function trace(msg: string, thread: unknown): void {
     JSON.stringify((thread as CurrentThreadLike).storage)
   } | stack=[${a.stack.map(ctxThreadId).join(",")}] claims=[${
     a.claims.map(ctxThreadId).join(",")
-  }] resuming=${a.resuming === null ? "-" : ctxThreadId(a.resuming)}`);
+  }]`);
 }
 
 /** definitions.py `canon_context_set` (line 2358). */
