@@ -1,11 +1,11 @@
 {
   "name": "@polyengine/protocol",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "exports": {
     ".": "./src/mod.ts"
   },
   "tasks": {
-    "test": "deno test tests/",
+    "test": "deno test --allow-read=. tests/",
     "check": "deno check src tests"
   },
   "publish": {
