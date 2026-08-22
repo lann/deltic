@@ -397,6 +397,41 @@ function stubFetch(impl: typeof fetch): { calls: number; restore: () => void } {
   } as { calls: number; restore: () => void };
 }
 
+/**
+ * An injectable transport double for the `fetch` option (the seam this
+ * file otherwise exercises via `stubFetch`/`globalThis.fetch`). Records
+ * call count and the last `Request` seen.
+ */
+function fakeTransport(
+  impl: (request: globalThis.Request) => globalThis.Response | Promise<globalThis.Response>,
+): {
+  calls: number;
+  lastRequest: globalThis.Request | undefined;
+  fn: (request: globalThis.Request) => Promise<globalThis.Response>;
+} {
+  const state: { calls: number; lastRequest: globalThis.Request | undefined } = {
+    calls: 0,
+    lastRequest: undefined,
+  };
+  return {
+    get calls() {
+      return state.calls;
+    },
+    get lastRequest() {
+      return state.lastRequest;
+    },
+    fn: async (request: globalThis.Request) => {
+      state.calls++;
+      state.lastRequest = request;
+      return await impl(request);
+    },
+  } as {
+    calls: number;
+    lastRequest: globalThis.Request | undefined;
+    fn: (request: globalThis.Request) => Promise<globalThis.Response>;
+  };
+}
+
 /** A request with a body stream that records whether it was ever iterated. */
 function requestWithObservedBody(
   port: number,
@@ -420,7 +455,13 @@ function requestWithObservedBody(
   return { request, transmitted, consumed: () => consumed };
 }
 
-Deno.test("http allowRequest: default (no options) still dispatches — fetch reached", async () => {
+Deno.test("http allowRequest: default (no options) still dispatches — fetch reached (late-bound default)", async () => {
+  // CONTRACT: options.fetch defaults to globalThis.fetch RESOLVED AT CALL
+  // TIME (see wasi/src/http.ts HttpOptions.fetch doc) — stubbing
+  // globalThis.fetch after http() has already constructed the fragment
+  // must still take effect. This is the one test in this file that keeps
+  // exercising that late-binding property directly; every other test
+  // below uses the injectable `fetch` option instead.
   const stub = stubFetch(() => Promise.resolve(new globalThis.Response("ok")));
   try {
     const { Request: R, Fields: F, send: s } = http();
@@ -434,47 +475,35 @@ Deno.test("http allowRequest: default (no options) still dispatches — fetch re
   }
 });
 
-Deno.test("http allowRequest: explicit true dispatches — fetch reached", async () => {
-  const stub = stubFetch(() => Promise.resolve(new globalThis.Response("ok")));
-  try {
-    const { Request: R, Fields: F, send: s } = http({ allowRequest: true });
-    const [request] = R["new"](F.fromList([]), undefined, okTrailers, undefined);
-    request.setScheme({ kind: "HTTP" });
-    request.setAuthority("127.0.0.1:9");
-    await s(request);
-    assertEq(stub.calls, 1, "fetch reached under allowRequest: true");
-  } finally {
-    stub.restore();
-  }
+Deno.test("http allowRequest: explicit true dispatches — transport reached", async () => {
+  const transport = fakeTransport(() => new globalThis.Response("ok"));
+  const { Request: R, Fields: F, send: s } = http({ allowRequest: true, fetch: transport.fn });
+  const [request] = R["new"](F.fromList([]), undefined, okTrailers, undefined);
+  request.setScheme({ kind: "HTTP" });
+  request.setAuthority("127.0.0.1:9");
+  await s(request);
+  assertEq(transport.calls, 1, "transport reached under allowRequest: true");
 });
 
-Deno.test("http allowRequest: false denies with HTTP-request-denied; fetch never called", async () => {
-  const stub = stubFetch(() => Promise.resolve(new globalThis.Response("ok")));
-  try {
-    const { send: s } = http({ allowRequest: false });
-    const { request, transmitted } = requestWithObservedBody(9);
-    assertEq(await errKindAsync(s(request)), "HTTP-request-denied");
-    assertEq((await transmitted).kind, "err");
-    assertEq(stub.calls, 0, "fetch never dispatched when allowRequest is false");
-  } finally {
-    stub.restore();
-  }
+Deno.test("http allowRequest: false denies with HTTP-request-denied; transport never called", async () => {
+  const transport = fakeTransport(() => new globalThis.Response("ok"));
+  const { send: s } = http({ allowRequest: false, fetch: transport.fn });
+  const { request, transmitted } = requestWithObservedBody(9);
+  assertEq(await errKindAsync(s(request)), "HTTP-request-denied");
+  assertEq((await transmitted).kind, "err");
+  assertEq(transport.calls, 0, "transport never dispatched when allowRequest is false");
 });
 
 Deno.test("http allowRequest: false does not consume the body stream", async () => {
-  const stub = stubFetch(() => Promise.resolve(new globalThis.Response("ok")));
-  try {
-    const { send: s } = http({ allowRequest: false });
-    const { request, consumed } = requestWithObservedBody(9);
-    await errKindAsync(s(request));
-    // ASSERTED: the body generator's own body never ran (its `consumed`
-    // flag flips only on first iteration) — this is the available
-    // approximation of "the stream was not drained": collectBody would
-    // have to `for await` it, which would flip the flag before fetch.
-    assertTrue(!consumed(), "the request body was never iterated on denial");
-  } finally {
-    stub.restore();
-  }
+  const transport = fakeTransport(() => new globalThis.Response("ok"));
+  const { send: s } = http({ allowRequest: false, fetch: transport.fn });
+  const { request, consumed } = requestWithObservedBody(9);
+  await errKindAsync(s(request));
+  // ASSERTED: the body generator's own body never ran (its `consumed`
+  // flag flips only on first iteration) — this is the available
+  // approximation of "the stream was not drained": collectBody would
+  // have to `for await` it, which would flip the flag before the transport.
+  assertTrue(!consumed(), "the request body was never iterated on denial");
 });
 
 Deno.test("http allowRequest: types/client keys still registered when false", () => {
@@ -486,112 +515,193 @@ Deno.test("http allowRequest: types/client keys still registered when false", ()
 });
 
 Deno.test("http allowRequest: callback observes url/method/headers", async () => {
-  const stub = stubFetch(() => Promise.resolve(new globalThis.Response("ok")));
-  try {
-    let seen: { url: URL; method: string; headers: Headers } | undefined;
-    const { Request: R, Fields: F, send: s } = http({
-      allowRequest: (req) => {
-        seen = req;
-        return true;
-      },
-    });
-    const [request] = R["new"](F.fromList([["x-probe", text("42")]]), undefined, okTrailers, undefined);
-    request.setMethod({ kind: "post" });
-    request.setScheme({ kind: "HTTPS" });
-    request.setAuthority("example.com");
-    request.setPathWithQuery("/a/b?x=1");
-    await s(request);
-    assertTrue(seen !== undefined, "callback was invoked");
-    assertEq(seen!.url.hostname, "example.com");
-    assertEq(seen!.url.protocol, "https:");
-    assertEq(seen!.url.pathname, "/a/b");
-    assertEq(seen!.method, "POST");
-    assertEq(seen!.headers.get("x-probe"), "42");
-  } finally {
-    stub.restore();
-  }
+  const transport = fakeTransport(() => new globalThis.Response("ok"));
+  let seen: { url: URL; method: string; headers: Headers } | undefined;
+  const { Request: R, Fields: F, send: s } = http({
+    allowRequest: (req) => {
+      seen = req;
+      return true;
+    },
+    fetch: transport.fn,
+  });
+  const [request] = R["new"](F.fromList([["x-probe", text("42")]]), undefined, okTrailers, undefined);
+  request.setMethod({ kind: "post" });
+  request.setScheme({ kind: "HTTPS" });
+  request.setAuthority("example.com");
+  request.setPathWithQuery("/a/b?x=1");
+  await s(request);
+  assertTrue(seen !== undefined, "callback was invoked");
+  assertEq(seen!.url.hostname, "example.com");
+  assertEq(seen!.url.protocol, "https:");
+  assertEq(seen!.url.pathname, "/a/b");
+  assertEq(seen!.method, "POST");
+  assertEq(seen!.headers.get("x-probe"), "42");
 });
 
 Deno.test("http allowRequest: callback returning true dispatches, false denies", async () => {
-  const stub = stubFetch(() => Promise.resolve(new globalThis.Response("ok")));
-  try {
-    const allowed = http({ allowRequest: () => true });
-    const [ra] = allowed.Request["new"](allowed.Fields.fromList([]), undefined, okTrailers, undefined);
-    ra.setScheme({ kind: "HTTP" });
-    ra.setAuthority("127.0.0.1:9");
-    await allowed.send(ra);
-    assertEq(stub.calls, 1, "true dispatches");
+  const allowedTransport = fakeTransport(() => new globalThis.Response("ok"));
+  const allowed = http({ allowRequest: () => true, fetch: allowedTransport.fn });
+  const [ra] = allowed.Request["new"](allowed.Fields.fromList([]), undefined, okTrailers, undefined);
+  ra.setScheme({ kind: "HTTP" });
+  ra.setAuthority("127.0.0.1:9");
+  await allowed.send(ra);
+  assertEq(allowedTransport.calls, 1, "true dispatches");
 
-    const denied = http({ allowRequest: () => false });
-    const [rd] = denied.Request["new"](denied.Fields.fromList([]), undefined, okTrailers, undefined);
-    rd.setScheme({ kind: "HTTP" });
-    rd.setAuthority("127.0.0.1:9");
-    assertEq(await errKindAsync(denied.send(rd)), "HTTP-request-denied");
-    assertEq(stub.calls, 1, "false denies without a second fetch call");
-  } finally {
-    stub.restore();
-  }
+  const deniedTransport = fakeTransport(() => new globalThis.Response("ok"));
+  const denied = http({ allowRequest: () => false, fetch: deniedTransport.fn });
+  const [rd] = denied.Request["new"](denied.Fields.fromList([]), undefined, okTrailers, undefined);
+  rd.setScheme({ kind: "HTTP" });
+  rd.setAuthority("127.0.0.1:9");
+  assertEq(await errKindAsync(denied.send(rd)), "HTTP-request-denied");
+  assertEq(deniedTransport.calls, 0, "false denies without dispatching the transport");
 });
 
 Deno.test("http allowRequest: async callback (resolves true/false) both directions work", async () => {
-  const stub = stubFetch(() => Promise.resolve(new globalThis.Response("ok")));
-  try {
-    const allowed = http({ allowRequest: () => Promise.resolve(true) });
-    const [ra] = allowed.Request["new"](allowed.Fields.fromList([]), undefined, okTrailers, undefined);
-    ra.setScheme({ kind: "HTTP" });
-    ra.setAuthority("127.0.0.1:9");
-    await allowed.send(ra);
-    assertEq(stub.calls, 1, "async true dispatches");
+  const allowedTransport = fakeTransport(() => new globalThis.Response("ok"));
+  const allowed = http({ allowRequest: () => Promise.resolve(true), fetch: allowedTransport.fn });
+  const [ra] = allowed.Request["new"](allowed.Fields.fromList([]), undefined, okTrailers, undefined);
+  ra.setScheme({ kind: "HTTP" });
+  ra.setAuthority("127.0.0.1:9");
+  await allowed.send(ra);
+  assertEq(allowedTransport.calls, 1, "async true dispatches");
 
-    const denied = http({ allowRequest: () => Promise.resolve(false) });
-    const [rd] = denied.Request["new"](denied.Fields.fromList([]), undefined, okTrailers, undefined);
-    rd.setScheme({ kind: "HTTP" });
-    rd.setAuthority("127.0.0.1:9");
-    assertEq(await errKindAsync(denied.send(rd)), "HTTP-request-denied");
-    assertEq(stub.calls, 1, "async false denies without a second fetch call");
-  } finally {
-    stub.restore();
-  }
+  const deniedTransport = fakeTransport(() => new globalThis.Response("ok"));
+  const denied = http({ allowRequest: () => Promise.resolve(false), fetch: deniedTransport.fn });
+  const [rd] = denied.Request["new"](denied.Fields.fromList([]), undefined, okTrailers, undefined);
+  rd.setScheme({ kind: "HTTP" });
+  rd.setAuthority("127.0.0.1:9");
+  assertEq(await errKindAsync(denied.send(rd)), "HTTP-request-denied");
+  assertEq(deniedTransport.calls, 0, "async false denies without dispatching the transport");
 });
 
 Deno.test("http allowRequest: a throwing callback denies (fail closed); detail names the thrown message", async () => {
-  const stub = stubFetch(() => Promise.resolve(new globalThis.Response("ok")));
-  try {
-    const { send: s } = http({
-      allowRequest: () => {
-        throw new Error("policy blew up");
-      },
-    });
-    const { request } = requestWithObservedBody(9);
-    const e = await assertRejects(() => s(request));
-    assertTrue(e instanceof ComponentException, "throws a branded ComponentException");
-    assertEq((e as ComponentException<ErrorCode>).payload.kind, "HTTP-request-denied");
-    assertTrue(
-      String((e as ComponentException<ErrorCode>).message).includes("policy blew up"),
-      "the ComponentException detail mentions the thrown message",
-    );
-    assertEq(stub.calls, 0, "fetch never dispatched when the callback throws");
-  } finally {
-    stub.restore();
-  }
+  const transport = fakeTransport(() => new globalThis.Response("ok"));
+  const { send: s } = http({
+    allowRequest: () => {
+      throw new Error("policy blew up");
+    },
+    fetch: transport.fn,
+  });
+  const { request } = requestWithObservedBody(9);
+  const e = await assertRejects(() => s(request));
+  assertTrue(e instanceof ComponentException, "throws a branded ComponentException");
+  assertEq((e as ComponentException<ErrorCode>).payload.kind, "HTTP-request-denied");
+  assertTrue(
+    String((e as ComponentException<ErrorCode>).message).includes("policy blew up"),
+    "the ComponentException detail mentions the thrown message",
+  );
+  assertEq(transport.calls, 0, "transport never dispatched when the callback throws");
 });
 
 Deno.test("http allowRequest: a rejecting async callback denies (fail closed); detail names the rejection", async () => {
-  const stub = stubFetch(() => Promise.resolve(new globalThis.Response("ok")));
-  try {
-    const { send: s } = http({
-      allowRequest: () => Promise.reject(new Error("async policy blew up")),
-    });
-    const { request } = requestWithObservedBody(9);
-    const e = await assertRejects(() => s(request));
-    assertTrue(e instanceof ComponentException, "throws a branded ComponentException");
-    assertEq((e as ComponentException<ErrorCode>).payload.kind, "HTTP-request-denied");
-    assertTrue(
-      String((e as ComponentException<ErrorCode>).message).includes("async policy blew up"),
-      "the ComponentException detail mentions the rejection message",
-    );
-    assertEq(stub.calls, 0, "fetch never dispatched when the async callback rejects");
-  } finally {
-    stub.restore();
-  }
+  const transport = fakeTransport(() => new globalThis.Response("ok"));
+  const { send: s } = http({
+    allowRequest: () => Promise.reject(new Error("async policy blew up")),
+    fetch: transport.fn,
+  });
+  const { request } = requestWithObservedBody(9);
+  const e = await assertRejects(() => s(request));
+  assertTrue(e instanceof ComponentException, "throws a branded ComponentException");
+  assertEq((e as ComponentException<ErrorCode>).payload.kind, "HTTP-request-denied");
+  assertTrue(
+    String((e as ComponentException<ErrorCode>).message).includes("async policy blew up"),
+    "the ComponentException detail mentions the rejection message",
+  );
+  assertEq(transport.calls, 0, "transport never dispatched when the async callback rejects");
+});
+
+// --- fetch: injectable transport ---------------------------------------------------
+
+Deno.test("http fetch option: transport receives url, method, header, and body bytes", async () => {
+  const transport = fakeTransport(() => new globalThis.Response("ok"));
+  const { Request: R, Fields: F, send: s } = http({ fetch: transport.fn });
+  const [request] = R["new"](
+    F.fromList([["x-probe", text("42")]]),
+    (async function* () {
+      yield text("payload");
+    })(),
+    okTrailers,
+    undefined,
+  );
+  request.setMethod({ kind: "post" });
+  request.setScheme({ kind: "HTTP" });
+  request.setAuthority("example.com:8080");
+  request.setPathWithQuery("/a/b?x=1");
+  await s(request);
+  const seen = transport.lastRequest!;
+  assertEq(seen.url, "http://example.com:8080/a/b?x=1");
+  assertEq(seen.method, "POST");
+  assertEq(seen.headers.get("x-probe"), "42");
+  assertEq(utf8(new Uint8Array(await seen.clone().arrayBuffer())), "payload");
+});
+
+Deno.test("http fetch option: request.clone() peeks the body without stealing it from the forwarded request", async () => {
+  let peeked = "";
+  const transport = fakeTransport(async (req) => {
+    peeked = utf8(new Uint8Array(await req.clone().arrayBuffer()));
+    // Forward the ORIGINAL (not the clone) — proves clone() didn't consume it.
+    return new globalThis.Response(await req.arrayBuffer());
+  });
+  const { Request: R, Fields: F, Response: Resp, send: s } = http({ fetch: transport.fn });
+  const [request] = R["new"](
+    F.fromList([]),
+    (async function* () {
+      yield text("peek me");
+    })(),
+    okTrailers,
+    undefined,
+  );
+  request.setMethod({ kind: "post" });
+  request.setScheme({ kind: "HTTP" });
+  request.setAuthority("example.com");
+  const response = await s(request);
+  assertEq(peeked, "peek me");
+  const [body] = Resp.consumeBody(response, okRes);
+  assertEq(utf8(await collect(body)), "peek me", "the forwarded request still delivers the body");
+});
+
+Deno.test("http fetch option: a synthesized Response (no network) reaches the guest", async () => {
+  const transport = fakeTransport(() =>
+    new globalThis.Response("synthetic body", { status: 201, headers: { "x-synth": "yes" } })
+  );
+  const { Request: R, Fields: F, Response: Resp, send: s } = http({ fetch: transport.fn });
+  const [request] = R["new"](F.fromList([]), undefined, okTrailers, undefined);
+  request.setScheme({ kind: "HTTP" });
+  request.setAuthority("example.com");
+  const response = await s(request);
+  assertEq(response.getStatusCode(), 201);
+  assertEq(utf8(response.getHeaders().get("x-synth")[0]), "yes");
+  const [body] = Resp.consumeBody(response, okRes);
+  assertEq(utf8(await collect(body)), "synthetic body");
+});
+
+Deno.test("http fetch option: a transport throwing a branded ComponentException surfaces that exact payload kind", async () => {
+  const transport = fakeTransport(() => {
+    throw new ComponentException<ErrorCode>({ kind: "TLS-alert-received" }, "wasi:http: transport TLS alert");
+  });
+  const { send: s } = http({ fetch: transport.fn });
+  const { request, transmitted } = requestWithObservedBody(9);
+  assertEq(await errKindAsync(s(request)), "TLS-alert-received");
+  const t = await transmitted;
+  assertEq(t.kind, "err");
+  assertTrue(t.kind === "err" && t.value.kind === "TLS-alert-received");
+});
+
+Deno.test("http fetch option: a transport throwing a plain Error still maps through mapFetchError", async () => {
+  // "refused" -> connection-refused, per mapFetchError's sniff table
+  // (wasi/src/http.ts mapFetchError).
+  const transport = fakeTransport(() => {
+    throw new Error("connect ECONNREFUSED 127.0.0.1:9");
+  });
+  const { send: s } = http({ fetch: transport.fn });
+  const { request } = requestWithObservedBody(9);
+  assertEq(await errKindAsync(s(request)), "connection-refused");
+});
+
+Deno.test("http fetch option: allowRequest still runs first — denied request never reaches the transport", async () => {
+  const transport = fakeTransport(() => new globalThis.Response("ok"));
+  const { send: s } = http({ allowRequest: false, fetch: transport.fn });
+  const { request } = requestWithObservedBody(9);
+  assertEq(await errKindAsync(s(request)), "HTTP-request-denied");
+  assertEq(transport.calls, 0, "the transport was never called");
 });

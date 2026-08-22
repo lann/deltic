@@ -99,7 +99,9 @@ callback that throws denies — a predicate that fails must not fail open.
 Refusals reach the guest as the WIT `HTTP-request-denied` error code, and
 a refused request never drains the guest's body stream. Because the
 implementation does not follow redirects, each hop is a fresh request and
-is checked again.
+is checked again — unless an embedder supplies its own transport via
+`http({ fetch })` and re-enables redirect following, which is trusted
+code and can undo this.
 
 This is a name-level check only, which is the whole of what a
 `fetch`-based host can express. See "What it does not give you" below for

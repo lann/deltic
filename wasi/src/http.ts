@@ -66,7 +66,7 @@
 // Fetch failures are TypeErrors with prose; a small sniff table maps the
 // recognizable ones and everything else is `internal-error(message)`.
 
-import { ComponentException, Stream } from "@polyengine/runtime/embedder";
+import { ComponentException, isComponentException, Stream } from "@polyengine/runtime/embedder";
 
 /**
  * The compatibility track the fragment registers on by default.
@@ -247,6 +247,32 @@ export interface HttpOptions {
     method: string;
     headers: Headers;
   }) => boolean | Promise<boolean>);
+  /**
+   * Injectable transport: replaces the `fetch(request)` call `client.send`
+   * otherwise makes directly. Default (when omitted): `globalThis.fetch`,
+   * resolved AT CALL TIME — not captured when `http()` constructs the
+   * fragment — so stubbing `globalThis.fetch` after the fragment exists
+   * still takes effect.
+   *
+   * The `Request` handed to the transport already carries this
+   * fragment's hardening (`redirect: "manual"`, `cache: "no-store"`,
+   * `credentials: "omit"`). A transport that forwards to the real
+   * `fetch` with its own `init` can override these — re-enabling
+   * redirect-following in particular would break the property that every
+   * redirect hop re-enters `send` and is re-checked by `allowRequest`.
+   * The transport is trusted embedder code; this is a caution, not a
+   * hole.
+   *
+   * `request.clone()` is how to inspect the body without consuming it,
+   * so a transport can peek (e.g. for logging) and still forward the
+   * original request.
+   *
+   * A transport that throws a branded `ComponentException` names the
+   * guest-visible WIT error-code exactly (the fragment rethrows it
+   * unchanged); anything else it throws is mapped by this fragment's
+   * `mapFetchError` sniffing, which usually lands on `internal-error`.
+   */
+  fetch?: (request: globalThis.Request) => Promise<globalThis.Response>;
 }
 
 /** What `http()` returns: the imports fragment plus the fragment's classes. */
@@ -978,7 +1004,10 @@ export function http(options: HttpOptions = {}): HttpFragment {
 
     let resp: globalThis.Response;
     try {
-      resp = await fetch(url, {
+      // Constructing the `Request` happens inside this try: a throw here
+      // (e.g. a GET with a body) maps through mapFetchError exactly as a
+      // fetch throw does, per the same catch below.
+      const req = new globalThis.Request(url, {
         method,
         headers,
         body: body === undefined || body.length === 0 ? undefined : body,
@@ -986,7 +1015,19 @@ export function http(options: HttpOptions = {}): HttpFragment {
         cache: "no-store",
         credentials: "omit",
       } as RequestInit);
+      // Resolved at call time (not captured at http() construction), so
+      // a test stubbing globalThis.fetch after the fragment exists still
+      // takes effect.
+      const transport = options.fetch ?? ((r: globalThis.Request) => globalThis.fetch(r));
+      resp = await transport(req);
     } catch (e) {
+      if (isComponentException(e)) {
+        // Branded exception passthrough: the transport named the
+        // guest-visible WIT error-code itself; do not run it through
+        // mapFetchError's prose sniffing, and rethrow unchanged.
+        request.settleTransmission({ kind: "err", value: e.payload as ErrorCode });
+        throw e;
+      }
       const code = mapFetchError(e);
       request.settleTransmission({ kind: "err", value: code });
       throw httpError(code, `client.send: ${e instanceof Error ? e.message : String(e)}`);
