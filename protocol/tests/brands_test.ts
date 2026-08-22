@@ -11,7 +11,7 @@ import * as brands from "../src/brands.ts";
 import { PROTOCOL_GENERATION, ComponentException } from "../src/mod.ts";
 
 const EXPECTED: Record<string, symbol> = {
-  "polyengine.witError/1": brands.COMPONENT_EXCEPTION,
+  "polyengine.componentException/1": brands.COMPONENT_EXCEPTION,
   "polyengine.trap/1": brands.TRAP,
   "polyengine.dropped/1": brands.DROPPED,
   "polyengine.peerTrapped/1": brands.PEER_TRAPPED,

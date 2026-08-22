@@ -86,7 +86,19 @@ instantiation"; amendment A18 (2026-08-21) renames the project from
 `deltic` to `polyengine` and, with it, every brand key in the registry
 (`deltic.witError/1` → `polyengine.witError/1` and siblings) — a hard
 break with no compatibility spelling, superseding A10's freeze; the brand
-GENERATION stays `1` — see §"Module identity and @polyengine/protocol".**
+GENERATION stays `1` — see §"Module identity and @polyengine/protocol";
+amendment A19 (2026-08-22) renames the brand key
+`polyengine.witError/1` → `polyengine.componentException/1`, retiring the
+last leaf that named the pre-A10 class — a rename that should have ridden
+A18's break and didn't. Same shape as A18: a hard break with no
+compatibility spelling and no diagnostic, and the generation stays `1`
+(a spelling change already yields a disjoint symbol set). The rest of the
+vocabulary was audited and stands: every other leaf matches its current
+class or concept; `wasiExit` keeps its package prefix deliberately
+(`exit` is too generic for a flat namespace), and the digest's `cewd`
+constant stays frozen — it is hashed wire content nobody reads or
+hand-rolls, so A10's opaque-constant argument still holds there —
+see §"Module identity and @polyengine/protocol".**
 This document supersedes `descriptor-ir.md`'s interim
 "host value mapping" table as the destination for host-facing value shapes.
 The runtime's *raw* boundary (`instance.exports`, `HostImports`) keeps the
@@ -762,7 +774,7 @@ equivalent of a semver major:
 
 | brand key | carried by | marks |
 |---|---|---|
-| `polyengine.witError/1` | `ComponentException.prototype` | err-result values |
+| `polyengine.componentException/1` | `ComponentException.prototype` | err-result values |
 | `polyengine.trap/1` | `Trap.prototype` | component-fatal errors |
 | `polyengine.dropped/1` | `DroppedError.prototype` | dropped-future rejections |
 | `polyengine.peerTrapped/1` | `PeerTrappedError.prototype` | peer-fault rejections (A7) |
@@ -805,9 +817,30 @@ resolves exactly one engine, which is the same invariant A9 already asks
 consumers to gate on (docs/consumers.md). Migrate an engine dependency in
 one step; never partially.
 
+**The A19 leaf rename (2026-08-22).** Through 0.3.x the err-result key
+read `polyengine.witError/1`: A18 renamed every key's prefix but
+deliberately kept the one leaf still spelling the pre-A10 class name,
+citing the same opaque-constant argument A10 used to freeze it. That was
+the wrong call — A18 was already a total break, so the leaf rename would
+have been free — and keeping a key that names a class retired two
+generations of naming ago is the same standing tax on readers and
+hand-rollers that justified A18. A19 renames it to
+`polyengine.componentException/1`, with A18's exact semantics: a hard
+break with no compatibility spelling, no diagnostic (the two spellings
+are disjoint symbols; a pre-A19 copy's exceptions are simply unrecognized,
+exactly as described for A18 above), and the generation stays `1` for
+A18's reason. The audit that produced A19 covered the whole table: every
+other leaf matches its current class (minus the `Error` suffix,
+camelCased) or its concept; `wasiExit` keeps its `wasi` prefix because a
+bare `exit` is too generic for the flat key namespace (`pollable` needs
+no prefix — the word is already WASI vocabulary); and the world-digest
+`cewd` constant stays frozen, because it is hashed wire content that no
+consumer reads or hand-writes — the opaque-constant argument A19 retires
+for brand keys still holds where there is no reader.
+
 **Brands are contract markers, not a security boundary.** A hand-rolled
 object carrying the right brand is a legal value: an Error with
-`[Symbol.for("polyengine.witError/1")]: true` and a `payload` property IS a
+`[Symbol.for("polyengine.componentException/1")]: true` and a `payload` property IS a
 ComponentException to every copy; a function with
 `[Symbol.for("polyengine.suspending/1")]: true` IS suspending-marked. This is
 what makes zero-import host modules possible. The canonical classes are

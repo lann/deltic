@@ -14,7 +14,8 @@
 // string literally. The A18 rename (`deltic.*/1` -> `polyengine.*/1`) did NOT
 // bump the generation: a spelling change already yields a disjoint symbol
 // set, so there is no key under which an old and a new copy could meet and
-// disagree about shape.
+// disagree about shape. A19 (the `witError` -> `componentException` leaf
+// rename, 2026-08-22) held to the same rule.
 //
 // Brands are contract markers, NOT a security boundary: a hand-rolled object
 // carrying the right symbol is a legal value (this is what makes zero-import
@@ -23,16 +24,16 @@
 /**
  * `ComponentException` — a WIT `result<T, E>` err value.
  *
- * The key's LEAF keeps its pre-A10 name (`witError`) deliberately: it is an
- * opaque wire constant, CEWD-style (same precedent as bindgen's CEWD name),
- * so only the exported TS identifier renamed with the class
- * (contracts/embedder-api.md amendment A10). The `polyengine.` PREFIX is new
- * in A18, which renamed the project and every key with it — pre-A18 copies
- * and hand-rolled `deltic.*` brands do NOT interoperate with these, by
- * design and without a diagnostic (see A18).
+ * The key's LEAF read `witError` (the pre-A10 class name) through 0.3.x;
+ * amendment A19 renamed it to match the class, retiring the A10/A18
+ * opaque-constant freeze for brand keys — they are read and hand-rolled,
+ * so their spelling is surface, not wire trivia. Like A18, A19 is a hard
+ * break with no compatibility spelling: pre-A19 copies and hand-rolled
+ * `polyengine.witError/1` brands do NOT interoperate with these, by
+ * design and without a diagnostic (see A18/A19).
  */
 export const COMPONENT_EXCEPTION: unique symbol = Symbol.for(
-  "polyengine.witError/1",
+  "polyengine.componentException/1",
 );
 /** `Trap` — component-fatal, never a value. */
 export const TRAP: unique symbol = Symbol.for("polyengine.trap/1");
