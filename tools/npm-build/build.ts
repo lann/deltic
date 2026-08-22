@@ -3,10 +3,24 @@
 //   deno run -A tools/npm-build/build.ts [--version X.Y.Z] [--out DIR]
 //
 // JSR is the primary registry (README §Consuming); this emits the same five
-// packages for npm consumers, from the same sources, at the same version. The
-// build is a pure function of the workspace: `name`, `version` and `exports`
-// come from each package's deno.json, so a version bump or a new entry point
-// needs no edit here.
+// packages for npm consumers, from the same sources, at the same version AS
+// THEIR JSR COUNTERPART. The build is a pure function of the workspace:
+// `name`, `version` and `exports` come from each package's deno.json, so a
+// version bump or a new entry point needs no edit here.
+//
+// Versioning mirrors release.yml's "compute tag and version" step exactly:
+// runtime, translator, wasi and ct-runner are a LOCKSTEP set (one emission
+// version between them — either the caller's `--version` stamp, or their
+// agreeing manifest version when no stamp is given). @polyengine/protocol is
+// policy-exempt from the lockstep (embedder-api amendment A10): it ALWAYS
+// emits at its own manifest version, on both registries, regardless of
+// `--version`. Dependency edges follow the same asymmetry: a lockstep
+// package depending on a lockstep sibling pins the exact emission version
+// (they publish atomically); a dependency on protocol is a caret of
+// protocol's manifest version (`^0.1.0`), matching what `deno publish`
+// itself does when it rewrites workspace cross-deps for the JSR emission —
+// letting a protocol bump dedup across lockstep versions built before and
+// after it, per A9's preference for one copy in a consumer's graph.
 //
 // Tool: dnt (jsr:@deno/dnt), which transpiles the TS sources, rewrites `.ts`
 // specifiers to `.js`, and emits `.d.ts`. Output is ESM ONLY and that is not a
@@ -44,6 +58,14 @@ const PACKAGES = [
   "ct-runner",
 ] as const;
 
+/**
+ * The lockstep set (mirrors release.yml's "compute tag and version" guard):
+ * these four share one emission version. @polyengine/protocol is deliberately
+ * excluded — embedder-api amendment A10 — and always emits at its own
+ * manifest version.
+ */
+const LOCKSTEP = ["runtime", "translator", "wasi", "ct-runner"] as const;
+
 const DESCRIPTIONS: Record<string, string> = {
   protocol:
     "The dependency-free brand vocabulary shared by polyengine copies: registry symbols, canonical error classes, and the copy registry.",
@@ -51,7 +73,8 @@ const DESCRIPTIONS: Record<string, string> = {
     "A WebAssembly Component Model host for JavaScript engines: plan executor, canonical ABI, 0.3 task scheduler, JSPI bridge, and embedder API.",
   translator:
     "The packaged polyengine translator (wasmtime's translation frontend compiled to wasm) plus its per-platform loader.",
-  wasi: "WASI providers for polyengine hosts: the p2 baseline and p3 clocks, one module per semver track.",
+  wasi:
+    "WASI providers for polyengine hosts: the p2 baseline and p3 clocks, one module per semver track.",
   "ct-runner":
     "The polyengine execution runner for component-test-results (L1) conformance suites.",
 };
@@ -105,11 +128,26 @@ async function main() {
     exports.set(pkg, exportMap(pkg, m));
   }
 
-  // One version for the whole emission: either the manifests' (which the
+  // One version for the lockstep four: either the manifests' (which the
   // release workflow's lockstep guard already pins to agree) or the caller's
   // stamp for a prerelease. A torn set would produce packages depending on
-  // sibling versions that were never published.
-  const version = override ?? manifests.get("runtime")!.version;
+  // sibling versions that were never published. protocol is NOT part of
+  // this — it rides its own manifest version always (A10; see header).
+  for (const p of LOCKSTEP) {
+    const v = manifests.get(p)!.version;
+    const ref = manifests.get("runtime")!.version;
+    if (v !== ref) {
+      throw new Error(
+        `lockstep violation: runtime=${ref} ${p}=${v} — the four lockstep ` +
+          `manifests (runtime, translator, wasi, ct-runner) must agree ` +
+          `(--version stamps the emission but never excuses a torn workspace)`,
+      );
+    }
+  }
+  const lockstepVersion = override ?? manifests.get("runtime")!.version;
+  const protocolVersion = manifests.get("protocol")!.version;
+  const emissionVersion = (pkg: string) =>
+    pkg === "protocol" ? protocolVersion : lockstepVersion;
 
   // Every `@polyengine/*` entry-point source file -> the npm package that owns
   // it, keyed by the bare specifier a source file would write. dnt REJECTS a
@@ -121,17 +159,24 @@ async function main() {
   >();
   for (const pkg of PACKAGES) {
     const name = manifests.get(pkg)!.name;
+    // Dependency edges: a lockstep sibling is pinned EXACT (they publish
+    // atomically, and a prerelease stamp must pin exactly what it built
+    // alongside); protocol is pinned by CARET of its own manifest version —
+    // JSR parity, since `deno publish` rewrites workspace cross-deps to
+    // caret, and it lets a protocol bump dedup across mixed lockstep
+    // versions in one consumer's graph (A9).
+    const depVersion = pkg === "protocol"
+      ? `^${protocolVersion}`
+      : emissionVersion(pkg);
     for (const [subpath, file] of Object.entries(exports.get(pkg)!)) {
-      const specifier = subpath === "."
-        ? name
-        : `${name}${subpath.slice(1)}`;
+      const specifier = subpath === "." ? name : `${name}${subpath.slice(1)}`;
       // dnt drops the subpath unless it is given explicitly, which would
       // rewrite `@polyengine/runtime/shim` to a bare `@polyengine/runtime`
       // — a specifier the package deliberately does not export.
       bySpecifier.set(specifier, {
         file,
         name,
-        version,
+        version: depVersion,
         subPath: subpath === "." ? undefined : subpath.slice(2),
       });
     }
@@ -149,8 +194,9 @@ async function main() {
 
   for (const pkg of PACKAGES) {
     const m = manifests.get(pkg)!;
+    const pkgVersion = emissionVersion(pkg);
     const outDir = join(outRoot, pkg);
-    console.log(`\n=== ${m.name}@${version} -> ${outDir} ===`);
+    console.log(`\n=== ${m.name}@${pkgVersion} -> ${outDir} ===`);
     await emptyDir(outDir);
 
     // Link the already-built dependencies so type-check and .d.ts emit can
@@ -225,7 +271,7 @@ async function main() {
       polyfills: false,
       package: {
         name: m.name,
-        version,
+        version: pkgVersion,
         description: DESCRIPTIONS[pkg],
         license: "Apache-2.0",
         type: "module",
@@ -278,7 +324,11 @@ async function main() {
     }
   }
 
-  console.log(`\nbuilt ${PACKAGES.length} packages at ${version}`);
+  console.log(
+    `\nbuilt ${PACKAGES.length} packages:\n` +
+      PACKAGES.map((p) => `  ${manifests.get(p)!.name}@${emissionVersion(p)}`)
+        .join("\n"),
+  );
 }
 
 /**
@@ -384,7 +434,9 @@ function readme(
   exports: Record<string, string>,
 ): string {
   const subpaths = Object.keys(exports).sort();
-  const entry = subpaths.includes(".") ? name : `${name}${subpaths[0].slice(1)}`;
+  const entry = subpaths.includes(".")
+    ? name
+    : `${name}${subpaths[0].slice(1)}`;
   return `# ${name}
 
 ${description}
